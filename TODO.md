@@ -4,15 +4,7 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
-15. [ ] Long-press or swipe a conversation to configure it, including notification
-        level: muted / mentions only / all messages.
-16. [ ] DM conversation title bar should include the peer's icon/short name.
-17. [ ] Tapping a message's reactions shows who sent each one and when.
-18. [ ] Settings: allow disconnecting from the radio (without forgetting it).
-19. [ ] NYC preset applied and Settings knows it, but "Primary Channel" lacks the
-        NY mesh icon (appliedPresetId predates the icon feature — infer from the
-        radio's actual config).
-20. [ ] Settings: allow configuring channels (name, role, PSK).
+(nothing currently)
 
 ## Resolved
 
@@ -36,6 +28,27 @@ Working list from on-device testing. Items stay here until resolved.
          personal/chat nodes (was wrongly 3).
        - Standard: LongFast defaults (slot 0, hop 3) — correct.
        Manifest bumped to version 2.
+21. [x] GPL-3.0 LICENSE added (required by the bundled Meshtastic protobufs) and
+        the app pushed to the public repo git@github.com:morria/Hops-app.git.
+20. [x] Channel editor in Settings → Channels: create/edit name, encryption key
+        (default AQ== / random 256-bit / open), remove secondary channels; writes
+        to the radio via admin, primary channel role protected.
+19. [x] NYC channel icon: when the radio's live LoRa config exactly matches a
+        metro preset and no application was recorded (pre-tracking builds), the
+        preset is now inferred and adopted on config receipt — icon appears after
+        the next connect. Chats list now also observes the preset store, so the
+        icon updates live.
+18. [x] Settings: Disconnect/Connect button — persists across relaunch, suppresses
+        auto-reconnect until Connect is tapped; radio card shows "Disconnected".
+17. [x] Tapping a reaction pill opens a sheet listing each reaction with sender
+        avatar, name ("You" for own), emoji, and time.
+16. [x] DM (and channel) title bars show the avatar/icon beside the name via a
+        principal toolbar item.
+15. [x] Per-conversation notification level — All Messages / Mentions Only /
+        Muted — via long-press menu (picker) and swipe (quick mute toggle).
+        Mentions Only matches "@" + your short/long name, case-insensitive, and
+        only ever raises (never suppresses All). List rows show a slashed bell
+        (muted) or @ badge (mentions only); legacy boolean mutes backfilled.
 14. [x] Swipe-left on a transcript reveals per-message send times (iMessage-style):
         bubbles slide with the drag, times fade in at the trailing edge, springs
         back on release.
