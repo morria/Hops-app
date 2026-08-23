@@ -6,6 +6,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+28. [x] Node card action buttons: Message and Directions now share identical
+        structure (explicit titleAndIcon labels, large control size, capsule
+        shape, equal min-height) so they align and both show icons.
+
 27. [x] Search and compose share one line, iMessage-style, in a custom header.
 26. [x] "Chats" title is top-aligned (custom header replaces the nav bar on the
         root list; pushed screens keep their bars). Verified in simulator.

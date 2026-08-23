@@ -59,20 +59,25 @@ struct NodeCardView: View {
                                         onMessage()
                                     } label: {
                                         Label("Message", systemImage: "bubble.left.fill")
-                                            .frame(maxWidth: .infinity)
+                                            .labelStyle(.titleAndIcon)
+                                            .frame(maxWidth: .infinity, minHeight: 28)
                                     }
                                     .buttonStyle(.borderedProminent)
+                                    .controlSize(.large)
                                 }
                                 if node.hasPosition {
                                     Button {
                                         openInMaps(node)
                                     } label: {
                                         Label("Directions", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                                            .frame(maxWidth: .infinity)
+                                            .labelStyle(.titleAndIcon)
+                                            .frame(maxWidth: .infinity, minHeight: 28)
                                     }
                                     .buttonStyle(.bordered)
+                                    .controlSize(.large)
                                 }
                             }
+                            .buttonBorderShape(.capsule)
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets())
                         }
