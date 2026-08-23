@@ -15,7 +15,9 @@ struct ConversationView: View {
     @State private var replyTarget: MessageEntity?
     @State private var reactionTarget: MessageEntity?
     @State private var reactionDetails: MessageEntity?   // message whose reactions to list
+    @State private var senderCard: Int64?                // node card for a tapped sender
     @State private var showPeerCard = false
+    @EnvironmentObject private var appModel: AppModel
 
     private static let byteLimit = 200
 
@@ -120,6 +122,13 @@ struct ConversationView: View {
             ReactionDetailsSheet(tapbacks: tapbacks[target.packetId] ?? [])
                 .presentationDetents([.medium])
         }
+        .sheet(item: $senderCard) { num in
+            NodeCardView(nodeNum: num) {
+                senderCard = nil
+                appModel.openConversation(ConversationEntity.dmKey(num))
+            }
+            .presentationDetents([.medium])
+        }
         .onAppear {
             radio.activeConversationKey = conversationKey
             markRead()
@@ -198,6 +207,7 @@ struct ConversationView: View {
             onTapback: { emoji in sendTapback(emoji, to: message) },
             onReactOther: { reactionTarget = message },
             onShowReactions: { reactionDetails = message },
+            onShowSender: { senderCard = message.fromNum },
             onRetry: { radio.retry(packetId: message.packetId) }
         )
     }
@@ -349,6 +359,7 @@ struct MessageBubble: View {
     var onTapback: (String) -> Void
     var onReactOther: () -> Void
     var onShowReactions: () -> Void
+    var onShowSender: () -> Void
     var onRetry: () -> Void
 
     private static let tapbackChoices = ["❤️", "👍", "👎", "🤣", "‼️", "❓"]
@@ -356,31 +367,41 @@ struct MessageBubble: View {
     var body: some View {
         VStack(alignment: message.outgoing ? .trailing : .leading, spacing: 2) {
             if let senderName {
-                Text(senderName)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 38)   // clears the avatar under it
+                Button(action: onShowSender) {
+                    Text(senderName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, 38)   // clears the avatar under it
             }
             HStack(alignment: .bottom, spacing: 6) {
                 if message.outgoing { Spacer(minLength: 48) }
                 if let senderName, !message.outgoing {
-                    MonogramAvatar(text: senderName, isChannel: false, size: 26)
+                    Button(action: onShowSender) {
+                        MonogramAvatar(text: senderName, isChannel: false, size: 26)
+                    }
+                    .buttonStyle(.plain)
                 }
                 bubbleContent
+                    // Reaction pill rides the bubble's top corner, iMessage-style.
+                    .overlay(alignment: message.outgoing ? .topLeading : .topTrailing) {
+                        if !tapbacks.isEmpty {
+                            Button(action: onShowReactions) {
+                                Text(tapbacks.map { $0.text }.joined())
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(.regularMaterial, in: Capsule())
+                                    .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+                            }
+                            .buttonStyle(.plain)
+                            .offset(x: message.outgoing ? -14 : 14, y: -14)
+                        }
+                    }
                 if !message.outgoing { Spacer(minLength: 48) }
             }
-            if !tapbacks.isEmpty {
-                Button(action: onShowReactions) {
-                    Text(tapbacks.map { $0.text }.joined())
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.thinMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .offset(y: -6)
-                .padding(.horizontal, 8)
-            }
+            .padding(.top, tapbacks.isEmpty ? 0 : 10)   // room for the pill
             statusLine
         }
         .frame(maxWidth: .infinity, alignment: message.outgoing ? .trailing : .leading)
@@ -407,13 +428,17 @@ struct MessageBubble: View {
         )
         .foregroundStyle(message.outgoing ? .white : .primary)
         .contextMenu {
-            ForEach(Self.tapbackChoices, id: \.self) { emoji in
-                Button(emoji) { onTapback(emoji) }
+            // Horizontal tapback row, like iMessage's bar.
+            ControlGroup {
+                ForEach(Self.tapbackChoices, id: \.self) { emoji in
+                    Button(emoji) { onTapback(emoji) }
+                }
             }
+            .controlGroupStyle(.palette)
             Button {
                 onReactOther()
             } label: {
-                Label("More…", systemImage: "face.smiling")
+                Label("More Reactions…", systemImage: "face.smiling")
             }
             Divider()
             Button {

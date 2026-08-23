@@ -6,6 +6,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+31. [x] Default reactions render as a horizontal row in the long-press menu
+        (palette control group), like iMessage's tapback bar.
+30. [x] Reaction pill is anchored to the message bubble's top corner (opposite
+        the sender side), not floating by the avatar. Verified in simulator.
+29. [x] Tapping a sender's avatar or name in a channel transcript opens their
+        node card (battery, hops, signal) with a Message action that jumps to a
+        DM.
+
 28. [x] Node card action buttons: Message and Directions now share identical
         structure (explicit titleAndIcon labels, large control size, capsule
         shape, equal min-height) so they align and both show icons.
