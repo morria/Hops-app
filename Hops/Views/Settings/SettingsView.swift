@@ -210,6 +210,11 @@ struct SettingsView: View {
             } label: {
                 Label("Position", systemImage: "location")
             }
+            NavigationLink {
+                TelemetrySettingsView()
+            } label: {
+                Label("Telemetry", systemImage: "battery.75percent")
+            }
         }
     }
 

@@ -6,6 +6,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+33. [x] Telemetry broadcast interval is configurable (Settings → Device
+        configuration → Telemetry): battery/device-metrics interval from the
+        firmware-default 30 minutes up to 24 hours, with the community-
+        recommended 6 hours called out. Writes the telemetry module config via
+        admin.
+
 32. [x] iPad support: universal device family, all iPad orientations; tab bar,
         custom Chats header, and all screens verified in the iPad simulator.
         Installed on "Book" (iPad mini). Full-width layout for now; a proper

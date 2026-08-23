@@ -35,6 +35,7 @@ final class RadioManager: ObservableObject {
     @Published var bluetoothConfig: Config.BluetoothConfig?
     @Published var displayConfig: Config.DisplayConfig?
     @Published var positionConfig: Config.PositionConfig?
+    @Published var telemetryConfig: ModuleConfig.TelemetryConfig?
 
     struct TrafficEntry: Identifiable {
         let id: Int
@@ -339,6 +340,11 @@ final class RadioManager: ObservableObject {
                 MetroPresetStore.shared.inferAppliedPreset(regionRaw: loRa.regionRaw,
                                                            presetRaw: loRa.presetRaw,
                                                            frequencySlot: loRa.frequencySlot)
+            }
+
+        case .moduleConfig(let moduleConfig):
+            if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
+                telemetryConfig = telemetry
             }
 
         case .channel(let channel):
@@ -647,6 +653,12 @@ final class RadioManager: ObservableObject {
     func applyConfig(_ config: Config) {
         var admin = AdminMessage()
         admin.setConfig = config
+        sendAdmin(admin)
+    }
+
+    func applyModuleConfig(_ moduleConfig: ModuleConfig) {
+        var admin = AdminMessage()
+        admin.setModuleConfig = moduleConfig
         sendAdmin(admin)
     }
 
