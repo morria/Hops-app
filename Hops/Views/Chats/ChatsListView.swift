@@ -16,32 +16,20 @@ struct ChatsListView: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            Group {
-                if conversations.isEmpty {
-                    emptyState
-                } else {
-                    conversationList
+            VStack(spacing: 0) {
+                header
+                Group {
+                    if conversations.isEmpty && searchText.isEmpty {
+                        emptyState
+                    } else {
+                        conversationList
+                    }
                 }
             }
-            .navigationTitle("Chats")
+            .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
                 ConversationView(conversationKey: key)
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showCompose = true
-                    } label: {
-                        Image(systemName: "square.and.pencil")
-                    }
-                    .accessibilityLabel("New Message")
-                }
-            }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                StatusCapsule()
-                    .padding(.top, 2)
-            }
-            .searchable(text: $searchText, prompt: "Search")
             .sheet(isPresented: $showCompose) {
                 ComposePickerView { key in
                     showCompose = false
@@ -67,6 +55,51 @@ struct ChatsListView: View {
                 #endif
             }
         }
+    }
+
+    // MARK: - Header (top-aligned title; search and compose share a line)
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Chats")
+                .font(.largeTitle.bold())
+            HStack(spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search", text: $searchText)
+                        .autocorrectionDisabled()
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color(.secondarySystemBackground), in: Capsule())
+                Button {
+                    showCompose = true
+                } label: {
+                    Image(systemName: "square.and.pencil")
+                        .font(.system(size: 17, weight: .medium))
+                        .padding(9)
+                        .background(Color(.secondarySystemBackground), in: Circle())
+                }
+                .accessibilityLabel("New Message")
+            }
+            HStack {
+                Spacer()
+                StatusCapsule()
+                Spacer()
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 4)
+        .padding(.bottom, 6)
     }
 
     // MARK: - List

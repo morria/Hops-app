@@ -191,6 +191,11 @@ struct SettingsView: View {
     private var deviceConfigSection: some View {
         Section("Device configuration") {
             NavigationLink {
+                LoRaSettingsView()
+            } label: {
+                Label("LoRa Radio", systemImage: "dot.radiowaves.left.and.right")
+            }
+            NavigationLink {
                 BluetoothSettingsView()
             } label: {
                 Label("Bluetooth", systemImage: "antenna.radiowaves.left.and.right.circle")

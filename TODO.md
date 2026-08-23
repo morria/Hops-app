@@ -6,6 +6,13 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+27. [x] Search and compose share one line, iMessage-style, in a custom header.
+26. [x] "Chats" title is top-aligned (custom header replaces the nav bar on the
+        root list; pushed screens keep their bars). Verified in simulator.
+25. [x] Manual LoRa editor (Settings → Device configuration → LoRa Radio):
+        region, modem preset, frequency slot, hop limit; matching a known metro
+        preset re-adopts it automatically via inference.
+
 24. [x] Pinned grid: leading-aligned cells so the first pinned avatar lines up
         with the conversation-row avatars; names center under their own avatar.
         Verified in simulator.
