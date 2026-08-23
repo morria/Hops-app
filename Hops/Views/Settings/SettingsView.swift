@@ -75,9 +75,13 @@ struct SettingsView: View {
                 LabeledContent("Firmware", value: radio.firmwareVersion)
             }
 
-            LabeledContent("Mesh traffic") {
-                Text(trafficDescription)
-                    .foregroundStyle(radio.meshPacketsHeard == 0 ? .orange : .secondary)
+            NavigationLink {
+                MeshTrafficLogView()
+            } label: {
+                LabeledContent("Mesh traffic") {
+                    Text(trafficDescription)
+                        .foregroundStyle(radio.meshPacketsHeard == 0 ? .orange : .secondary)
+                }
             }
 
             if let mismatch = presetMismatch {

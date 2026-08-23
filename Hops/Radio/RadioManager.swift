@@ -31,6 +31,26 @@ final class RadioManager: ObservableObject {
     @Published private(set) var textMessagesHeard = 0
     @Published private(set) var lastMeshPacketAt: Date?
 
+    struct TrafficEntry: Identifiable {
+        let id: Int
+        let date: Date
+        let fromNum: Int64
+        let portName: String
+        let summary: String
+    }
+    /// Rolling log of decoded mesh traffic, newest first (capped).
+    @Published private(set) var trafficLog: [TrafficEntry] = []
+    private var trafficCounter = 0
+
+    private func logTraffic(from: Int64, port: String, summary: String) {
+        trafficCounter += 1
+        trafficLog.insert(TrafficEntry(id: trafficCounter, date: Date(), fromNum: from,
+                                       portName: port, summary: summary), at: 0)
+        if trafficLog.count > 200 {
+            trafficLog.removeLast(trafficLog.count - 200)
+        }
+    }
+
     // Connected radio facts (mirrored to UserDefaults for cold launches).
     @Published private(set) var myNodeNum: Int64
     @Published private(set) var firmwareVersion: String
@@ -343,10 +363,14 @@ final class RadioManager: ObservableObject {
                                   rxTime: packet.rxTime)
             }
         }
-        guard case .decoded(let decoded) = packet.payloadVariant else { return }
+        guard case .decoded(let decoded) = packet.payloadVariant else {
+            logTraffic(from: fromNum, port: "encrypted", summary: "Undecodable (no matching channel key)")
+            return
+        }
         if decoded.portnum == .textMessageApp, fromNum != myNodeNum {
             textMessagesHeard += 1
         }
+        logTraffic(from: fromNum, port: portLabel(decoded.portnum), summary: trafficSummary(decoded))
 
         switch decoded.portnum {
         case .textMessageApp, .detectionSensorApp, .alertApp:
@@ -390,6 +414,60 @@ final class RadioManager: ObservableObject {
 
         default:
             break
+        }
+    }
+
+    private func portLabel(_ port: PortNum) -> String {
+        switch port {
+        case .textMessageApp: return "message"
+        case .positionApp: return "position"
+        case .nodeinfoApp: return "nodeinfo"
+        case .routingApp: return "routing"
+        case .telemetryApp: return "telemetry"
+        case .waypointApp: return "waypoint"
+        case .tracerouteApp: return "traceroute"
+        case .adminApp: return "admin"
+        case .neighborinfoApp: return "neighbors"
+        case .storeForwardApp: return "store&forward"
+        default: return String(describing: port)
+        }
+    }
+
+    private func trafficSummary(_ decoded: DataMessage) -> String {
+        switch decoded.portnum {
+        case .textMessageApp, .detectionSensorApp, .alertApp:
+            return String((String(data: decoded.payload, encoding: .utf8) ?? "<binary>").prefix(80))
+        case .positionApp:
+            if let position = try? Position(serializedBytes: decoded.payload),
+               position.latitudeI != 0 || position.longitudeI != 0 {
+                return String(format: "%.4f, %.4f", Double(position.latitudeI) * 1e-7, Double(position.longitudeI) * 1e-7)
+            }
+            return "Position update"
+        case .nodeinfoApp:
+            if let user = try? User(serializedBytes: decoded.payload) {
+                return "\(user.longName) (\(user.shortName))"
+            }
+            return "Node info"
+        case .routingApp:
+            if let routing = try? Routing(serializedBytes: decoded.payload) {
+                return routing.errorReason == .none
+                    ? "ACK for #\(decoded.requestID)"
+                    : "NAK (\(String(describing: routing.errorReason))) for #\(decoded.requestID)"
+            }
+            return "Routing"
+        case .telemetryApp:
+            if let telemetry = try? Telemetry(serializedBytes: decoded.payload),
+               case .deviceMetrics(let metrics) = telemetry.variant, metrics.hasBatteryLevel {
+                return "Battery \(metrics.batteryLevel > 100 ? "plugged in" : "\(metrics.batteryLevel)%")"
+            }
+            return "Telemetry"
+        case .waypointApp:
+            if let waypoint = try? Waypoint(serializedBytes: decoded.payload), !waypoint.name.isEmpty {
+                return "Waypoint: \(waypoint.name)"
+            }
+            return "Waypoint"
+        default:
+            return "\(decoded.payload.count) bytes"
         }
     }
 

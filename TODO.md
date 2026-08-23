@@ -28,6 +28,11 @@ Working list from on-device testing. Items stay here until resolved.
          personal/chat nodes (was wrongly 3).
        - Standard: LongFast defaults (slot 0, hop 3) — correct.
        Manifest bumped to version 2.
+22. [x] "Mesh traffic" in Settings is now a live log: every decoded packet appears
+        newest-first with sender short name, port tag, per-port summary (message
+        text, coordinates, ACK/NAK + packet id, battery, waypoint name), and
+        time; encrypted packets Hops can't decode are logged as such. Capped at
+        200 entries, session-only.
 21. [x] GPL-3.0 LICENSE added (required by the bundled Meshtastic protobufs) and
         the app pushed to the public repo git@github.com:morria/Hops-app.git.
 20. [x] Channel editor in Settings → Channels: create/edit name, encryption key
