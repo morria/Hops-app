@@ -26,7 +26,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.hops
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
         DEVELOPMENT_TEAM: 7Q2SS8772K
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -36,6 +36,7 @@ targets:
         CFBundleDisplayName: Hops
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         UIBackgroundModes: [bluetooth-central, fetch]
         BGTaskSchedulerPermittedIdentifiers: [com.w2asm.hops.refresh]
         NSBluetoothAlwaysUsageDescription: Hops connects to your Meshtastic radio over Bluetooth to send and receive messages.
