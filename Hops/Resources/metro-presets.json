@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "presets": [
     {
       "id": "standard",
@@ -29,6 +29,18 @@
       "presetRaw": 3,
       "frequencySlot": 48,
       "hopLimit": 7,
+      "source": "https://nyme.sh/getting-started/",
+      "updated": "2026-02-18",
+      "channelIconAsset": "nyme-logo"
+    },
+    {
+      "id": "nyc-legacy",
+      "name": "NYC Mesh — Legacy (LongFast)",
+      "summary": "LongFast, slot 20 — nyme.sh legacy network. Often busier until the MediumSlow migration completes; use it to compare traffic.",
+      "regionRaw": 1,
+      "presetRaw": 0,
+      "frequencySlot": 20,
+      "hopLimit": 3,
       "source": "https://nyme.sh/getting-started/",
       "updated": "2026-02-18",
       "channelIconAsset": "nyme-logo"

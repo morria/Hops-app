@@ -102,12 +102,15 @@ struct ChatsListView: View {
     }
 
     private var pinnedGrid: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 16)], spacing: 12) {
+        // Leading-aligned cells so the first pinned avatar lines up with the
+        // conversation rows' avatars below; each name centers under its avatar.
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 72), spacing: 16, alignment: .leading)],
+                  alignment: .leading, spacing: 12) {
             ForEach(pinned) { convo in
                 Button {
                     path.append(convo.key)
                 } label: {
-                    VStack(spacing: 6) {
+                    VStack(alignment: .leading, spacing: 6) {
                         MonogramAvatar(text: monogram(for: convo), isChannel: convo.kind == .channel, size: 64,
                                        assetImage: iconAsset(for: convo))
                             .overlay(alignment: .topTrailing) {
@@ -118,6 +121,7 @@ struct ChatsListView: View {
                         Text(convo.title)
                             .font(.caption)
                             .lineLimit(1)
+                            .frame(width: 64)
                     }
                 }
                 .buttonStyle(.plain)

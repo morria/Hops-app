@@ -6,6 +6,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+24. [x] Pinned grid: leading-aligned cells so the first pinned avatar lines up
+        with the conversation-row avatars; names center under their own avatar.
+        Verified in simulator.
+
 ## Resolved (23+)
 
 23. [x] Device configuration in Settings: Bluetooth (enabled, pairing mode, fixed
