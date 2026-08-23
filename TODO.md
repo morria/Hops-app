@@ -6,6 +6,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+34. [x] Reaction picker: searchable across the full iOS emoji set (typed letters
+        search Unicode names, never send); typing an emoji from the emoji
+        keyboard sends it immediately. Only emoji can be sent as reactions.
+
 33. [x] Telemetry broadcast interval is configurable (Settings → Device
         configuration → Telemetry): battery/device-metrics interval from the
         firmware-default 30 minutes up to 24 hours, with the community-
