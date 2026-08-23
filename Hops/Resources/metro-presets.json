@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "presets": [
+    {
+      "id": "standard",
+      "name": "Standard (Meshtastic default)",
+      "summary": "LongFast — the worldwide default. Works everywhere; best choice when your area has no organized mesh.",
+      "regionRaw": 1,
+      "presetRaw": 0,
+      "frequencySlot": 0,
+      "hopLimit": 3
+    },
+    {
+      "id": "bayarea",
+      "name": "Bay Area Mesh",
+      "summary": "MediumFast, slot 45, hop limit 6 (personal node) — bayme.sh recommended settings (updated Oct 2025). Suggested role: Client, or Client Mute in a vehicle.",
+      "regionRaw": 1,
+      "presetRaw": 4,
+      "frequencySlot": 45,
+      "hopLimit": 6,
+      "source": "https://bayme.sh/docs/getting-started/recommended-settings/",
+      "updated": "2025-10-20"
+    },
+    {
+      "id": "nyc",
+      "name": "NYC Mesh (NYME.SH)",
+      "summary": "MediumSlow, slot 48, hop limit 7 (personal node) — nyme.sh recommended settings. Suggested role: Client Mute for handhelds, Client if stationary.",
+      "regionRaw": 1,
+      "presetRaw": 3,
+      "frequencySlot": 48,
+      "hopLimit": 7,
+      "source": "https://nyme.sh/getting-started/",
+      "updated": "2026-02-18",
+      "channelIconAsset": "nyme-logo"
+    }
+  ]
+}

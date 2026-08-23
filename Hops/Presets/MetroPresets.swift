@@ -1,0 +1,108 @@
+import Foundation
+import MeshtasticProtobufs
+
+/// A community's published radio configuration. Presets are versioned data, not code:
+/// metros change their recommendations (Bay Area moved MediumSlow → MediumFast in late
+/// 2025; NYC began migrating to MediumSlow in early 2026), so the bundled manifest is
+/// refreshed from a maintained remote source when available.
+struct MetroPreset: Codable, Identifiable, Equatable {
+    var id: String
+    var name: String
+    var summary: String
+    var regionRaw: Int
+    var presetRaw: Int
+    var frequencySlot: Int
+    var hopLimit: Int
+    var source: String?
+    var updated: String?
+    /// Optional bundled image shown as the primary channel's avatar while this
+    /// metro's configuration is applied (e.g. the NYME.SH logo).
+    var channelIconAsset: String?
+
+    var regionName: String {
+        let region = Config.LoRaConfig.RegionCode(rawValue: regionRaw) ?? .unset
+        return region == .unset ? "Not set" : String(describing: region).uppercased()
+    }
+
+    var presetName: String {
+        switch Config.LoRaConfig.ModemPreset(rawValue: presetRaw) {
+        case .longFast: return "LongFast"
+        case .mediumFast: return "MediumFast"
+        case .mediumSlow: return "MediumSlow"
+        case .longSlow: return "LongSlow"
+        case .shortFast: return "ShortFast"
+        case .shortSlow: return "ShortSlow"
+        default: return "Custom"
+        }
+    }
+}
+
+struct MetroPresetManifest: Codable, Equatable {
+    var version: Int
+    var presets: [MetroPreset]
+}
+
+@MainActor
+final class MetroPresetStore: ObservableObject {
+
+    static let shared = MetroPresetStore()
+
+    @Published private(set) var manifest: MetroPresetManifest
+    @Published var appliedPresetId: String? {
+        didSet { UserDefaults.standard.set(appliedPresetId, forKey: Self.appliedKey) }
+    }
+
+    /// The avatar for a channel conversation: the applied metro's icon for the
+    /// primary channel, nil (monogram fallback) otherwise.
+    func channelIconAsset(forChannelIndex index: Int32) -> String? {
+        guard index == 0, let id = appliedPresetId else { return nil }
+        return manifest.presets.first(where: { $0.id == id })?.channelIconAsset
+    }
+
+    /// Adopt a preset as "applied" when the radio's live config matches it exactly
+    /// but no application was recorded (pre-tracking builds, or configured by
+    /// another app). Never overrides an explicit record.
+    func inferAppliedPreset(regionRaw: Int, presetRaw: Int, frequencySlot: Int) {
+        guard appliedPresetId == nil else { return }
+        if let match = manifest.presets.first(where: {
+            $0.regionRaw == regionRaw && $0.presetRaw == presetRaw && $0.frequencySlot == frequencySlot
+        }) {
+            appliedPresetId = match.id
+        }
+    }
+
+    private static let cacheKey = "metroPresetManifest"
+    private static let appliedKey = "appliedMetroPresetId"
+    /// Point this at a maintained raw-JSON URL (e.g. the Hops repo) to ship preset
+    /// updates without an app release. Fails silently; the bundled copy always works.
+    private static let remoteURL = URL(string: "https://raw.githubusercontent.com/hops-mesh/presets/main/metro-presets.json")
+
+    private init() {
+        if let cached = UserDefaults.standard.data(forKey: Self.cacheKey),
+           let decoded = try? JSONDecoder().decode(MetroPresetManifest.self, from: cached) {
+            manifest = decoded
+        } else {
+            manifest = Self.bundled()
+        }
+        appliedPresetId = UserDefaults.standard.string(forKey: Self.appliedKey)
+    }
+
+    private static func bundled() -> MetroPresetManifest {
+        guard let url = Bundle.main.url(forResource: "metro-presets", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode(MetroPresetManifest.self, from: data) else {
+            return MetroPresetManifest(version: 0, presets: [])
+        }
+        return decoded
+    }
+
+    func refresh() async {
+        guard let url = Self.remoteURL else { return }
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
+              (response as? HTTPURLResponse)?.statusCode == 200,
+              let decoded = try? JSONDecoder().decode(MetroPresetManifest.self, from: data),
+              decoded.version > manifest.version else { return }
+        manifest = decoded
+        UserDefaults.standard.set(data, forKey: Self.cacheKey)
+    }
+}

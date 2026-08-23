@@ -1,0 +1,77 @@
+# Hops TODO
+
+Working list from on-device testing. Items stay here until resolved.
+
+## Open
+
+15. [ ] Long-press or swipe a conversation to configure it, including notification
+        level: muted / mentions only / all messages.
+16. [ ] DM conversation title bar should include the peer's icon/short name.
+17. [ ] Tapping a message's reactions shows who sent each one and when.
+18. [ ] Settings: allow disconnecting from the radio (without forgetting it).
+19. [ ] NYC preset applied and Settings knows it, but "Primary Channel" lacks the
+        NY mesh icon (appliedPresetId predates the icon feature — infer from the
+        radio's actual config).
+20. [ ] Settings: allow configuring channels (name, role, PSK).
+
+## Resolved
+
+1. [x] Chats search: now searches all known nodes (not just existing conversations) —
+       results ordered Conversations → Nodes → Messages; tapping a node with no
+       history starts the DM. (ChatsListView `searchResults`)
+2. [x] Conversation rows: whole row is now tappable
+       (`.frame(maxWidth:.infinity)` + `.contentShape(Rectangle())`).
+3. [x] Compose picker rows (channels and people): whole row tappable, same fix.
+4. [x] Send button dead in brand-new conversations: the destination was derived from
+       the ConversationEntity, which doesn't exist before the first message. Now
+       derived directly from the conversation key ("dm-<num>" / "ch-<idx>"), with
+       title fallback from the node/channel tables. Verified: entity-less thread
+       renders with correct title and live composer.
+5. [x] Metro preset audit against community pages:
+       - NYC (nyme.sh/getting-started): MediumSlow, **slot 48**, **hop limit 7**
+         ("relies on this being the maximum of 7"), AQ== primary key. Role guidance
+         (Client Mute handheld / Client stationary) noted in the preset summary —
+         Hops writes LoRa config only.
+       - Bay Area (bayme.sh): MediumFast, slot 45, **hop limit 6** for
+         personal/chat nodes (was wrongly 3).
+       - Standard: LongFast defaults (slot 0, hop 3) — correct.
+       Manifest bumped to version 2.
+14. [x] Swipe-left on a transcript reveals per-message send times (iMessage-style):
+        bubbles slide with the drag, times fade in at the trailing edge, springs
+        back on release.
+13. [x] Channel transcripts show the sender's monogram avatar beside each incoming
+        bubble with their short name above — group-chat style. Verified.
+12. [x] Any-emoji reactions: "More…" in the reaction menu opens a picker sheet
+        (common-emoji grid + free-typing field via the emoji keyboard), noting
+        that mesh reactions can't be removed.
+11. [x] "No messages on primary channel": audited the full decode/present path
+        (frame → FromRadio → port dispatch → store → @Query) against the official
+        app's handling — sound. Prime suspect is radio config from the pre-fix NYC
+        preset (slot 0 ≠ 48 → wrong frequency, hears nothing). Added: a "Mesh
+        traffic" diagnostics row in Settings (packets/messages heard since launch,
+        orange when zero — decisively separates "radio hears nothing" from "app
+        drops messages"), an orange re-apply warning when the radio's LoRa config
+        drifts from the applied metro preset, and slot + hop limit now always
+        visible in Mesh Setup.
+10. [x] Map de-overlap jitter: nodes sharing a coordinate (~11 m grid) are spread
+        on a deterministic ring — members sorted by node num, evenly spaced, ring
+        radius 40 m for exact stacks or up to 20% of the precision circle (max
+        200 m) for fuzzed positions. Isolated nodes stay exact; precision circles
+        remain centered on the true coordinate.
+9. [x] Conversations with only a failed/unsent message now appear in the list.
+       Root cause: persistOutgoing re-fetched the conversation it had just created
+       in the same transaction; the fetch could miss it, leaving lastMessageAt nil
+       and the row filtered out. Now stamps the held object directly, plus a
+       startup repair pass backfills any conversation stranded by the old bug.
+8. [x] Settings pull-to-refresh: sends a heartbeat, a direct telemetry request to
+       the radio (fresh battery/metrics), and forces a node-DB re-request so all
+       device info updates; pulls while disconnected kick a reconnect instead.
+7. [x] Map node panel now shows the same info as the DM info sheet: one shared
+       `NodeCardView` (identity, last heard, battery, hops away, SNR) with a
+       Message action (map, messageable nodes only) and Directions (any node
+       with a position) — the two divergent cards were deleted.
+6. [x] Map node panel "Message" did nothing: it set the pending conversation but
+       never left the Map tab, and the hidden Chats tab couldn't react. Tab
+       selection moved into AppModel; the button now switches to Chats and opens
+       the thread (also consumed in `onAppear` if Chats wasn't built yet).
+       Notification taps got the same tab-switch fix for free.
