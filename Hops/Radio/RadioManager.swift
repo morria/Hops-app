@@ -31,6 +31,11 @@ final class RadioManager: ObservableObject {
     @Published private(set) var textMessagesHeard = 0
     @Published private(set) var lastMeshPacketAt: Date?
 
+    // Device configs mirrored from the connect-time dump; nil until received.
+    @Published var bluetoothConfig: Config.BluetoothConfig?
+    @Published var displayConfig: Config.DisplayConfig?
+    @Published var positionConfig: Config.PositionConfig?
+
     struct TrafficEntry: Identifiable {
         let id: Int
         let date: Date
@@ -315,6 +320,12 @@ final class RadioManager: ObservableObject {
             defaults.set(firmwareVersion, forKey: Keys.firmware)
 
         case .config(let config):
+            switch config.payloadVariant {
+            case .bluetooth(let bluetooth): bluetoothConfig = bluetooth
+            case .display(let display): displayConfig = display
+            case .position(let position): positionConfig = position
+            default: break
+            }
             if case .lora(let lora) = config.payloadVariant {
                 loRa = LoRaSnapshot(received: true,
                                     regionRaw: lora.region.rawValue,
@@ -630,6 +641,13 @@ final class RadioManager: ObservableObject {
                             frequencySlot: Int(lora.channelNum),
                             hopLimit: lora.hopLimit > 0 ? Int(lora.hopLimit) : loRa.hopLimit)
         }
+    }
+
+    /// Write one device-config section (bluetooth / display / position / …).
+    func applyConfig(_ config: Config) {
+        var admin = AdminMessage()
+        admin.setConfig = config
+        sendAdmin(admin)
     }
 
     func setChannel(index: Int32, name: String, roleRaw: Int32, psk: Data) {

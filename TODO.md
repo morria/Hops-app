@@ -6,6 +6,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+## Resolved (23+)
+
+23. [x] Device configuration in Settings: Bluetooth (enabled, pairing mode, fixed
+        PIN — with a warning that disabling BT strands Hops), Display (screen
+        timeout, units, 12h clock, flip, compass, wake-on-tap), Position (GPS
+        mode, fixed position, broadcast interval, smart broadcast with distance/
+        interval). Values load from the connect-time config dump; saves write one
+        Config section via admin.
+
 ## Resolved
 
 1. [x] Chats search: now searches all known nodes (not just existing conversations) —

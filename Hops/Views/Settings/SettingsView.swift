@@ -21,6 +21,7 @@ struct SettingsView: View {
             List {
                 radioSection
                 channelsSection
+                deviceConfigSection
                 notificationsSection
                 aboutSection
             }
@@ -181,6 +182,28 @@ struct SettingsView: View {
                 ChannelsView()
             } label: {
                 Label("Channels & QR codes", systemImage: "qrcode")
+            }
+        }
+    }
+
+    // MARK: - Device configuration
+
+    private var deviceConfigSection: some View {
+        Section("Device configuration") {
+            NavigationLink {
+                BluetoothSettingsView()
+            } label: {
+                Label("Bluetooth", systemImage: "antenna.radiowaves.left.and.right.circle")
+            }
+            NavigationLink {
+                DisplaySettingsView()
+            } label: {
+                Label("Display", systemImage: "sun.max")
+            }
+            NavigationLink {
+                PositionSettingsView()
+            } label: {
+                Label("Position", systemImage: "location")
             }
         }
     }
