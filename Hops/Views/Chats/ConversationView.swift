@@ -56,6 +56,29 @@ struct ConversationView: View {
         return "#"
     }
 
+    /// Custom photo for the title bar: the peer node's (DM) or the channel's.
+    private var peerIconData: Data? {
+        switch destination {
+        case .node(let num):
+            return (try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+            ).first)?.iconData
+        case .channel(let index):
+            return (try? modelContext.fetch(
+                FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == index })
+            ).first)?.iconData
+        case .none:
+            return nil
+        }
+    }
+
+    private func senderIconData(_ message: MessageEntity) -> Data? {
+        let num = message.fromNum
+        return (try? modelContext.fetch(
+            FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+        ).first)?.iconData
+    }
+
     private var title: String {
         if let convo = conversation { return convo.title }
         if case .node(let num) = destination {
@@ -89,7 +112,8 @@ struct ConversationView: View {
             ToolbarItem(placement: .principal) {
                 HStack(spacing: 8) {
                     MonogramAvatar(text: peerMonogram, isChannel: !isDM, size: 28,
-                                   assetImage: isDM ? nil : MetroPresetStore.shared.channelIconAsset(forChannelIndex: conversation?.channelIndex ?? -1))
+                                   assetImage: isDM ? nil : MetroPresetStore.shared.channelIconAsset(forChannelIndex: conversation?.channelIndex ?? -1),
+                                   imageData: peerIconData)
                     Text(title)
                         .font(.headline)
                         .lineLimit(1)
@@ -201,6 +225,7 @@ struct ConversationView: View {
             message: message,
             isDM: isDM,
             senderName: senderShortName(message),
+            senderIconData: senderIconData(message),
             replyPreview: replyPreview(message),
             tapbacks: tapbacks[message.packetId] ?? [],
             onReply: { replyTarget = message },
@@ -353,6 +378,7 @@ struct MessageBubble: View {
     let message: MessageEntity
     let isDM: Bool
     let senderName: String?
+    var senderIconData: Data? = nil
     let replyPreview: String?
     let tapbacks: [MessageEntity]
     var onReply: () -> Void
@@ -379,7 +405,8 @@ struct MessageBubble: View {
                 if message.outgoing { Spacer(minLength: 48) }
                 if let senderName, !message.outgoing {
                     Button(action: onShowSender) {
-                        MonogramAvatar(text: senderName, isChannel: false, size: 26)
+                        MonogramAvatar(text: senderName, isChannel: false, size: 26,
+                                       imageData: senderIconData)
                     }
                     .buttonStyle(.plain)
                 }

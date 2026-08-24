@@ -24,7 +24,8 @@ struct ChannelsView: View {
                         } label: {
                             HStack {
                                 MonogramAvatar(text: "#", isChannel: true, size: 32,
-                                               assetImage: MetroPresetStore.shared.channelIconAsset(forChannelIndex: channel.index))
+                                               assetImage: MetroPresetStore.shared.channelIconAsset(forChannelIndex: channel.index),
+                                               imageData: channel.iconData)
                                 Text(channel.displayName)
                                 Spacer()
                                 if !channel.psk.isEmpty {

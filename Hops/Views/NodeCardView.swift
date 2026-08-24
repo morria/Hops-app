@@ -24,7 +24,8 @@ struct NodeCardView: View {
                 List {
                     Section {
                         HStack(spacing: 12) {
-                            MonogramAvatar(text: node.monogram, isChannel: false, size: 56, dimmed: !node.isOnline)
+                            MonogramAvatar(text: node.monogram, isChannel: false, size: 56,
+                                           dimmed: !node.isOnline, imageData: node.iconData)
                             VStack(alignment: .leading) {
                                 Text(node.longName).font(.headline)
                                 if let heard = node.lastHeard {

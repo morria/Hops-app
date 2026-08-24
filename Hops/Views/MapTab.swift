@@ -71,7 +71,8 @@ struct MapTab: View {
                         Button {
                             selectedNodeNum = node.num
                         } label: {
-                            MonogramAvatar(text: node.monogram, isChannel: false, size: 32, dimmed: !node.isOnline)
+                            MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
+                                           dimmed: !node.isOnline, imageData: node.iconData)
                                 .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                                 .shadow(radius: 2)
                         }

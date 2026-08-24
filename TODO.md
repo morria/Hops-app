@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+46. [x] Custom photos now replace the monogram everywhere: conversation title
+        bar, transcript sender avatars, map pins, node info card, compose picker
+        (channels and people), search results, reaction details, and the
+        channels list. Priority: custom photo > metro icon > monogram.
 45. [x] Pinned conversations long-press independently: the grid moved out of
         the List (whose row-level context-menu preview lifted every pin at once
         and mistargeted the menu) into the header area. Layout unchanged;

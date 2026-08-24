@@ -415,7 +415,8 @@ struct ChatsListView: View {
                             path.append(ConversationEntity.dmKey(node.num))
                         } label: {
                             HStack(spacing: 12) {
-                                MonogramAvatar(text: node.monogram, isChannel: false, size: 36, dimmed: !node.isOnline)
+                                MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
+                                               dimmed: !node.isOnline, imageData: node.iconData)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(node.longName)
                                     if let heard = node.lastHeard {
@@ -544,7 +545,8 @@ struct ComposePickerView: View {
                         } label: {
                             HStack {
                                 MonogramAvatar(text: "#", isChannel: true, size: 36,
-                                               assetImage: MetroPresetStore.shared.channelIconAsset(forChannelIndex: channel.index))
+                                               assetImage: MetroPresetStore.shared.channelIconAsset(forChannelIndex: channel.index),
+                                               imageData: channel.iconData)
                                 Text(channel.displayName)
                             }
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -559,7 +561,8 @@ struct ComposePickerView: View {
                             onPick(ConversationEntity.dmKey(node.num))
                         } label: {
                             HStack {
-                                MonogramAvatar(text: node.monogram, isChannel: false, size: 36, dimmed: !node.isOnline)
+                                MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
+                                               dimmed: !node.isOnline, imageData: node.iconData)
                                 VStack(alignment: .leading) {
                                     Text(node.longName)
                                     if let heard = node.lastHeard {

@@ -13,7 +13,8 @@ struct ReactionDetailsSheet: View {
             List {
                 ForEach(tapbacks.sorted(by: { $0.timestamp < $1.timestamp }), id: \.packetId) { tapback in
                     HStack(spacing: 12) {
-                        MonogramAvatar(text: monogram(for: tapback.fromNum), isChannel: false, size: 36)
+                        MonogramAvatar(text: monogram(for: tapback.fromNum), isChannel: false, size: 36,
+                                       imageData: node(for: tapback.fromNum)?.iconData)
                         VStack(alignment: .leading, spacing: 2) {
                             Text(name(for: tapback.fromNum))
                             Text(tapback.timestamp.formatted(date: .abbreviated, time: .shortened))
