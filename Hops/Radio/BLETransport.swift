@@ -42,6 +42,13 @@ final class BLETransport: NSObject {
     private var draining = false
     private var needsDrain = false
     private var restoredPeripheral: CBPeripheral?
+    /// The peripheral we're trying to reach — a scan hit on this id connects
+    /// immediately (the old scan fallback discovered but never connected).
+    private var desiredId: UUID?
+    // Serialized TORADIO writes with retry on transient radio-buffer pressure.
+    private var writeQueue: [Data] = []
+    private var writing = false
+    private var writeAttempts = 0
 
     override init() {
         super.init()
@@ -79,6 +86,7 @@ final class BLETransport: NSObject {
         queue.async {
             guard self.central.state == .poweredOn else { return }
             self.userInitiatedDisconnect = false
+            self.desiredId = id
             if let restored = self.restoredPeripheral, restored.identifier == id {
                 self.adopt(restored)
                 if restored.state == .connected {
@@ -92,10 +100,38 @@ final class BLETransport: NSObject {
             if let target = self.central.retrievePeripherals(withIdentifiers: [id]).first {
                 self.adopt(target)
                 self.central.connect(target)   // pending connect: never expires
+                // Scan-assist: an advertisement can arrive before the pending
+                // connect resolves; either path wins, the other is a no-op.
+                if self.central.state == .poweredOn {
+                    self.central.scanForPeripherals(withServices: [UUIDs.service], options: nil)
+                }
             } else {
                 self.startScan()               // fallback: catch an advertisement
             }
         }
+    }
+
+    /// Watchdog escalation: drop the possibly-stale connection attempt and start
+    /// over with a fresh retrieval.
+    func retryFresh(id: UUID) {
+        queue.async {
+            if let p = self.peripheral {
+                self.central.cancelPeripheralConnection(p)
+                // didDisconnect → RadioManager re-arms a fresh connect(to:).
+            } else {
+                self.queue.async { self.reconnectFresh(id) }
+            }
+        }
+    }
+
+    private func reconnectFresh(_ id: UUID) {
+        guard central.state == .poweredOn else { return }
+        desiredId = id
+        if let target = central.retrievePeripherals(withIdentifiers: [id]).first {
+            adopt(target)
+            central.connect(target)
+        }
+        central.scanForPeripherals(withServices: [UUIDs.service], options: nil)
     }
 
     func connectDiscovered(id: UUID) {
@@ -119,9 +155,23 @@ final class BLETransport: NSObject {
 
     func write(_ data: Data) {
         queue.async {
-            guard let p = self.peripheral, let c = self.toRadioChar else { return }
-            p.writeValue(data, for: c, type: .withResponse)
+            self.writeQueue.append(data)
+            self.pumpWrites()
         }
+    }
+
+    private func pumpWrites() {
+        guard !writing, let p = peripheral, let c = toRadioChar,
+              p.state == .connected, let next = writeQueue.first else { return }
+        writing = true
+        p.writeValue(next, for: c, type: .withResponse)
+    }
+
+    private func finishCurrentWrite() {
+        if !writeQueue.isEmpty { writeQueue.removeFirst() }
+        writeAttempts = 0
+        writing = false
+        pumpWrites()
     }
 
     /// Kick (or coalesce) the read-until-empty drain loop.
@@ -151,6 +201,11 @@ final class BLETransport: NSObject {
         fromNumChar = nil
         draining = false
         needsDrain = false
+        // Stale frames must not fire into a new session; the outbox re-sends
+        // anything that matters after the handshake.
+        writeQueue.removeAll()
+        writing = false
+        writeAttempts = 0
     }
 }
 
@@ -173,6 +228,14 @@ extension BLETransport: CBCentralManagerDelegate {
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
         known[peripheral.identifier] = peripheral
+        // Seeing the radio we want IS the signal to connect — the old fallback
+        // scanned but only pairing mode ever acted on discoveries.
+        if peripheral.identifier == desiredId, peripheral.state == .disconnected {
+            adopt(peripheral)
+            central.connect(peripheral)
+            central.stopScan()
+            return
+        }
         let name = (advertisementData[CBAdvertisementDataLocalNameKey] as? String)
             ?? peripheral.name ?? "Meshtastic"
         emit(.discovered(Discovered(id: peripheral.identifier, name: name, rssi: RSSI.intValue)))
@@ -180,6 +243,7 @@ extension BLETransport: CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         guard peripheral.identifier == self.peripheral?.identifier else { return }
+        if peripheral.identifier == desiredId { central.stopScan() }   // scan-assist done
         peripheral.discoverServices([UUIDs.service])
     }
 
@@ -270,9 +334,26 @@ extension BLETransport: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
+        // Transient radio-buffer pressure gets retried with backoff (matching the
+        // official app's 4-attempt pattern); anything else drops just that frame.
+        if let att = error as? CBATTError, att.code == .insufficientResources, writeAttempts < 4 {
+            writeAttempts += 1
+            let delay = DispatchTimeInterval.milliseconds(120 * writeAttempts)
+            log.warning("TORADIO busy, retry \(self.writeAttempts)")
+            queue.asyncAfter(deadline: .now() + delay) {
+                guard let p = self.peripheral, let c = self.toRadioChar,
+                      p.state == .connected, let current = self.writeQueue.first else {
+                    self.writing = false
+                    return
+                }
+                p.writeValue(current, for: c, type: .withResponse)
+            }
+            return
+        }
         if let error {
             log.error("write error: \(error.localizedDescription)")
         }
+        finishCurrentWrite()
     }
 
     private func isAuthError(_ error: Error) -> Bool {

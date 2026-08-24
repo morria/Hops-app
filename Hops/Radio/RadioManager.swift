@@ -215,11 +215,28 @@ final class RadioManager: ObservableObject {
         connectIfNeeded()
     }
 
+    private var connectWatchdog: Task<Void, Never>?
+
+    /// If a connect attempt stalls (stale peripheral reference, missed callback),
+    /// tear it down and retry fresh every 20 s until something changes state.
+    private func armConnectWatchdog() {
+        connectWatchdog?.cancel()
+        connectWatchdog = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(20))
+            guard let self, !Task.isCancelled,
+                  self.state == .connecting, let id = self.pairedPeripheralId else { return }
+            self.log.warning("connect watchdog: retrying fresh")
+            self.transport.retryFresh(id: id)
+            self.armConnectWatchdog()
+        }
+    }
+
     func connectIfNeeded() {
         guard let id = pairedPeripheralId, bluetoothOn, !userDisconnected else { return }
         guard state == .offline || state == .bondLost else { return }
         state = .connecting
         transport.connect(to: id)
+        armConnectWatchdog()
     }
 
     private func handle(_ event: BLETransport.Event) {
@@ -244,6 +261,7 @@ final class RadioManager: ObservableObject {
             discovered.sort { $0.rssi > $1.rssi }
 
         case .linkReady:
+            connectWatchdog?.cancel()
             state = .syncing
             nodeDBRequested = false
             startHandshake()

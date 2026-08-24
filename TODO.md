@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+88. [x] Connection resilience pass: fixed the scan fallback that discovered but
+        never connected (now a scan hit on the desired radio connects
+        immediately); scan-assist runs alongside pending connects so whichever
+        path is faster wins; a 20 s watchdog tears down stalled connect attempts
+        and retries with fresh retrieval; TORADIO writes are serialized through
+        a queue with 4x backoff retry on transient radio-buffer pressure
+        (previously errors were only logged) and the queue clears on new
+        sessions so stale frames can't fire.
+
 87. [x] Map remembers its last layer (Nodes/Weather) and camera
         (center + zoom) across sessions; restored on open until changed.
 
