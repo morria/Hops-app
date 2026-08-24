@@ -8,7 +8,7 @@ struct RootView: View {
     var body: some View {
         TabView(selection: $appModel.selectedTab) {
             ChatsListView()
-                .tabItem { Label("Conversations", systemImage: "bubble.left.and.bubble.right.fill") }
+                .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
                 .tag(0)
             MapTab()
                 .tabItem { Label("Map", systemImage: "map.fill") }
