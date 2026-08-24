@@ -429,6 +429,32 @@ final class RadioManager: ObservableObject {
             guard let waypoint = try? Waypoint(serializedBytes: decoded.payload) else { return }
             Task { await store.applyWaypoint(waypoint, from: fromNum) }
 
+        case .adminApp:
+            // Read-backs: the radio's answers to getConfig/getModuleConfig requests.
+            guard let admin = try? AdminMessage(serializedBytes: decoded.payload) else { return }
+            switch admin.payloadVariant {
+            case .getModuleConfigResponse(let moduleConfig):
+                if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
+                    telemetryConfig = telemetry
+                }
+            case .getConfigResponse(let config):
+                switch config.payloadVariant {
+                case .bluetooth(let bluetooth): bluetoothConfig = bluetooth
+                case .display(let display): displayConfig = display
+                case .position(let position): positionConfig = position
+                case .lora(let lora):
+                    loRa = LoRaSnapshot(received: true,
+                                        regionRaw: lora.region.rawValue,
+                                        presetRaw: lora.modemPreset.rawValue,
+                                        frequencySlot: Int(lora.channelNum),
+                                        hopLimit: Int(lora.hopLimit))
+                    persistLoRa()
+                default: break
+                }
+            default:
+                break
+            }
+
         default:
             break
         }
@@ -660,6 +686,35 @@ final class RadioManager: ObservableObject {
         var admin = AdminMessage()
         admin.setModuleConfig = moduleConfig
         sendAdmin(admin)
+        // Module-config writes don't reboot the radio, so no re-sync happens.
+        // Mirror optimistically, then read back to confirm what actually stuck.
+        if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
+            telemetryConfig = telemetry
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(2))
+                self.requestModuleConfig(.telemetryConfig)
+            }
+        }
+    }
+
+    /// Ask the radio for a module config section; the answer arrives as an
+    /// adminApp packet handled in handleMeshPacket.
+    func requestModuleConfig(_ type: AdminMessage.ModuleConfigType) {
+        var admin = AdminMessage()
+        admin.getModuleConfigRequest = type
+        var decoded = DataMessage()
+        decoded.portnum = .adminApp
+        decoded.payload = (try? admin.serializedData()) ?? Data()
+        decoded.wantResponse = true
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.priority = .reliable
+        packet.decoded = decoded
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
     }
 
     func setChannel(index: Int32, name: String, roleRaw: Int32, psk: Data) {
@@ -687,6 +742,7 @@ final class RadioManager: ObservableObject {
         packet.to = UInt32(truncatingIfNeeded: myNodeNum)
         packet.decoded = decoded
         packet.wantAck = true
+        packet.priority = .reliable
 
         var toRadio = ToRadio()
         toRadio.packet = packet

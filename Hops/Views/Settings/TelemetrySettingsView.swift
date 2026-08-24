@@ -19,6 +19,15 @@ struct TelemetrySettingsView: View {
         ("24 hours", 86400),
     ]
 
+    private func syncFromRadio() {
+        guard let telemetry = radio.telemetryConfig else { return }
+        // 0 means "firmware default" (30 minutes).
+        let current = telemetry.deviceUpdateInterval == 0 ? 1800 : Int(telemetry.deviceUpdateInterval)
+        if Self.intervalChoices.map(\.1).contains(current) {
+            deviceInterval = current
+        }
+    }
+
     var body: some View {
         Form {
             Section {
@@ -56,10 +65,12 @@ struct TelemetrySettingsView: View {
         .navigationTitle("Telemetry")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            if let telemetry = radio.telemetryConfig, telemetry.deviceUpdateInterval > 0 {
-                let current = Int(telemetry.deviceUpdateInterval)
-                deviceInterval = Self.intervalChoices.map(\.1).contains(current) ? current : 1800
-            }
+            // Ask the radio for its live value; the answer updates the picker below.
+            radio.requestModuleConfig(.telemetryConfig)
+            syncFromRadio()
+        }
+        .onChange(of: radio.telemetryConfig) {
+            syncFromRadio()
         }
     }
 }

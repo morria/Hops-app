@@ -6,6 +6,16 @@ Working list from on-device testing. Items stay here until resolved.
 
 (nothing currently)
 
+35. [x] Telemetry interval now truly reads and confirms: module-config writes
+        do not reboot the radio, so nothing re-synced and the screen showed a
+        stale default (radios also report 0 = "firmware default", which was
+        skipped). Now: opening the screen requests the live value via admin
+        getModuleConfig, the picker updates when the response lands, saves
+        mirror optimistically and read back ~2s later to confirm what stuck,
+        and admin get-config responses update all config mirrors (bluetooth/
+        display/position/lora too). Admin packets now use reliable priority,
+        matching the official app.
+
 34. [x] Reaction picker: searchable across the full iOS emoji set (typed letters
         search Unicode names, never send); typing an emoji from the emoji
         keyboard sends it immediately. Only emoji can be sent as reactions.
