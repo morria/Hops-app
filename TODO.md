@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+78. [x] Mesh view shows connectivity only: your node (accent-ringed), direct
+        0-hop neighbors, and NeighborInfo participants with edges — not the
+        whole node database. Explanatory empty state when no links are known.
+
 77. [x] Weather empty state is a readable material card instead of raw text
         over satellite imagery.
 76. [x] Map mode picker: single clean material pill (no doubled backgrounds),

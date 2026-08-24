@@ -60,12 +60,13 @@ struct MapTab: View {
                     UserAnnotation()
                     switch mode {
                     case .nodes:
-                        nodeContent
+                        nodePins(displayNodes(from: placedNodes))
                         waypointContent
                     case .weather:
                         weatherContent
                     case .mesh:
-                        nodeContent
+                        nodePins(displayNodes(from: meshRelevantNodes))
+                        myNodePin
                         meshEdges
                     }
                     trailContent
@@ -128,6 +129,23 @@ struct MapTab: View {
                     .presentationDetents([.height(360)])
             }
             .overlay {
+                if mode == .mesh && meshRelevantNodes.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "point.3.connected.trianglepath.dotted")
+                            .font(.title)
+                            .foregroundStyle(.secondary)
+                        Text("No known links yet")
+                            .font(.headline)
+                        Text("Direct neighbors appear as they're heard; more links arrive if nodes broadcast NeighborInfo (many meshes don't).")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 300)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .allowsHitTesting(false)
+                }
                 if mode == .weather && weatherNodes.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "cloud.sun")
@@ -151,9 +169,27 @@ struct MapTab: View {
 
     // MARK: - Layers
 
+    /// Mesh view is connectivity only: nodes we're directly linked to, or that
+    /// appear in NeighborInfo reports — not the whole node database.
+    private var meshRelevantNodes: [NodeEntity] {
+        let edgeNums = Set(radio.neighborEdges.flatMap { [$0.from, $0.to] })
+        return placedNodes.filter { $0.hopsAway == 0 || edgeNums.contains($0.num) }
+    }
+
     @MapContentBuilder
-    private var nodeContent: some MapContent {
-        ForEach(displayNodes, id: \.node.num) { placed in
+    private var myNodePin: some MapContent {
+        if let mine = myNode {
+            Annotation("You", coordinate: mine.coordinate) {
+                MonogramAvatar(text: mine.monogram, isChannel: false, size: 34, imageData: mine.iconData)
+                    .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 3))
+                    .shadow(radius: 2)
+            }
+        }
+    }
+
+    @MapContentBuilder
+    private func nodePins(_ nodes: [PlacedNode]) -> some MapContent {
+        ForEach(nodes, id: \.node.num) { placed in
             let node = placed.node
             if node.precisionBits > 0 && node.precisionBits < 32 {
                 MapCircle(center: node.coordinate, radius: node.precisionRadius)
@@ -253,8 +289,8 @@ struct MapTab: View {
 
     /// Nodes sharing a coordinate spread on a small deterministic ring so every
     /// pin stays tappable; precision circles stay on the true coordinate.
-    private var displayNodes: [PlacedNode] {
-        let groups = Dictionary(grouping: placedNodes) { node in
+    private func displayNodes(from source: [NodeEntity]) -> [PlacedNode] {
+        let groups = Dictionary(grouping: source) { node in
             "\((node.latitude * 10_000).rounded()):\((node.longitude * 10_000).rounded())"
         }
         var placed: [PlacedNode] = []
