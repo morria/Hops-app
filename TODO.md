@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+105. [x] Failed DMs offer "Send When Their Radio Is Heard" alongside Retry Now
+         (fresh packet id, parked in the held state, releases on hearing them).
+
 104. [x] Sending scrolls to the sent message: a second scroll pass after layout
          settles (the immediate scroll fired before the new row had geometry).
 

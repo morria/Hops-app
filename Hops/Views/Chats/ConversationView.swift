@@ -382,6 +382,7 @@ struct ConversationView: View {
             onShowReactions: { reactionDetails = message },
             onShowSender: { senderCard = message.fromNum },
             onSendNow: { radio.forceSendNow(packetId: message.packetId) },
+            onRetryWhenSeen: { radio.retryWhenPeerSeen(packetId: message.packetId) },
             onRetry: { radio.retry(packetId: message.packetId) }
         )
     }
@@ -548,6 +549,7 @@ struct MessageBubble: View {
     var onShowReactions: () -> Void
     var onShowSender: () -> Void
     var onSendNow: () -> Void = {}
+    var onRetryWhenSeen: () -> Void = {}
     var onRetry: () -> Void
 
     private static let tapbackChoices = ["❤️", "👍", "👎", "🤣", "‼️", "❓"]
@@ -648,7 +650,14 @@ struct MessageBubble: View {
                 Button {
                     onRetry()
                 } label: {
-                    Label("Retry", systemImage: "arrow.clockwise")
+                    Label("Retry Now", systemImage: "arrow.clockwise")
+                }
+                if isDM {
+                    Button {
+                        onRetryWhenSeen()
+                    } label: {
+                        Label("Send When Their Radio Is Heard", systemImage: "clock.arrow.circlepath")
+                    }
                 }
             }
             if message.status == .waitingForPeer {

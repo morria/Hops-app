@@ -48,6 +48,19 @@ actor MessageStore {
         return records
     }
 
+    /// Failed-message retry that waits for the peer instead of firing blind:
+    /// fresh packet id (the old one was transmitted), held until they're heard.
+    func prepareRetryHold(packetId: Int64, newPacketId: Int64) {
+        guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.packetId == packetId })).first,
+              message.outgoing else { return }
+        message.packetId = newPacketId
+        message.status = .waitingForPeer
+        message.ackErrorRaw = 0
+        message.timestamp = Date()
+        try? modelContext.save()
+    }
+
     /// "Send Now" override on a held message.
     func recordForceSend(packetId: Int64) -> OutgoingRecord? {
         guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(

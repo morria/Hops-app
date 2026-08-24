@@ -779,6 +779,13 @@ final class RadioManager: ObservableObject {
         }
     }
 
+    /// Retry-as-hold: park the failed message until the peer's radio is heard.
+    func retryWhenPeerSeen(packetId: Int64) {
+        guard let store else { return }
+        let newId = newPacketId()
+        Task { await store.prepareRetryHold(packetId: packetId, newPacketId: Int64(newId)) }
+    }
+
     func retry(packetId: Int64) {
         guard let store else { return }
         let newId = newPacketId()
