@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import MapKit
+import PhotosUI
 
 /// The single node card, shared by the DM info button and the map's node panel:
 /// identity, last heard, battery, hops, signal — plus Message and Directions.
@@ -10,6 +11,18 @@ struct NodeCardView: View {
 
     @Query private var nodes: [NodeEntity]
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+
+    @State private var showRename = false
+    @State private var renameText = ""
+    @State private var showPhotoPicker = false
+    @State private var pickedPhoto: PhotosPickerItem?
+    @State private var cropImage: CropImageBox?
+
+    struct CropImageBox: Identifiable {
+        let id = UUID()
+        let image: UIImage
+    }
 
     init(nodeNum: Int64, onMessage: (() -> Void)? = nil) {
         self.nodeNum = nodeNum
@@ -52,6 +65,27 @@ struct NodeCardView: View {
                         }
                     }
 
+                    Section("Customize") {
+                        Button {
+                            renameText = node.customName
+                            showRename = true
+                        } label: {
+                            Label("Rename…", systemImage: "pencil")
+                        }
+                        Button {
+                            showPhotoPicker = true
+                        } label: {
+                            Label("Set Photo…", systemImage: "photo")
+                        }
+                        if node.iconData != nil {
+                            Button(role: .destructive) {
+                                setPhoto(nil, for: node)
+                            } label: {
+                                Label("Remove Photo", systemImage: "photo.badge.exclamationmark")
+                            }
+                        }
+                    }
+
                     if onMessage != nil || node.hasPosition {
                         Section {
                             HStack(spacing: 12) {
@@ -91,8 +125,51 @@ struct NodeCardView: View {
                         Button("Done") { dismiss() }
                     }
                 }
+                .alert("Rename", isPresented: $showRename) {
+                    TextField("Name", text: $renameText)
+                    Button("Save") { applyRename(node) }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Shown only on your devices. Leave blank to use the name from the mesh.")
+                }
+                .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
+                .onChange(of: pickedPhoto) { _, item in
+                    guard let item else { return }
+                    pickedPhoto = nil
+                    Task {
+                        if let data = try? await item.loadTransferable(type: Data.self),
+                           let image = UIImage(data: data) {
+                            cropImage = CropImageBox(image: image)
+                        }
+                    }
+                }
+                .sheet(item: $cropImage) { box in
+                    AvatarCropView(image: box.image) { cropped in
+                        setPhoto(cropped.jpegData(compressionQuality: 0.85), for: node)
+                    }
+                }
             }
         }
+    }
+
+    private func applyRename(_ node: NodeEntity) {
+        node.customName = renameText.trimmingCharacters(in: .whitespaces)
+        syncConversationTitle(for: node)
+    }
+
+    private func setPhoto(_ data: Data?, for node: NodeEntity) {
+        node.iconData = data
+        try? modelContext.save()
+    }
+
+    private func syncConversationTitle(for node: NodeEntity) {
+        let key = ConversationEntity.dmKey(node.num)
+        if let convo = try? modelContext.fetch(
+            FetchDescriptor<ConversationEntity>(predicate: #Predicate { $0.key == key })
+        ).first {
+            convo.title = node.displayName
+        }
+        try? modelContext.save()
     }
 
     private func openInMaps(_ node: NodeEntity) {
