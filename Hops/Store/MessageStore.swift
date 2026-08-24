@@ -20,6 +20,14 @@ actor MessageStore {
         return node
     }
 
+    /// Identity fields for building an outbound NodeInfo announcement.
+    func nodeSnapshot(num: Int64) -> (longName: String, shortName: String, publicKey: Data)? {
+        guard let node = try? modelContext.fetch(
+            FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+        ).first else { return nil }
+        return (node.longName, node.shortName, node.publicKey)
+    }
+
     /// Mirrors firmware NodeDB.updateFrom: every packet bumps liveness.
     func heard(num: Int64, snr: Float, hopStart: UInt32, hopLimit: UInt32, rxTime: UInt32) {
         guard num > 0 else { return }

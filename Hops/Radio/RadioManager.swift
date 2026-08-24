@@ -637,6 +637,40 @@ final class RadioManager: ObservableObject {
         write(toRadio)
     }
 
+    /// Broadcast our NodeInfo on a channel right now, instead of waiting for the
+    /// periodic schedule. want_response invites others to answer with theirs,
+    /// so it doubles as a roster refresh.
+    func announceNodeInfo(onChannel index: Int32) {
+        guard let store, myNodeNum > 0 else { return }
+        let myNum = myNodeNum
+        Task {
+            guard let snapshot = await store.nodeSnapshot(num: myNum) else { return }
+            await MainActor.run {
+                var user = User()
+                user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: myNum))
+                user.longName = snapshot.longName
+                user.shortName = snapshot.shortName
+                if !snapshot.publicKey.isEmpty { user.publicKey = snapshot.publicKey }
+
+                var decoded = DataMessage()
+                decoded.portnum = .nodeinfoApp
+                decoded.payload = (try? user.serializedData()) ?? Data()
+                decoded.wantResponse = true
+
+                var packet = MeshPacket()
+                packet.id = self.newPacketId()
+                packet.from = UInt32(truncatingIfNeeded: myNum)
+                packet.to = UInt32.max
+                packet.channel = UInt32(index)
+                packet.decoded = decoded
+
+                var toRadio = ToRadio()
+                toRadio.packet = packet
+                self.write(toRadio)
+            }
+        }
+    }
+
     // MARK: - Admin (the only radio-config writes in Hops)
 
     func setOwner(longName: String, shortName: String) {

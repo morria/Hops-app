@@ -377,6 +377,13 @@ struct ChatsListView: View {
             Label("Muted", systemImage: "bell.slash").tag(NotifyLevel.muted.rawValue)
         }
         .pickerStyle(.menu)
+        if convo.kind == .channel {
+            Button {
+                radio.announceNodeInfo(onChannel: convo.channelIndex)
+            } label: {
+                Label("Announce My Node Info", systemImage: "person.wave.2")
+            }
+        }
         Button {
             renameText = currentOverride(for: convo)
             renameTarget = convo
