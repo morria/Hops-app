@@ -472,7 +472,8 @@ struct MessageBubble: View {
                     .padding(.vertical, 4)
                     .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             }
-            Text(message.text)
+            Text(linkifiedText)
+                .tint(message.outgoing ? .white : .accentColor)
             if let coordinate = message.sharedCoordinate {
                 LocationCard(coordinate: coordinate, title: senderName ?? (message.outgoing ? "My location" : "Shared location"))
             }
@@ -516,6 +517,25 @@ struct MessageBubble: View {
                 }
             }
         }
+    }
+
+    /// Message text with URLs made tappable (opens the default browser).
+    private var linkifiedText: AttributedString {
+        var attributed = AttributedString(message.text)
+        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+            return attributed
+        }
+        let fullRange = NSRange(message.text.startIndex..., in: message.text)
+        for match in detector.matches(in: message.text, range: fullRange) {
+            guard let url = match.url,
+                  let range = Range(match.range, in: message.text),
+                  let lower = AttributedString.Index(range.lowerBound, within: attributed),
+                  let upper = AttributedString.Index(range.upperBound, within: attributed)
+            else { continue }
+            attributed[lower..<upper].link = url
+            attributed[lower..<upper].underlineStyle = .single
+        }
+        return attributed
     }
 
     @ViewBuilder

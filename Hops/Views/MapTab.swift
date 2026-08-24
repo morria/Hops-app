@@ -67,7 +67,7 @@ struct MapTab: View {
                             .foregroundStyle(Color.accentColor.opacity(0.15))
                             .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
                     }
-                    Annotation(node.shortName, coordinate: placed.coordinate) {
+                    Annotation(node.displayName, coordinate: placed.coordinate) {
                         // Tap gesture, not Button: buttons claim touches on contact,
                         // which ate one finger of every pinch over dense pin fields.
                         MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
