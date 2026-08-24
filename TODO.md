@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+94. [x] Few-thousand-node scalability: Messages-list search no longer holds
+        whole-table queries on all nodes/messages (which re-rendered the list on
+        every packet heard) — search now runs on-demand DB fetches with 50-row
+        limits pushed to SQLite. Map queries positioned nodes only and caps
+        annotations at the 300 most recently heard (MapKit chokes beyond that).
+
 93. [x] Conversation view performance: rows precompute into value snapshots
         (one sender fetch per window instead of 3 DB fetches per bubble render;
         shared NSDataDetector; cached linkified text, coordinates, tapbacks,

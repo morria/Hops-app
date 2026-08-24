@@ -5,9 +5,15 @@ import MapKit
 struct MapTab: View {
     @EnvironmentObject private var radio: RadioManager
     @EnvironmentObject private var appModel: AppModel
-    @Query private var nodes: [NodeEntity]
+    // Positioned nodes only — observing the whole node table re-rendered the
+    // map on every packet that bumped any node's lastHeard.
+    @Query(filter: #Predicate<NodeEntity> { $0.hasPosition == true })
+    private var nodes: [NodeEntity]
     @Query private var waypoints: [WaypointEntity]
     @Query private var trailSamples: [PositionSampleEntity]
+
+    /// MapKit chokes on thousands of annotations; show the most recently heard.
+    private static let annotationCap = 300
 
     @State private var selectedNodeNum: Int64?
     @State private var weatherNodeNum: Int64?
@@ -78,7 +84,10 @@ struct MapTab: View {
     }
 
     private var placedNodes: [NodeEntity] {
-        nodes.filter { $0.hasPosition && $0.num != radio.myNodeNum }
+        let others = nodes.filter { $0.num != radio.myNodeNum }
+        guard others.count > Self.annotationCap else { return others }
+        return Array(others.sorted { ($0.lastHeard ?? .distantPast) > ($1.lastHeard ?? .distantPast) }
+            .prefix(Self.annotationCap))
     }
 
     private var myNode: NodeEntity? {

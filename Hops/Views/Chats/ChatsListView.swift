@@ -453,25 +453,40 @@ struct ChatsListView: View {
 
     // MARK: - Search
 
-    @Query private var allMessages: [MessageEntity]
-    @Query private var allNodes: [NodeEntity]
+    /// Search fetches on demand with limits pushed to the database — standing
+    /// whole-table queries re-rendered this view on every packet heard.
+    private func searchNodes(_ query: String) -> [NodeEntity] {
+        var descriptor = FetchDescriptor<NodeEntity>(predicate: #Predicate {
+            $0.longName.localizedStandardContains(query)
+                || $0.shortName.localizedStandardContains(query)
+                || $0.customName.localizedStandardContains(query)
+        })
+        descriptor.fetchLimit = 50
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
+    private func searchMessages(_ query: String) -> [MessageEntity] {
+        var descriptor = FetchDescriptor<MessageEntity>(predicate: #Predicate {
+            $0.isEmoji == false && $0.text.localizedStandardContains(query)
+        })
+        descriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]
+        descriptor.fetchLimit = 50
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
 
     /// Priority order: existing conversations first, then every known node (a result
     /// here starts a new DM even with no history), then message-text matches.
     private var searchResults: some View {
-        let query = searchText.lowercased()
-        let matchingConvos = conversations.filter { $0.title.lowercased().contains(query) }
+        let query = searchText
+        let lowered = query.lowercased()
+        let matchingConvos = conversations.filter { $0.title.lowercased().contains(lowered) }
         let existingDMKeys = Set(matchingConvos.map { $0.key })
-        let matchingNodes = allNodes.filter { node in
+        let matchingNodes = searchNodes(query).filter { node in
             node.num != radio.myNodeNum
                 && node.isMessageable
-                && (node.displayName.lowercased().contains(query) || node.longName.lowercased().contains(query) || node.shortName.lowercased().contains(query))
                 && !existingDMKeys.contains(ConversationEntity.dmKey(node.num))
         }
-        let matchingMessages = allMessages
-            .filter { !$0.isEmoji && $0.text.lowercased().contains(query) }
-            .sorted { $0.timestamp > $1.timestamp }
-            .prefix(50)
+        let matchingMessages = searchMessages(query)
         return Group {
             if !matchingConvos.isEmpty {
                 Section("Conversations") {
