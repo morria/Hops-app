@@ -89,7 +89,9 @@ struct MapTab: View {
                     }
                 }
             }
-            .mapStyle(.standard(elevation: .realistic))   // zoomed out, it's a globe
+            // Hybrid + realistic = satellite imagery on a true globe (space
+            // background zoomed out), with road/place labels kept for context.
+            .mapStyle(.hybrid(elevation: .realistic))
             .mapControls {
                 MapCompass()
             }
