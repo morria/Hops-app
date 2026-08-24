@@ -48,15 +48,48 @@ final class MetroPresetStore: ObservableObject {
     static let shared = MetroPresetStore()
 
     @Published private(set) var manifest: MetroPresetManifest
+    @Published private(set) var customPresets: [MetroPreset] = []
     @Published var appliedPresetId: String? {
         didSet { UserDefaults.standard.set(appliedPresetId, forKey: Self.appliedKey) }
+    }
+
+    /// Community presets followed by the user's own saved configurations.
+    var allPresets: [MetroPreset] { manifest.presets + customPresets }
+
+    func isCustom(_ preset: MetroPreset) -> Bool {
+        preset.id.hasPrefix("custom-")
+    }
+
+    func addCustom(name: String, regionRaw: Int, presetRaw: Int, frequencySlot: Int, hopLimit: Int) -> MetroPreset {
+        var preset = MetroPreset(id: "custom-\(UUID().uuidString)", name: name,
+                                 summary: "", regionRaw: regionRaw, presetRaw: presetRaw,
+                                 frequencySlot: frequencySlot, hopLimit: hopLimit,
+                                 source: nil, updated: nil, channelIconAsset: nil)
+        preset.summary = "\(preset.presetName), slot \(frequencySlot), hop limit \(hopLimit) — your saved configuration."
+        customPresets.append(preset)
+        persistCustom()
+        return preset
+    }
+
+    func removeCustom(id: String) {
+        customPresets.removeAll { $0.id == id }
+        if appliedPresetId == id { appliedPresetId = nil }
+        persistCustom()
+    }
+
+    private static let customKey = "customMetroPresets"
+
+    private func persistCustom() {
+        if let data = try? JSONEncoder().encode(customPresets) {
+            UserDefaults.standard.set(data, forKey: Self.customKey)
+        }
     }
 
     /// The avatar for a channel conversation: the applied metro's icon for the
     /// primary channel, nil (monogram fallback) otherwise.
     func channelIconAsset(forChannelIndex index: Int32) -> String? {
         guard index == 0, let id = appliedPresetId else { return nil }
-        return manifest.presets.first(where: { $0.id == id })?.channelIconAsset
+        return allPresets.first(where: { $0.id == id })?.channelIconAsset
     }
 
     /// Adopt a preset as "applied" when the radio's live config matches it exactly
@@ -64,7 +97,7 @@ final class MetroPresetStore: ObservableObject {
     /// another app). Never overrides an explicit record.
     func inferAppliedPreset(regionRaw: Int, presetRaw: Int, frequencySlot: Int) {
         guard appliedPresetId == nil else { return }
-        if let match = manifest.presets.first(where: {
+        if let match = allPresets.first(where: {
             $0.regionRaw == regionRaw && $0.presetRaw == presetRaw && $0.frequencySlot == frequencySlot
         }) {
             appliedPresetId = match.id
@@ -85,6 +118,10 @@ final class MetroPresetStore: ObservableObject {
             manifest = Self.bundled()
         }
         appliedPresetId = UserDefaults.standard.string(forKey: Self.appliedKey)
+        if let data = UserDefaults.standard.data(forKey: Self.customKey),
+           let decoded = try? JSONDecoder().decode([MetroPreset].self, from: data) {
+            customPresets = decoded
+        }
     }
 
     private static func bundled() -> MetroPresetManifest {

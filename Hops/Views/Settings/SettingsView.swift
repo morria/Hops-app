@@ -307,6 +307,8 @@ struct MeshSetupView: View {
 
     @State private var selectedId: String?
     @State private var confirming: MetroPreset?
+    @State private var showSaveCustom = false
+    @State private var customName = ""
 
     var body: some View {
         List {
@@ -322,7 +324,7 @@ struct MeshSetupView: View {
                 }
             }
             Section {
-                ForEach(presets.manifest.presets) { preset in
+                ForEach(presets.allPresets) { preset in
                     Button {
                         confirming = preset
                     } label: {
@@ -343,11 +345,27 @@ struct MeshSetupView: View {
                         }
                         .padding(.vertical, 2)
                     }
+                    .swipeActions(edge: .trailing) {
+                        if presets.isCustom(preset) {
+                            Button(role: .destructive) {
+                                presets.removeCustom(id: preset.id)
+                            } label: {
+                                Label("Delete", systemImage: "trash")
+                            }
+                        }
+                    }
+                }
+                if radio.loRa.received {
+                    Button {
+                        showSaveCustom = true
+                    } label: {
+                        Label("Save Current as Preset…", systemImage: "plus.circle")
+                    }
                 }
             } header: {
                 Text("Set up for your mesh")
             } footer: {
-                Text("Community recommendations, refreshed from each mesh's published settings. Fine-grained radio configuration lives in the official Meshtastic app.")
+                Text("Community recommendations, refreshed from each mesh's published settings, plus your own saved configurations (swipe to delete). Fine-grained radio configuration lives under Device configuration → LoRa Radio.")
             }
             if radio.loRa.received {
                 Section("Current radio settings") {
@@ -362,6 +380,23 @@ struct MeshSetupView: View {
         .navigationTitle("Mesh Setup")
         .navigationBarTitleDisplayMode(.inline)
         .task { await presets.refresh() }
+        .alert("Save Current as Preset", isPresented: $showSaveCustom) {
+            TextField("Name (e.g. Cabin mesh)", text: $customName)
+            Button("Save") {
+                let name = customName.trimmingCharacters(in: .whitespaces)
+                guard !name.isEmpty else { return }
+                let preset = presets.addCustom(name: name,
+                                               regionRaw: radio.loRa.regionRaw,
+                                               presetRaw: radio.loRa.presetRaw,
+                                               frequencySlot: radio.loRa.frequencySlot,
+                                               hopLimit: radio.loRa.hopLimit)
+                presets.appliedPresetId = preset.id
+                customName = ""
+            }
+            Button("Cancel", role: .cancel) { customName = "" }
+        } message: {
+            Text("Saves the radio's current region, preset, slot, and hop limit as a named configuration in this list.")
+        }
         .sheet(item: $confirming) { preset in
             NavigationStack {
                 PresetConfirmView(preset: preset) {

@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+38. [x] Mesh Setup: "Save Current as Preset…" stores the radio's current
+        region/preset/slot/hop limit as a named custom configuration in the
+        preset list (persisted, adopted as applied); custom rows delete via
+        swipe. Community presets are undeletable.
 37. [~] iCloud sync (messages, nodes, conversations, custom icons): fully
         implemented — CloudKit-compatible schema (no unique constraints, inline
         defaults, launch-time cross-device dedupe), CloudKit-backed store with
