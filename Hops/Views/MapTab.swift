@@ -7,17 +7,232 @@ struct MapTab: View {
     @EnvironmentObject private var appModel: AppModel
     @Query private var nodes: [NodeEntity]
     @Query private var waypoints: [WaypointEntity]
+    @Query private var trailSamples: [PositionSampleEntity]
 
     @State private var selectedNodeNum: Int64?
+    @State private var weatherNodeNum: Int64?
     @State private var position: MapCameraPosition = .automatic
+    @State private var mode: MapMode = .nodes
+    @State private var waypointDraft: WaypointDraft?
     @Namespace private var mapScope
+
+    enum MapMode: String, CaseIterable, Identifiable {
+        case nodes = "Nodes"
+        case weather = "Weather"
+        case mesh = "Mesh"
+        var id: String { rawValue }
+    }
+
+    struct WaypointDraft: Identifiable {
+        let id = UUID()
+        let coordinate: CLLocationCoordinate2D
+    }
 
     private var placedNodes: [NodeEntity] {
         nodes.filter { $0.hasPosition && $0.num != radio.myNodeNum }
     }
 
+    private var myNode: NodeEntity? {
+        nodes.first { $0.num == radio.myNodeNum && $0.hasPosition }
+    }
+
+    private var weatherNodes: [NodeEntity] {
+        nodes.filter { $0.hasPosition && $0.hasRecentEnvironment && !$0.weatherHidden }
+    }
+
     private var activeWaypoints: [WaypointEntity] {
         waypoints.filter { $0.expires == nil || $0.expires! > Date() }
+    }
+
+    /// Trail for the node whose card is open — newest 100 samples, oldest first.
+    private var selectedTrail: [PositionSampleEntity] {
+        guard let num = selectedNodeNum else { return [] }
+        return trailSamples
+            .filter { $0.nodeNum == num }
+            .sorted { $0.timestamp < $1.timestamp }
+            .suffix(100)
+    }
+
+    var body: some View {
+        NavigationStack {
+            MapReader { proxy in
+                Map(position: $position, scope: mapScope) {
+                    UserAnnotation()
+                    switch mode {
+                    case .nodes:
+                        nodeContent
+                        waypointContent
+                    case .weather:
+                        weatherContent
+                    case .mesh:
+                        nodeContent
+                        meshEdges
+                    }
+                    trailContent
+                }
+                // Hybrid + realistic = satellite imagery on a true globe.
+                .mapStyle(.hybrid(elevation: .realistic))
+                .mapControls {
+                    MapCompass()
+                }
+                // Long-press drops a shared waypoint (Nodes view).
+                .gesture(
+                    LongPressGesture(minimumDuration: 0.5)
+                        .sequenced(before: DragGesture(minimumDistance: 0, coordinateSpace: .local))
+                        .onEnded { value in
+                            guard mode == .nodes,
+                                  case .second(true, let drag?) = value,
+                                  let coordinate = proxy.convert(drag.location, from: .local)
+                            else { return }
+                            waypointDraft = WaypointDraft(coordinate: coordinate)
+                        }
+                )
+            }
+            .overlay(alignment: .top) {
+                Picker("Map mode", selection: $mode) {
+                    ForEach(MapMode.allCases) { mode in
+                        Text(mode.rawValue).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 40)
+                .padding(.top, 4)
+                .background(.thinMaterial, in: Capsule())
+                .padding(.horizontal, 32)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                MapUserLocationButton(scope: mapScope)
+                    .buttonBorderShape(.circle)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+            }
+            .mapScope(mapScope)
+            .navigationTitle("Map")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar(.hidden, for: .navigationBar)
+            .sheet(item: $selectedNodeNum) { num in
+                NodeCardView(nodeNum: num) {
+                    selectedNodeNum = nil
+                    appModel.openConversation(ConversationEntity.dmKey(num))
+                }
+                .presentationDetents([.medium])
+            }
+            .sheet(item: $weatherNodeNum) { num in
+                WeatherNodeSheet(nodeNum: num)
+                    .presentationDetents([.height(300)])
+            }
+            .sheet(item: $waypointDraft) { draft in
+                WaypointComposerView(coordinate: draft.coordinate)
+                    .presentationDetents([.height(360)])
+            }
+            .overlay {
+                if mode == .weather && weatherNodes.isEmpty {
+                    ContentUnavailableView(
+                        "No weather reports",
+                        systemImage: "cloud.sun",
+                        description: Text("Nodes with environment sensors appear here as their readings arrive.")
+                    )
+                    .allowsHitTesting(false)
+                }
+            }
+        }
+    }
+
+    // MARK: - Layers
+
+    @MapContentBuilder
+    private var nodeContent: some MapContent {
+        ForEach(displayNodes, id: \.node.num) { placed in
+            let node = placed.node
+            if node.precisionBits > 0 && node.precisionBits < 32 {
+                MapCircle(center: node.coordinate, radius: node.precisionRadius)
+                    .foregroundStyle(Color.accentColor.opacity(0.15))
+                    .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
+            }
+            Annotation(node.displayName, coordinate: placed.coordinate) {
+                MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
+                               dimmed: !node.isOnline, imageData: node.iconData)
+                    .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                    .shadow(radius: 2)
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        selectedNodeNum = node.num
+                    }
+            }
+        }
+    }
+
+    @MapContentBuilder
+    private var waypointContent: some MapContent {
+        ForEach(activeWaypoints) { waypoint in
+            Annotation(waypoint.name, coordinate: CLLocationCoordinate2D(latitude: waypoint.latitude, longitude: waypoint.longitude)) {
+                Text(waypoint.icon)
+                    .font(.title3)
+                    .padding(4)
+                    .background(.thinMaterial, in: Circle())
+            }
+        }
+    }
+
+    @MapContentBuilder
+    private var weatherContent: some MapContent {
+        ForEach(weatherNodes, id: \.num) { node in
+            Annotation(node.displayName, coordinate: node.coordinate) {
+                WeatherPill(node: node)
+                    .onTapGesture {
+                        weatherNodeNum = node.num
+                    }
+            }
+        }
+    }
+
+    /// Direct (0-hop) links from our node, plus edges other nodes report
+    /// via NeighborInfo — line strength follows SNR.
+    @MapContentBuilder
+    private var meshEdges: some MapContent {
+        if let mine = myNode {
+            ForEach(placedNodes.filter { $0.hopsAway == 0 }, id: \.num) { neighbor in
+                MapPolyline(coordinates: [mine.coordinate, neighbor.coordinate])
+                    .stroke(Color.accentColor.opacity(0.8), lineWidth: 2.5)
+            }
+        }
+        ForEach(resolvedNeighborEdges) { edge in
+            MapPolyline(coordinates: [edge.a, edge.b])
+                .stroke(.white.opacity(edge.strong ? 0.7 : 0.35), lineWidth: edge.strong ? 2 : 1)
+        }
+    }
+
+    private struct ResolvedEdge: Identifiable {
+        let id: String
+        let a: CLLocationCoordinate2D
+        let b: CLLocationCoordinate2D
+        let strong: Bool
+    }
+
+    private var resolvedNeighborEdges: [ResolvedEdge] {
+        let positioned = Dictionary(uniqueKeysWithValues: nodes.filter(\.hasPosition).map { ($0.num, $0.coordinate) })
+        var seen = Set<String>()
+        return radio.neighborEdges.compactMap { edge in
+            guard let a = positioned[edge.from], let b = positioned[edge.to],
+                  seen.insert(edge.id).inserted else { return nil }
+            return ResolvedEdge(id: edge.id, a: a, b: b, strong: edge.snr > -10)
+        }
+    }
+
+    /// Breadcrumb for the selected node: segments fade with age.
+    @MapContentBuilder
+    private var trailContent: some MapContent {
+        let trail = selectedTrail
+        if trail.count >= 2 {
+            ForEach(1..<trail.count, id: \.self) { index in
+                let age = Double(trail.count - index) / Double(trail.count)
+                MapPolyline(coordinates: [
+                    CLLocationCoordinate2D(latitude: trail[index - 1].latitude, longitude: trail[index - 1].longitude),
+                    CLLocationCoordinate2D(latitude: trail[index].latitude, longitude: trail[index].longitude),
+                ])
+                .stroke(Color.orange.opacity(1.0 - age * 0.75), lineWidth: 3)
+            }
+        }
     }
 
     private struct PlacedNode {
@@ -25,10 +240,8 @@ struct MapTab: View {
         let coordinate: CLLocationCoordinate2D
     }
 
-    /// Nodes sharing a coordinate (common with precision-fuzzed positions, which
-    /// snap to a grid) are spread on a small deterministic ring — ordered by node
-    /// number, so the layout is stable — keeping every pin tappable. Isolated
-    /// nodes stay exactly where reported; precision circles always stay true.
+    /// Nodes sharing a coordinate spread on a small deterministic ring so every
+    /// pin stays tappable; precision circles stay on the true coordinate.
     private var displayNodes: [PlacedNode] {
         let groups = Dictionary(grouping: placedNodes) { node in
             "\((node.latitude * 10_000).rounded()):\((node.longitude * 10_000).rounded())"
@@ -42,8 +255,6 @@ struct MapTab: View {
             let sorted = members.sorted { $0.num < $1.num }
             for (index, node) in sorted.enumerated() {
                 let angle = 2 * Double.pi * Double(index) / Double(sorted.count)
-                // Fuzzed nodes may honestly sit anywhere in their circle; use a
-                // fraction of it (capped), with a 40 m floor for exact stacks.
                 let fuzzed = node.precisionBits > 0 && node.precisionBits < 32
                 let radius = fuzzed ? min(max(40, node.precisionRadius * 0.2), 200) : 40
                 let dLat = radius * cos(angle) / 111_111.0
@@ -53,76 +264,6 @@ struct MapTab: View {
             }
         }
         return placed
-    }
-
-    var body: some View {
-        NavigationStack {
-            Map(position: $position, scope: mapScope) {
-                UserAnnotation()
-                ForEach(displayNodes, id: \.node.num) { placed in
-                    let node = placed.node
-                    // Fuzzed positions render as a precision circle, never a false pin.
-                    if node.precisionBits > 0 && node.precisionBits < 32 {
-                        MapCircle(center: node.coordinate, radius: node.precisionRadius)
-                            .foregroundStyle(Color.accentColor.opacity(0.15))
-                            .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
-                    }
-                    Annotation(node.displayName, coordinate: placed.coordinate) {
-                        // Tap gesture, not Button: buttons claim touches on contact,
-                        // which ate one finger of every pinch over dense pin fields.
-                        MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
-                                       dimmed: !node.isOnline, imageData: node.iconData)
-                            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-                            .shadow(radius: 2)
-                            .contentShape(Circle())
-                            .onTapGesture {
-                                selectedNodeNum = node.num
-                            }
-                    }
-                }
-                ForEach(activeWaypoints) { waypoint in
-                    Annotation(waypoint.name, coordinate: CLLocationCoordinate2D(latitude: waypoint.latitude, longitude: waypoint.longitude)) {
-                        Text(waypoint.icon)
-                            .font(.title3)
-                            .padding(4)
-                            .background(.thinMaterial, in: Circle())
-                    }
-                }
-            }
-            // Hybrid + realistic = satellite imagery on a true globe (space
-            // background zoomed out), with road/place labels kept for context.
-            .mapStyle(.hybrid(elevation: .realistic))
-            .mapControls {
-                MapCompass()
-            }
-            // Locate-me sits bottom-trailing, clear of the title and node pins.
-            .overlay(alignment: .bottomTrailing) {
-                MapUserLocationButton(scope: mapScope)
-                    .buttonBorderShape(.circle)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 16)
-            }
-            .mapScope(mapScope)
-            .navigationTitle("Map")
-            .navigationBarTitleDisplayMode(.inline)
-            .sheet(item: $selectedNodeNum) { num in
-                NodeCardView(nodeNum: num) {
-                    selectedNodeNum = nil
-                    appModel.openConversation(ConversationEntity.dmKey(num))
-                }
-                .presentationDetents([.medium])
-            }
-            .overlay {
-                if placedNodes.isEmpty {
-                    ContentUnavailableView(
-                        "No positions yet",
-                        systemImage: "map",
-                        description: Text("Nodes appear here once they share a location over the mesh.")
-                    )
-                    .allowsHitTesting(false)
-                }
-            }
-        }
     }
 }
 
@@ -139,5 +280,143 @@ extension NodeEntity {
     var precisionRadius: CLLocationDistance {
         23_905_787.925 * pow(0.5, Double(precisionBits))
     }
+
+    var temperatureText: String {
+        Measurement(value: Double(temperature), unit: UnitTemperature.celsius)
+            .formatted(.measurement(width: .narrow, usage: .weather))
+    }
 }
 
+// MARK: - Weather
+
+struct WeatherPill: View {
+    let node: NodeEntity
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Text(node.temperatureText)
+                .font(.footnote.weight(.semibold))
+            if node.humidity >= 0 {
+                Text("\(Int(node.humidity))%")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 5)
+        .background(.regularMaterial, in: Capsule())
+        .overlay(Capsule().strokeBorder(.quaternary, lineWidth: 0.5))
+        .shadow(radius: 1)
+    }
+}
+
+struct WeatherNodeSheet: View {
+    let nodeNum: Int64
+    @Query private var nodes: [NodeEntity]
+    @Environment(\.dismiss) private var dismiss
+
+    init(nodeNum: Int64) {
+        self.nodeNum = nodeNum
+        let num = nodeNum
+        _nodes = Query(filter: #Predicate<NodeEntity> { $0.num == num })
+    }
+
+    var body: some View {
+        NavigationStack {
+            if let node = nodes.first {
+                List {
+                    LabeledContent("Temperature", value: node.temperatureText)
+                    if node.humidity >= 0 {
+                        LabeledContent("Humidity", value: "\(Int(node.humidity))%")
+                    }
+                    if node.pressure > 0 {
+                        LabeledContent("Pressure", value: String(format: "%.0f hPa", node.pressure))
+                    }
+                    if let at = node.envUpdatedAt {
+                        LabeledContent("Updated", value: at.formatted(.relative(presentation: .named)))
+                    }
+                    Button("Hide From Weather Map", role: .destructive) {
+                        node.weatherHidden = true
+                        dismiss()
+                    }
+                }
+                .navigationTitle(node.displayName)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Waypoint composer
+
+struct WaypointComposerView: View {
+    let coordinate: CLLocationCoordinate2D
+
+    @EnvironmentObject private var radio: RadioManager
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name = ""
+    @State private var emoji = "📍"
+    @State private var expireChoice = 0
+
+    private static let emojiChoices = ["📍", "⛺️", "💧", "🍕", "🚻", "🅿️", "⚠️", "🏁", "🔧", "📡"]
+    private static let expireChoices: [(String, TimeInterval?)] = [
+        ("Never", nil), ("1 hour", 3600), ("8 hours", 28800), ("24 hours", 86400),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Name (e.g. Water here)", text: $name)
+                        .onChange(of: name) { _, newValue in
+                            while newValue.utf8.count > 29 { name.removeLast(); return }
+                        }
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 5), spacing: 8) {
+                        ForEach(Self.emojiChoices, id: \.self) { choice in
+                            Button {
+                                emoji = choice
+                            } label: {
+                                Text(choice)
+                                    .font(.title3)
+                                    .padding(6)
+                                    .background(emoji == choice ? Color.accentColor.opacity(0.25) : .clear,
+                                                in: Circle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    Picker("Expires", selection: $expireChoice) {
+                        ForEach(Array(Self.expireChoices.enumerated()), id: \.offset) { index, choice in
+                            Text(choice.0).tag(index)
+                        }
+                    }
+                } footer: {
+                    Text("Broadcast on your primary channel — anyone on the mesh sees it on their map.")
+                }
+            }
+            .navigationTitle("Drop Waypoint")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Send") {
+                        let expire = Self.expireChoices[expireChoice].1.map { Date().addingTimeInterval($0) }
+                        radio.sendWaypoint(name: name.isEmpty ? "Waypoint" : name, emoji: emoji,
+                                           latitude: coordinate.latitude, longitude: coordinate.longitude,
+                                           expire: expire, channel: 0)
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+    }
+}

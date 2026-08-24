@@ -130,9 +130,23 @@ final class NodeEntity {
     @Attribute(.externalStorage) var iconData: Data?
     /// Local override name; empty = use the mesh-reported longName.
     var customName: String = ""
+    /// PKI: a different key arrived after we pinned the first one.
+    var keyChanged: Bool = false
+    // Environment telemetry (sentinels = unknown).
+    var temperature: Float = -1000     // °C
+    var humidity: Float = -1           // %
+    var pressure: Float = -1           // hPa
+    var envUpdatedAt: Date?
+    /// User chose to hide this node's readings from the Weather map.
+    var weatherHidden: Bool = false
 
     /// What to show anywhere this node is named.
     var displayName: String { customName.isEmpty ? longName : customName }
+
+    var hasRecentEnvironment: Bool {
+        guard temperature > -999, let at = envUpdatedAt else { return false }
+        return Date().timeIntervalSince(at) < 6 * 60 * 60
+    }
 
     init(num: Int64) {
         self.num = num
@@ -187,6 +201,23 @@ final class ChannelEntity {
     static let reservedNames: Set<String> = ["admin", "gpio", "serial", "mqtt"]
     var isReserved: Bool { Self.reservedNames.contains(name.lowercased()) }
     var isActive: Bool { roleRaw != 0 && !isReserved }
+}
+
+// MARK: - Position samples (trails)
+
+@Model
+final class PositionSampleEntity {
+    var nodeNum: Int64 = 0
+    var latitude: Double = 0
+    var longitude: Double = 0
+    var timestamp: Date = Date(timeIntervalSince1970: 0)
+
+    init(nodeNum: Int64, latitude: Double, longitude: Double, timestamp: Date) {
+        self.nodeNum = nodeNum
+        self.latitude = latitude
+        self.longitude = longitude
+        self.timestamp = timestamp
+    }
 }
 
 // MARK: - Waypoint

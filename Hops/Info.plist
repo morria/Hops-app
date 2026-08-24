@@ -32,6 +32,8 @@
 	<string>Hops uses the camera to scan channel QR codes so you can join a mesh.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Hops shows your location on the mesh map and lets you share it in a conversation.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>bluetooth-central</string>

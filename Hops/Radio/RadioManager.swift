@@ -31,6 +31,26 @@ final class RadioManager: ObservableObject {
     @Published private(set) var textMessagesHeard = 0
     @Published private(set) var lastMeshPacketAt: Date?
 
+    // Store & Forward: the last router heard heartbeating, for history recovery.
+    private var sfRouterNum: Int64 {
+        get { Int64(defaults.integer(forKey: "sfRouterNum")) }
+        set { defaults.set(newValue, forKey: "sfRouterNum") }
+    }
+    private var sfRouterHeardAt: Date? {
+        get { defaults.object(forKey: "sfRouterHeardAt") as? Date }
+        set { defaults.set(newValue, forKey: "sfRouterHeardAt") }
+    }
+
+    /// Mesh-topology edges learned from NeighborInfo broadcasts (session-only):
+    /// (reporter, neighbor, snr).
+    @Published private(set) var neighborEdges: [NeighborEdge] = []
+    struct NeighborEdge: Identifiable, Equatable {
+        let from: Int64
+        let to: Int64
+        let snr: Float
+        var id: String { "\(min(from, to))-\(max(from, to))" }
+    }
+
     // Device configs mirrored from the connect-time dump; nil until received.
     @Published var bluetoothConfig: Config.BluetoothConfig?
     @Published var displayConfig: Config.DisplayConfig?
@@ -140,7 +160,10 @@ final class RadioManager: ObservableObject {
     func configure(container: ModelContainer) {
         let store = MessageStore(modelContainer: container)
         self.store = store
-        Task { await store.repairConversations() }
+        Task {
+            await store.repairConversations()
+            await store.pruneTrails()
+        }
     }
 
     // MARK: - Pairing
@@ -270,6 +293,7 @@ final class RadioManager: ObservableObject {
             touchLastSynced()
             needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
             flushOutboxAndSweep()
+            requestStoreForwardHistoryIfUseful()
             // Friendly default name for a blank primary channel: the applied
             // metro's name ("NYC Mesh"), handled store-side only when unnamed.
             if let id = MetroPresetStore.shared.appliedPresetId,
@@ -419,6 +443,17 @@ final class RadioManager: ObservableObject {
         case .routingApp:
             guard decoded.requestID != 0, let routing = try? Routing(serializedBytes: decoded.payload) else { return }
             let errorRaw = Int32(routing.errorReason.rawValue)
+            let requestId = Int64(decoded.requestID)
+            if errorRaw != 0 {
+                LiveActivityManager.shared.update(packetId: requestId,
+                                                  status: "Couldn't deliver", phase: 3, final: true)
+            } else if packet.from != packet.to && fromNum != myNodeNum {
+                LiveActivityManager.shared.update(packetId: requestId,
+                                                  status: "Delivered to their radio", phase: 2, final: true)
+            } else {
+                LiveActivityManager.shared.update(packetId: requestId,
+                                                  status: "Relayed by the mesh…", phase: 1, final: false)
+            }
             Task {
                 await store.applyRoutingResult(requestId: decoded.requestID,
                                                errorRaw: errorRaw,
@@ -444,6 +479,38 @@ final class RadioManager: ObservableObject {
         case .waypointApp:
             guard let waypoint = try? Waypoint(serializedBytes: decoded.payload) else { return }
             Task { await store.applyWaypoint(waypoint, from: fromNum) }
+
+        case .storeForwardApp:
+            guard let sf = try? StoreAndForward(serializedBytes: decoded.payload) else { return }
+            switch sf.rr {
+            case .routerHeartbeat:
+                sfRouterNum = fromNum
+                sfRouterHeardAt = Date()
+            case .routerTextDirect, .routerTextBroadcast:
+                // History replay: the router preserves the original sender in `from`.
+                guard let text = String(data: sf.text, encoding: .utf8) else { return }
+                let myNum = myNodeNum
+                let isBroadcast = sf.rr == .routerTextBroadcast
+                let channel = Int32(packet.channel)
+                Task {
+                    if let inbound = await store.ingestStoreForwardText(
+                        from: fromNum, text: text, isBroadcast: isBroadcast,
+                        channel: channel, myNum: myNum) {
+                        await MainActor.run { self.notifyIfAppropriate(inbound) }
+                    }
+                }
+            default:
+                break
+            }
+
+        case .neighborinfoApp:
+            guard let info = try? NeighborInfo(serializedBytes: decoded.payload) else { return }
+            let reporter = Int64(info.nodeID)
+            var edges = neighborEdges.filter { $0.from != reporter }
+            for neighbor in info.neighbors {
+                edges.append(NeighborEdge(from: reporter, to: Int64(neighbor.nodeID), snr: neighbor.snr))
+            }
+            neighborEdges = Array(edges.suffix(300))
 
         case .adminApp:
             // Read-backs: the radio's answers to getConfig/getModuleConfig requests.
@@ -566,6 +633,15 @@ final class RadioManager: ObservableObject {
                                                      connected: connected)
             if connected {
                 await MainActor.run { self.transmit(record) }
+                // The delivery drama, live: DMs only, not reactions.
+                if case .node(let num) = destination, !isEmoji {
+                    let snapshot = await store.nodeSnapshot(num: num)
+                    await MainActor.run {
+                        LiveActivityManager.shared.start(packetId: Int64(packetId),
+                                                         peerName: snapshot?.longName ?? "Mesh node",
+                                                         preview: text)
+                    }
+                }
             }
         }
     }
@@ -635,6 +711,68 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+    }
+
+    /// Ask a known Store & Forward router to replay messages covering our offline
+    /// window. Only when a router heartbeated recently and we were actually away.
+    private func requestStoreForwardHistoryIfUseful() {
+        guard sfRouterNum > 0,
+              let heard = sfRouterHeardAt, Date().timeIntervalSince(heard) < 3 * 60 * 60,
+              let last = lastSyncedAt else { return }
+        let awayMinutes = Int(Date().timeIntervalSince(last) / 60)
+        guard awayMinutes >= 5 else { return }
+
+        var sf = StoreAndForward()
+        sf.rr = .clientHistory
+        sf.history.window = UInt32(min(awayMinutes + 10, 240))
+        var decoded = DataMessage()
+        decoded.portnum = .storeForwardApp
+        decoded.payload = (try? sf.serializedData()) ?? Data()
+        decoded.wantResponse = true
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: sfRouterNum)
+        packet.decoded = decoded
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+    }
+
+    /// Broadcast a waypoint (shared pin) on a channel.
+    func sendWaypoint(name: String, emoji: String, latitude: Double, longitude: Double,
+                      expire: Date?, channel index: Int32) {
+        guard let store else { return }
+        var waypoint = Waypoint()
+        waypoint.id = newPacketId()
+        waypoint.latitudeI = Int32(latitude * 1e7)
+        waypoint.longitudeI = Int32(longitude * 1e7)
+        waypoint.name = String(name.prefix(29))
+        if let scalar = emoji.unicodeScalars.first {
+            waypoint.icon = scalar.value
+        }
+        if let expire {
+            waypoint.expire = UInt32(expire.timeIntervalSince1970)
+        }
+
+        var decoded = DataMessage()
+        decoded.portnum = .waypointApp
+        decoded.payload = (try? waypoint.serializedData()) ?? Data()
+
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32.max
+        packet.channel = UInt32(index)
+        packet.decoded = decoded
+
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+        // Show it locally right away.
+        let myNum = myNodeNum
+        let wp = waypoint
+        Task { await store.applyWaypoint(wp, from: myNum) }
     }
 
     /// Broadcast our NodeInfo on a channel right now, instead of waiting for the

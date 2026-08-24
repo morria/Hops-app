@@ -13,14 +13,17 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: 7Q2SS8772K
 targets:
   Hops:
     type: application
     platform: iOS
     sources:
       - path: Hops
+      - path: Shared
     dependencies:
       - package: MeshtasticProtobufs
+      - target: HopsWidgets
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.hops
@@ -43,4 +46,21 @@ targets:
         NSBluetoothAlwaysUsageDescription: Hops connects to your Meshtastic radio over Bluetooth to send and receive messages.
         NSCameraUsageDescription: Hops uses the camera to scan channel QR codes so you can join a mesh.
         NSLocationWhenInUseUsageDescription: Hops shows your location on the mesh map and lets you share it in a conversation.
+        NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
+  HopsWidgets:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: HopsWidgets
+      - path: Shared
+    info:
+      path: HopsWidgets/Info.plist
+      properties:
+        CFBundleDisplayName: Hops
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.hops.widgets
+        SKIP_INSTALL: YES

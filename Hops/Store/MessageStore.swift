@@ -68,8 +68,12 @@ actor MessageStore {
         if !user.longName.isEmpty { node.longName = user.longName }
         if !user.shortName.isEmpty { node.shortName = user.shortName }
         node.roleRaw = Int32(user.role.rawValue)
-        if !user.publicKey.isEmpty && node.publicKey.isEmpty {
-            node.publicKey = user.publicKey  // first-use key policy
+        if !user.publicKey.isEmpty {
+            if node.publicKey.isEmpty {
+                node.publicKey = user.publicKey  // first-use key policy
+            } else if node.publicKey != user.publicKey {
+                node.keyChanged = true           // pinned key differs — surface it
+            }
         }
         if user.hasIsUnmessagable {
             node.unmessagable = user.isUnmessagable
@@ -81,10 +85,31 @@ actor MessageStore {
         let lon = Double(position.longitudeI) * 1e-7
         // Reject null island and the simulator default.
         guard lat != 0 || lon != 0 else { return }
+        let moved = abs(node.latitude - lat) > 0.0002 || abs(node.longitude - lon) > 0.0002
         node.latitude = lat
         node.longitude = lon
         node.hasPosition = true
         node.precisionBits = Int32(position.precisionBits)
+        // Trail sample on meaningful movement (~25 m), capped per node.
+        if moved {
+            modelContext.insert(PositionSampleEntity(nodeNum: node.num, latitude: lat,
+                                                     longitude: lon, timestamp: Date()))
+        }
+    }
+
+    /// Trim trail samples: older than 24 h, or beyond 200 per node.
+    func pruneTrails() {
+        let cutoff = Date().addingTimeInterval(-24 * 60 * 60)
+        let old = (try? modelContext.fetch(FetchDescriptor<PositionSampleEntity>(
+            predicate: #Predicate { $0.timestamp < cutoff }))) ?? []
+        for sample in old { modelContext.delete(sample) }
+        let all = (try? modelContext.fetch(FetchDescriptor<PositionSampleEntity>())) ?? []
+        for (_, group) in Dictionary(grouping: all, by: { $0.nodeNum }) where group.count > 200 {
+            for sample in group.sorted(by: { $0.timestamp < $1.timestamp }).dropLast(200) {
+                modelContext.delete(sample)
+            }
+        }
+        try? modelContext.save()
     }
 
     func applyPositionPacket(_ position: Position, from num: Int64) {
@@ -94,10 +119,45 @@ actor MessageStore {
     }
 
     func applyTelemetry(_ telemetry: Telemetry, from num: Int64) {
-        guard case .deviceMetrics(let metrics) = telemetry.variant, metrics.hasBatteryLevel else { return }
-        let node = upsertNode(num: num)
-        node.batteryLevel = Int(metrics.batteryLevel)
+        switch telemetry.variant {
+        case .deviceMetrics(let metrics):
+            guard metrics.hasBatteryLevel else { return }
+            let node = upsertNode(num: num)
+            node.batteryLevel = Int(metrics.batteryLevel)
+        case .environmentMetrics(let metrics):
+            let node = upsertNode(num: num)
+            if metrics.hasTemperature { node.temperature = metrics.temperature }
+            if metrics.hasRelativeHumidity { node.humidity = metrics.relativeHumidity }
+            if metrics.hasBarometricPressure { node.pressure = metrics.barometricPressure }
+            node.envUpdatedAt = Date()
+        default:
+            return
+        }
         try? modelContext.save()
+    }
+
+    /// Store & Forward history replay: replays carry fresh packet ids and replay-time
+    /// timestamps, so dedup is content-based — same sender + same text within the
+    /// recovery horizon means we already have it.
+    func ingestStoreForwardText(from senderNum: Int64, text: String, isBroadcast: Bool,
+                                channel: Int32, myNum: Int64) -> InboundMessage? {
+        guard !text.isEmpty, senderNum != myNum else { return nil }
+        let horizon = Date().addingTimeInterval(-48 * 60 * 60)
+        let existing = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.fromNum == senderNum && $0.text == text && $0.timestamp > horizon }
+        ))) ?? []
+        guard existing.isEmpty else { return nil }
+
+        var packet = MeshPacket()
+        packet.id = UInt32.random(in: 0x100..<UInt32.max)
+        packet.from = UInt32(truncatingIfNeeded: senderNum)
+        packet.to = isBroadcast ? UInt32.max : UInt32(truncatingIfNeeded: myNum)
+        packet.channel = UInt32(channel)
+        var decoded = DataMessage()
+        decoded.portnum = .textMessageApp
+        decoded.payload = text.data(using: .utf8) ?? Data()
+        packet.decoded = decoded
+        return ingestTextMessage(packet: packet, myNum: myNum)
     }
 
     // MARK: - Channel ingest

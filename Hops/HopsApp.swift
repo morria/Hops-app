@@ -14,7 +14,7 @@ struct HopsApp: App {
 
     init() {
         let schema = Schema([ConversationEntity.self, MessageEntity.self, NodeEntity.self,
-                             ChannelEntity.self, WaypointEntity.self])
+                             ChannelEntity.self, WaypointEntity.self, PositionSampleEntity.self])
         do {
             // iCloud-synced store: messages, nodes, conversations, custom icons
             // follow the user across devices. Falls back to local-only if the

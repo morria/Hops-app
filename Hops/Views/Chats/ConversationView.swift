@@ -47,6 +47,14 @@ struct ConversationView: View {
         return nil
     }
 
+    private var peerSecurity: (hasKey: Bool, keyChanged: Bool)? {
+        guard case .node(let num) = destination,
+              let node = try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+              ).first else { return nil }
+        return (!node.publicKey.isEmpty, node.keyChanged)
+    }
+
     private var peerMonogram: String {
         if case .node(let num) = destination {
             let node = try? modelContext.fetch(
@@ -118,6 +126,18 @@ struct ConversationView: View {
                     Text(title)
                         .font(.headline)
                         .lineLimit(1)
+                    // PKI state at a glance: locked = end-to-end encrypted DM.
+                    if isDM, let security = peerSecurity {
+                        if security.keyChanged {
+                            Image(systemName: "exclamationmark.shield.fill")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                        } else if security.hasKey {
+                            Image(systemName: "lock.fill")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
             if isDM {
@@ -303,7 +323,7 @@ struct ConversationView: View {
                 .background(.thinMaterial)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                shareLocationButton
+                plusMenu
                 HStack(alignment: .bottom) {
                     TextField("Message", text: $draft, axis: .vertical)
                         .lineLimit(1...5)
@@ -341,15 +361,20 @@ struct ConversationView: View {
         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
 
-    private var shareLocationButton: some View {
-        Button {
-            shareLocation()
+    /// Special sends live behind a deliberate "+" so location can't be fat-fingered.
+    private var plusMenu: some View {
+        Menu {
+            Button {
+                shareLocation()
+            } label: {
+                Label("Send My Location", systemImage: "location.fill")
+            }
         } label: {
-            Image(systemName: "location.circle")
+            Image(systemName: "plus.circle")
                 .font(.system(size: 28))
                 .foregroundStyle(.secondary)
         }
-        .accessibilityLabel("Share my location")
+        .accessibilityLabel("Send something special")
     }
 
     private func send() {

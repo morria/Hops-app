@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 import MapKit
 import PhotosUI
+import CryptoKit
 
 /// The single node card, shared by the DM info button and the map's node panel:
 /// identity, last heard, battery, hops, signal — plus Message and Directions.
@@ -63,6 +64,42 @@ struct NodeCardView: View {
                         if node.snr != 0 {
                             LabeledContent("Signal (SNR)", value: String(format: "%.1f dB", node.snr))
                         }
+                    }
+
+                    Section {
+                        if node.keyChanged {
+                            Label {
+                                Text("This node's encryption key changed since it was first seen. Verify with the owner before trusting messages — a changed key can mean a reflashed radio, or an impersonator.")
+                                    .font(.footnote)
+                            } icon: {
+                                Image(systemName: "exclamationmark.shield.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        LabeledContent("Encryption") {
+                            if node.publicKey.isEmpty {
+                                Text("Channel key only")
+                            } else {
+                                Label("End-to-end (PKI)", systemImage: "lock.fill")
+                                    .labelStyle(.titleAndIcon)
+                                    .foregroundStyle(node.keyChanged ? .orange : .green)
+                            }
+                        }
+                        if !node.publicKey.isEmpty {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Key fingerprint")
+                                    .font(.subheadline)
+                                Text(fingerprint(node.publicKey))
+                                    .font(.caption.monospaced())
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                                Text("Compare with the owner over another channel to verify.")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                    } header: {
+                        Text("Security")
                     }
 
                     Section("Customize") {
@@ -170,6 +207,17 @@ struct NodeCardView: View {
             convo.title = node.displayName
         }
         try? modelContext.save()
+    }
+
+    /// Human-comparable digest of the peer's public key (SHA-256, grouped hex).
+    private func fingerprint(_ key: Data) -> String {
+        let digest = SHA256.hash(data: key)
+        let hex = digest.map { String(format: "%02x", $0) }.joined().prefix(32)
+        return stride(from: 0, to: hex.count, by: 4).map { offset -> String in
+            let start = hex.index(hex.startIndex, offsetBy: offset)
+            let end = hex.index(start, offsetBy: 4)
+            return String(hex[start..<end])
+        }.joined(separator: " ")
     }
 
     private func openInMaps(_ node: NodeEntity) {

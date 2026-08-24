@@ -4,6 +4,31 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+74. [x] Composer accessory is now a "+" menu (Send My Location inside) so
+        location can't be fat-fingered; extensible for future special sends.
+73. [x] Map modes: Nodes / Weather / Mesh segmented control. Weather shows
+        temp/humidity pills (locale units) for nodes with recent environment
+        telemetry; tapping opens details with a Hide From Weather Map action.
+        Mesh draws direct-neighbor edges from our node plus NeighborInfo-derived
+        edges (opacity by SNR).
+72. [x] Waypoint authoring: long-press the map (Nodes view) → composer with
+        name, emoji grid, expiry → broadcast on primary channel; appears locally
+        immediately.
+71. [x] Position trails: samples recorded on ~25 m movement (24 h / 200-sample
+        retention); opening a node's card draws its breadcrumb, fading with age.
+70. [x] Live Activity experiment: outgoing DMs run a Dynamic Island/lock-screen
+        activity — Sending… → Relayed by the mesh… → Delivered to their radio ✓
+        (or Couldn't deliver), with stale-timeout safety. New HopsWidgets
+        extension target.
+69. [x] PKI legibility: lock badge in DM title bars (orange shield when the
+        pinned key changed), Security section on the node card with encryption
+        state, SHA-256 key fingerprint for out-of-band comparison, and a
+        key-change warning. Key changes now flagged at ingest.
+68. [x] Store & Forward auto-recovery: S&F router heartbeats tracked; on
+        reconnect after ≥5 min away (router heard <3 h ago) Hops requests
+        history for the offline window; replays ingest with content-based dedup
+        (sender+text within 48 h) since replay packet ids/timestamps differ.
+
 50. [x] Connection status (spinner + text) moved inline, right of the "Chats"
         title, instead of a centered capsule row below the search bar.
 49. [x] Send-my-location works: proper async location provider (authorization
