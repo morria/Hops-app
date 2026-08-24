@@ -113,8 +113,12 @@ struct ChatsListView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Chats")
-                .font(.largeTitle.bold())
+            HStack(spacing: 10) {
+                Text("Chats")
+                    .font(.largeTitle.bold())
+                StatusCapsule()
+                Spacer()
+            }
             HStack(spacing: 10) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
@@ -142,11 +146,6 @@ struct ChatsListView: View {
                         .background(Color(.secondarySystemBackground), in: Circle())
                 }
                 .accessibilityLabel("New Message")
-            }
-            HStack {
-                Spacer()
-                StatusCapsule()
-                Spacer()
             }
         }
         .padding(.horizontal, 16)

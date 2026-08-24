@@ -165,6 +165,11 @@ struct ConversationView: View {
         .onChange(of: transcript.count) {
             markRead()
         }
+        .alert("Can't get your location", isPresented: $locationFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("Allow location access for Hops in Settings, then try again.")
+        }
     }
 
     // MARK: - Transcript
@@ -346,14 +351,21 @@ struct ConversationView: View {
         radio.sendText(emoji, to: destination, isEmoji: true, replyId: message.packetId)
     }
 
+    @State private var locationFailed = false
+
     private func shareLocation() {
         guard let destination else { return }
-        let manager = CLLocationManager()
-        manager.requestWhenInUseAuthorization()
-        if let location = manager.location {
-            radio.sendCurrentPosition(latitude: location.coordinate.latitude,
-                                      longitude: location.coordinate.longitude,
-                                      to: destination)
+        Task {
+            guard let location = await LocationProvider.shared.current() else {
+                locationFailed = true
+                return
+            }
+            let lat = location.coordinate.latitude
+            let lon = location.coordinate.longitude
+            // Text so it's visible in any client's transcript (with delivery
+            // state), plus the standard waypoint so maps get a pin.
+            radio.sendText(String(format: "📍 %.5f, %.5f", lat, lon), to: destination)
+            radio.sendCurrentPosition(latitude: lat, longitude: lon, to: destination)
         }
     }
 

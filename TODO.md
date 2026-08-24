@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+50. [x] Connection status (spinner + text) moved inline, right of the "Chats"
+        title, instead of a centered capsule row below the search bar.
+49. [x] Send-my-location works: proper async location provider (authorization
+        flow, one-shot fix, denial alert). Sends coordinates as a visible text
+        message (with delivery state) plus the standard waypoint for maps.
 48. [x] Map renders with realistic elevation — zoomed out it's a globe.
 47. [x] Pinch-zoom works over crowded pin fields: node pins switched from
         Buttons (which claimed touches on contact, eating one finger of every
