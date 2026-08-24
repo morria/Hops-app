@@ -14,6 +14,7 @@ struct ChatsListView: View {
     @State private var searchText = ""
     @State private var showCompose = false
     @State private var path = NavigationPath()
+    @State private var deleteTarget: ConversationEntity?
     @State private var photoTarget: ConversationEntity?
     @State private var showPhotoPicker = false
     @State private var pickedPhoto: PhotosPickerItem?
@@ -71,6 +72,19 @@ struct ChatsListView: View {
                 AvatarCropView(image: box.image) { cropped in
                     setIconData(cropped.jpegData(compressionQuality: 0.85), for: box.target)
                 }
+            }
+            .confirmationDialog("Delete this conversation?",
+                                isPresented: Binding(get: { deleteTarget != nil },
+                                                     set: { if !$0 { deleteTarget = nil } }),
+                                titleVisibility: .visible) {
+                Button("Delete Conversation", role: .destructive) {
+                    if let target = deleteTarget {
+                        deleteConversation(target)
+                    }
+                    deleteTarget = nil
+                }
+            } message: {
+                Text("Removes the conversation and its messages from this phone. A channel that still exists on your radio will reappear empty; mesh messages can't be deleted remotely.")
             }
             .onAppear {
                 // Consume a deep link that arrived while this tab wasn't built yet
@@ -259,6 +273,11 @@ struct ChatsListView: View {
             .tint(.blue)
         }
         .swipeActions(edge: .trailing) {
+            Button(role: .destructive) {
+                deleteTarget = convo
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
             Button {
                 convo.notifyLevel = convo.notifyLevel == .muted ? .all : .muted
             } label: {
@@ -268,6 +287,19 @@ struct ChatsListView: View {
             .tint(.indigo)
         }
         .contextMenu { swipeMenuItems(for: convo) }
+    }
+
+    private func deleteConversation(_ convo: ConversationEntity) {
+        let key = convo.key
+        NotificationManager.shared.clearNotifications(for: key)
+        let messages = (try? modelContext.fetch(
+            FetchDescriptor<MessageEntity>(predicate: #Predicate { $0.conversationKey == key })
+        )) ?? []
+        for message in messages {
+            modelContext.delete(message)
+        }
+        modelContext.delete(convo)
+        try? modelContext.save()
     }
 
     @ViewBuilder
@@ -298,6 +330,12 @@ struct ChatsListView: View {
             } label: {
                 Label("Remove Photo", systemImage: "photo.badge.exclamationmark")
             }
+        }
+        Divider()
+        Button(role: .destructive) {
+            deleteTarget = convo
+        } label: {
+            Label("Delete Conversation", systemImage: "trash")
         }
     }
 

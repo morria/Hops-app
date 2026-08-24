@@ -9,7 +9,16 @@ struct EmojiReactionSheet: View {
 
     @State private var query = ""
     @State private var allEmoji: [EmojiItem] = []
+    @State private var picked = false
     @Environment(\.dismiss) private var dismiss
+
+    /// One reaction per presentation: send, then close the sheet immediately.
+    private func pick(_ emoji: String) {
+        guard !picked else { return }
+        picked = true
+        onPick(emoji)
+        dismiss()
+    }
 
     struct EmojiItem: Identifiable {
         let id = UUID()
@@ -39,7 +48,7 @@ struct EmojiReactionSheet: View {
                     .onChange(of: query) { _, newValue in
                         // An emoji typed from the emoji keyboard sends right away.
                         if let emojiChar = newValue.first(where: { $0.isEmojiLike }) {
-                            onPick(String(emojiChar))
+                            pick(String(emojiChar))
                         }
                     }
 
@@ -89,7 +98,7 @@ struct EmojiReactionSheet: View {
             LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 8), spacing: 10) {
                 ForEach(items) { item in
                     Button {
-                        onPick(item.emoji)
+                        pick(item.emoji)
                     } label: {
                         Text(item.emoji).font(.title2)
                     }

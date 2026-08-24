@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+44. [x] Reaction sheet closes itself immediately on pick (one-shot guard also
+        prevents duplicate sends from the typed-emoji path).
+43. [x] Conversations can be deleted from the list via swipe or long-press, with
+        a confirmation explaining local-only deletion (channels on the radio
+        reappear empty; mesh messages can't be deleted remotely).
 42. [x] Map locate-me button moved to bottom-trailing via a custom-scoped
         MapUserLocationButton, clear of the title area.
 41. [x] Photo association now offers pinch-to-zoom + drag positioning in a
