@@ -65,6 +65,7 @@ enum MessageStatus: Int {
     case deliveredToRadio = 4  // DM: recipient's radio acked
     case sentToMesh = 5        // channel broadcast: terminal success
     case failed = 6            // NAK or timeout
+    case waitingForPeer = 7    // held until the recipient's radio is heard again
 }
 
 @Model

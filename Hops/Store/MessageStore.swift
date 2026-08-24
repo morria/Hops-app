@@ -21,11 +21,47 @@ actor MessageStore {
     }
 
     /// Identity fields for building an outbound NodeInfo announcement.
-    func nodeSnapshot(num: Int64) -> (longName: String, shortName: String, publicKey: Data)? {
+    func nodeSnapshot(num: Int64) -> (longName: String, shortName: String, publicKey: Data, lastHeard: Date?)? {
         guard let node = try? modelContext.fetch(
             FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
         ).first else { return nil }
-        return (node.longName, node.shortName, node.publicKey)
+        return (node.longName, node.shortName, node.publicKey, node.lastHeard)
+    }
+
+    /// Send-when-reachable: release messages held for a peer we just heard.
+    func releaseWaitingForPeer(_ peerNum: Int64) -> [OutgoingRecord] {
+        let waitingRaw = MessageStatus.waitingForPeer.rawValue
+        let held = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.toNum == peerNum && $0.statusRaw == waitingRaw }))) ?? []
+        guard !held.isEmpty else { return [] }
+        let publicKey = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
+            predicate: #Predicate { $0.num == peerNum })).first)?.publicKey ?? Data()
+        var records: [OutgoingRecord] = []
+        for message in held.sorted(by: { $0.timestamp < $1.timestamp }) {
+            message.status = .sending
+            records.append(OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
+                                          channel: message.channel, text: message.text,
+                                          isEmoji: message.isEmoji, replyId: message.replyId,
+                                          peerPublicKey: publicKey))
+        }
+        try? modelContext.save()
+        return records
+    }
+
+    /// "Send Now" override on a held message.
+    func recordForceSend(packetId: Int64) -> OutgoingRecord? {
+        guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.packetId == packetId })).first,
+              message.status == .waitingForPeer else { return nil }
+        message.status = .sending
+        let peer = message.toNum
+        let publicKey = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
+            predicate: #Predicate { $0.num == peer })).first)?.publicKey ?? Data()
+        try? modelContext.save()
+        return OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
+                              channel: message.channel, text: message.text,
+                              isEmoji: message.isEmoji, replyId: message.replyId,
+                              peerPublicKey: publicKey)
     }
 
     /// Mirrors firmware NodeDB.updateFrom: every packet bumps liveness.
@@ -406,7 +442,8 @@ actor MessageStore {
     }
 
     func persistOutgoing(packetId: Int64, myNum: Int64, destination: MessageDestinationRef,
-                         text: String, isEmoji: Bool, replyId: Int64, connected: Bool) -> OutgoingRecord {
+                         text: String, isEmoji: Bool, replyId: Int64, connected: Bool,
+                         holdForPeer: Bool = false) -> OutgoingRecord {
         let key: String
         let toNum: Int64
         let channel: Int32
@@ -435,7 +472,7 @@ actor MessageStore {
             text: text,
             timestamp: Date(),
             outgoing: true,
-            status: connected ? .sending : .waitingForRadio,
+            status: !connected ? .waitingForRadio : (holdForPeer ? .waitingForPeer : .sending),
             isEmoji: isEmoji,
             replyId: replyId
         )

@@ -376,6 +376,7 @@ struct ConversationView: View {
             onReactOther: { reactionTarget = message },
             onShowReactions: { reactionDetails = message },
             onShowSender: { senderCard = message.fromNum },
+            onSendNow: { radio.forceSendNow(packetId: message.packetId) },
             onRetry: { radio.retry(packetId: message.packetId) }
         )
     }
@@ -522,6 +523,7 @@ struct MessageBubble: View {
     var onReactOther: () -> Void
     var onShowReactions: () -> Void
     var onShowSender: () -> Void
+    var onSendNow: () -> Void = {}
     var onRetry: () -> Void
 
     private static let tapbackChoices = ["❤️", "👍", "👎", "🤣", "‼️", "❓"]
@@ -625,6 +627,13 @@ struct MessageBubble: View {
                     Label("Retry", systemImage: "arrow.clockwise")
                 }
             }
+            if message.status == .waitingForPeer {
+                Button {
+                    onSendNow()
+                } label: {
+                    Label("Send Now", systemImage: "paperplane")
+                }
+            }
         }
     }
 
@@ -634,6 +643,8 @@ struct MessageBubble: View {
             switch message.status {
             case .waitingForRadio:
                 statusText("Waiting for radio…", color: .secondary)
+            case .waitingForPeer:
+                statusText("Waiting for their radio — sends when it's heard", color: .secondary)
             case .sending:
                 statusText(stale ? "Still sending — mesh delivery can take a few minutes" : "Sending…",
                            color: .secondary)

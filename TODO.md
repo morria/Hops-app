@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+99. [x] Book-as-mailbox: a 60 s outbox sweep while connected sends messages
+        that synced in from another device via iCloud — compose on the phone
+        anywhere, the home device with the base radio transmits. Duplicate
+        transmits share a packet id, which the mesh dedupes.
+98. [x] Send-when-reachable: DMs to peers silent 30+ min are held
+        ("Waiting for their radio — sends when it's heard") and released the
+        moment any packet arrives from them; long-press offers Send Now.
+
 97. [x] Live Activity extended to channel sends (was DM-only, which is why it
         never appeared for channel-first usage): channel broadcasts run the
         activity and terminate on the implicit ack as "Sent to mesh".

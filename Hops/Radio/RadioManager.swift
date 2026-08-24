@@ -319,6 +319,7 @@ final class RadioManager: ObservableObject {
             touchLastSynced()
             needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
             flushOutboxAndSweep()
+            startOutboxSweep()
             requestStoreForwardHistoryIfUseful()
             // Friendly default name for a blank primary channel: the applied
             // metro's name ("NYC Mesh"), handled store-side only when unnamed.
@@ -348,6 +349,19 @@ final class RadioManager: ObservableObject {
         toRadio.wantConfigID = 69421      // NONCE_ONLY_DB
         write(toRadio)
         transport.drain()
+    }
+
+    private var outboxTimer: Task<Void, Never>?
+
+    private func startOutboxSweep() {
+        outboxTimer?.cancel()
+        outboxTimer = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                guard let self, self.state == .connected else { continue }
+                self.flushOutboxAndSweep()
+            }
+        }
     }
 
     private func flushOutboxAndSweep() {
@@ -440,6 +454,13 @@ final class RadioManager: ObservableObject {
                 await store.heard(num: fromNum, snr: packet.rxSnr,
                                   hopStart: packet.hopStart, hopLimit: packet.hopLimit,
                                   rxTime: packet.rxTime)
+                // Their radio is alive — anything held for them goes out now.
+                let released = await store.releaseWaitingForPeer(fromNum)
+                if !released.isEmpty {
+                    await MainActor.run {
+                        for record in released { self.transmit(record) }
+                    }
+                }
             }
         }
         let hops = packet.hopStart > 0 && packet.hopStart >= packet.hopLimit
@@ -656,10 +677,18 @@ final class RadioManager: ObservableObject {
         let connected = state == .connected || state == .syncing
         let myNum = myNodeNum
         Task {
+            // Send-when-reachable: a DM to a peer silent for 30+ minutes is held
+            // and released the moment their radio is heard again.
+            var holdForPeer = false
+            if connected, case .node(let num) = destination {
+                let heard = await store.nodeSnapshot(num: num)?.lastHeard
+                holdForPeer = (heard.map { Date().timeIntervalSince($0) > 1800 } ?? true)
+            }
             let record = await store.persistOutgoing(packetId: Int64(packetId), myNum: myNum,
                                                      destination: destination, text: text,
                                                      isEmoji: isEmoji, replyId: replyId,
-                                                     connected: connected)
+                                                     connected: connected, holdForPeer: holdForPeer)
+            if holdForPeer { return }
             if connected, !isEmoji {
                 await MainActor.run { self.transmit(record) }
                 // The delivery drama, live — DMs and channel sends alike.
@@ -679,6 +708,16 @@ final class RadioManager: ObservableObject {
                     }
                 }
             } else if connected {
+                await MainActor.run { self.transmit(record) }
+            }
+        }
+    }
+
+    /// User override on a held (send-when-reachable) message.
+    func forceSendNow(packetId: Int64) {
+        guard let store, state == .connected else { return }
+        Task {
+            if let record = await store.recordForceSend(packetId: packetId) {
                 await MainActor.run { self.transmit(record) }
             }
         }
