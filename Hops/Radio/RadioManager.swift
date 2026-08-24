@@ -163,7 +163,15 @@ final class RadioManager: ObservableObject {
         Task {
             await store.repairConversations()
             await store.pruneTrails()
+            await store.pruneStaleNodes(olderThanDays: UserDefaults.standard.object(forKey: "nodeMaxAgeDays") as? Int ?? 90)
         }
+    }
+
+    /// Called when the retention setting changes.
+    func applyNodeRetention() {
+        guard let store else { return }
+        let days = UserDefaults.standard.object(forKey: "nodeMaxAgeDays") as? Int ?? 90
+        Task { await store.pruneStaleNodes(olderThanDays: days) }
     }
 
     // MARK: - Pairing

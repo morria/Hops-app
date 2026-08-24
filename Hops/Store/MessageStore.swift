@@ -97,6 +97,31 @@ actor MessageStore {
         }
     }
 
+    /// Retention: remove nodes unheard for the configured window. Nodes the user
+    /// invested in — renamed, given a photo, or holding a conversation — survive.
+    func pruneStaleNodes(olderThanDays days: Int) {
+        guard days > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(days) * 86_400)
+        let stale = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
+            predicate: #Predicate { $0.lastHeard == nil || $0.lastHeard! < cutoff }))) ?? []
+        guard !stale.isEmpty else { return }
+        let convoKeys = Set(((try? modelContext.fetch(FetchDescriptor<ConversationEntity>())) ?? []).map(\.key))
+        var removedNums: [Int64] = []
+        for node in stale {
+            guard node.customName.isEmpty, node.iconData == nil,
+                  !convoKeys.contains(ConversationEntity.dmKey(node.num)) else { continue }
+            removedNums.append(node.num)
+            modelContext.delete(node)
+        }
+        if !removedNums.isEmpty {
+            let nums = Set(removedNums)
+            let samples = (try? modelContext.fetch(FetchDescriptor<PositionSampleEntity>(
+                predicate: #Predicate { nums.contains($0.nodeNum) }))) ?? []
+            for sample in samples { modelContext.delete(sample) }
+        }
+        try? modelContext.save()
+    }
+
     /// Trim trail samples: older than 24 h, or beyond 200 per node.
     func pruneTrails() {
         let cutoff = Date().addingTimeInterval(-24 * 60 * 60)

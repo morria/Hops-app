@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+96. [x] Node retention setting (Settings → Node database): remove unheard nodes
+        after 7/30/90/180 days or Never (default 90); renamed/photographed/
+        messaged nodes always kept; trail samples cleaned with them; runs at
+        launch and on setting change.
+95. [x] Map at thousands of nodes: sort/de-overlap work runs on a 5 s snapshot
+        cadence instead of every position-driven render; trails fetch on node
+        selection instead of a standing whole-table query (plus #94's
+        positioned-only query and 300-pin recency cap).
+
 94. [x] Few-thousand-node scalability: Messages-list search no longer holds
         whole-table queries on all nodes/messages (which re-rendered the list on
         every packet heard) — search now runs on-demand DB fetches with 50-row

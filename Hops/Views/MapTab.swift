@@ -10,7 +10,6 @@ struct MapTab: View {
     @Query(filter: #Predicate<NodeEntity> { $0.hasPosition == true })
     private var nodes: [NodeEntity]
     @Query private var waypoints: [WaypointEntity]
-    @Query private var trailSamples: [PositionSampleEntity]
 
     /// MapKit chokes on thousands of annotations; show the most recently heard.
     private static let annotationCap = 300
@@ -102,13 +101,29 @@ struct MapTab: View {
         waypoints.filter { $0.expires == nil || $0.expires! > Date() }
     }
 
-    /// Trail for the node whose card is open — newest 100 samples, oldest first.
-    private var selectedTrail: [PositionSampleEntity] {
-        guard let num = selectedNodeNum else { return [] }
-        return trailSamples
-            .filter { $0.nodeNum == num }
-            .sorted { $0.timestamp < $1.timestamp }
-            .suffix(100)
+    /// Trail for the node whose card is open — fetched on selection, not observed.
+    @State private var selectedTrail: [CLLocationCoordinate2D] = []
+
+    private func loadTrail(for num: Int64?) {
+        guard let num else { selectedTrail = []; return }
+        var descriptor = FetchDescriptor<PositionSampleEntity>(
+            predicate: #Predicate { $0.nodeNum == num })
+        descriptor.sortBy = [SortDescriptor(\.timestamp)]
+        let samples = (try? modelContext.fetch(descriptor)) ?? []
+        selectedTrail = samples.suffix(100).map {
+            CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude)
+        }
+    }
+    @Environment(\.modelContext) private var modelContext
+
+    /// Heavy per-render work (sort, de-overlap grouping) runs on a 5 s cadence
+    /// into snapshots instead of on every position-driven invalidation.
+    @State private var placedSnapshot: [PlacedNode] = []
+    @State private var weatherSnapshot: [NodeEntity] = []
+
+    private func refreshSnapshots() {
+        placedSnapshot = displayNodes(from: placedNodes)
+        weatherSnapshot = weatherNodes
     }
 
     var body: some View {
@@ -118,7 +133,7 @@ struct MapTab: View {
                     UserAnnotation()
                     switch mode {
                     case .nodes:
-                        nodePins(displayNodes(from: placedNodes))
+                        nodePins(placedSnapshot)
                         waypointContent
                     case .weather:
                         weatherContent
@@ -170,6 +185,13 @@ struct MapTab: View {
             .onMapCameraChange { context in
                 visibleRegion = context.region
                 persistCamera(context.region)
+            }
+            .onAppear { refreshSnapshots() }
+            .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+                refreshSnapshots()
+            }
+            .onChange(of: selectedNodeNum) { _, num in
+                loadTrail(for: num)
             }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
@@ -250,7 +272,7 @@ struct MapTab: View {
 
     @MapContentBuilder
     private var weatherContent: some MapContent {
-        ForEach(weatherNodes, id: \.num) { node in
+        ForEach(weatherSnapshot, id: \.num) { node in
             // No station label on the map — the sheet has the name.
             Annotation("", coordinate: node.coordinate) {
                 WeatherPill(node: node)
@@ -269,11 +291,8 @@ struct MapTab: View {
         if trail.count >= 2 {
             ForEach(1..<trail.count, id: \.self) { index in
                 let age = Double(trail.count - index) / Double(trail.count)
-                MapPolyline(coordinates: [
-                    CLLocationCoordinate2D(latitude: trail[index - 1].latitude, longitude: trail[index - 1].longitude),
-                    CLLocationCoordinate2D(latitude: trail[index].latitude, longitude: trail[index].longitude),
-                ])
-                .stroke(Color.orange.opacity(1.0 - age * 0.75), lineWidth: 3)
+                MapPolyline(coordinates: [trail[index - 1], trail[index]])
+                    .stroke(Color.orange.opacity(1.0 - age * 0.75), lineWidth: 3)
             }
         }
     }

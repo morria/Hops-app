@@ -24,6 +24,7 @@ struct SettingsView: View {
                 deviceConfigSection
                 notificationsSection
                 unitsSection
+                nodeRetentionSection
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -227,6 +228,29 @@ struct SettingsView: View {
                 Text("°F").tag(true)
                 Text("°C").tag(false)
             }
+        }
+    }
+
+    // MARK: - Node retention
+
+    @AppStorage("nodeMaxAgeDays") private var nodeMaxAgeDays = 90
+
+    private var nodeRetentionSection: some View {
+        Section {
+            Picker("Remove unheard nodes after", selection: $nodeMaxAgeDays) {
+                Text("7 days").tag(7)
+                Text("30 days").tag(30)
+                Text("90 days").tag(90)
+                Text("180 days").tag(180)
+                Text("Never").tag(0)
+            }
+            .onChange(of: nodeMaxAgeDays) {
+                radio.applyNodeRetention()
+            }
+        } header: {
+            Text("Node database")
+        } footer: {
+            Text("Nodes you've renamed, given a photo, or messaged are always kept.")
         }
     }
 
