@@ -64,6 +64,36 @@ struct MapTab: View {
         }
     }
 
+    enum BaseStyle: String, CaseIterable, Identifiable {
+        case explore = "Explore"
+        case hybrid = "Hybrid"
+        case satellite = "Satellite"
+        var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .explore: return "map"
+            case .hybrid: return "map.fill"
+            case .satellite: return "globe.americas.fill"
+            }
+        }
+
+        var style: MapStyle {
+            switch self {
+            case .explore: return .standard(elevation: .realistic)
+            case .hybrid: return .hybrid(elevation: .realistic)
+            case .satellite: return .imagery(elevation: .realistic)
+            }
+        }
+    }
+
+    @AppStorage("mapBaseStyleRaw") private var baseStyleRaw = BaseStyle.hybrid.rawValue
+    private var baseStyle: BaseStyle { BaseStyle(rawValue: baseStyleRaw) ?? .hybrid }
+    private var baseStyleBinding: Binding<BaseStyle> {
+        Binding(get: { BaseStyle(rawValue: baseStyleRaw) ?? .hybrid },
+                set: { baseStyleRaw = $0.rawValue })
+    }
+
     enum MapMode: String, CaseIterable, Identifiable {
         case nodes = "Nodes"
         case weather = "Weather"
@@ -169,8 +199,7 @@ struct MapTab: View {
                     }
                     trailContent
                 }
-                // Hybrid + realistic = satellite imagery on a true globe.
-                .mapStyle(.hybrid(elevation: .realistic))
+                .mapStyle(baseStyle.style)   // user-chosen base, realistic globe
                 .mapControls {
                     MapCompass()
                 }
@@ -194,6 +223,12 @@ struct MapTab: View {
                     Menu {
                         Picker("Map view", selection: modeBinding) {
                             ForEach(MapMode.allCases) { choice in
+                                Label(choice.rawValue, systemImage: choice.icon).tag(choice)
+                            }
+                        }
+                        Divider()
+                        Picker("Map style", selection: baseStyleBinding) {
+                            ForEach(BaseStyle.allCases) { choice in
                                 Label(choice.rawValue, systemImage: choice.icon).tag(choice)
                             }
                         }

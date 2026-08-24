@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+106. [x] Map base style chooser in the layers menu: Explore (standard), Hybrid,
+         Satellite — persisted, all with realistic elevation.
+
 105. [x] Failed DMs offer "Send When Their Radio Is Heard" alongside Retry Now
          (fresh packet id, parked in the held state, releases on hearing them).
 
