@@ -248,7 +248,7 @@ struct MapTab: View {
                             .foregroundStyle(.secondary)
                         Text("No coverage data yet")
                             .font(.headline)
-                        Text("Walk around with Hops open and connected — every 30 seconds it records how well you hear the mesh, and paints it here. Green is strong, red is weak.")
+                        Text("Carry your radio around — whenever it hears the mesh (even with your phone in your pocket), Hops records signal quality and paints it here. Green is strong, red is weak.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)

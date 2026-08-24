@@ -70,27 +70,52 @@ final class RadioManager: ObservableObject {
     private var coverageSnrMax: Float = -999
     private var coveragePackets = 0
     private var coverageSampledAt = Date.distantPast
+    /// Our radio's own GPS fix, delivered in the same packet flushes.
+    private var myLastPosition: (lat: Double, lon: Double, at: Date)?
 
-    /// Foreground-only, ≤1 GPS fix per 30 s, and only with location already
-    /// authorized — passive by design.
+    /// Samples background and foreground alike — position comes free from the
+    /// radio's own GPS or the phone's cached fix; GPS is only actively used
+    /// when the app is already on screen.
     private func accumulateCoverage(snr: Float) {
         guard snr != 0 else { return }
         coverageSnrMax = max(coverageSnrMax, snr)
         coveragePackets += 1
-        guard UIStateObserver.shared.isActive,
-              Date().timeIntervalSince(coverageSampledAt) > 30,
-              LocationProvider.shared.isAuthorized,
-              let store else { return }
-        coverageSampledAt = Date()
+        guard Date().timeIntervalSince(coverageSampledAt) > 30, let store else { return }
+
+        var latitude: Double?
+        var longitude: Double?
+        if let mine = myLastPosition, Date().timeIntervalSince(mine.at) < 600 {
+            latitude = mine.lat            // radio GPS: best source, zero cost
+            longitude = mine.lon
+        } else if LocationProvider.shared.isAuthorized,
+                  let cached = LocationProvider.shared.cachedLocation,
+                  Date().timeIntervalSince(cached.timestamp) < 300 {
+            latitude = cached.coordinate.latitude   // passive phone fix
+            longitude = cached.coordinate.longitude
+        }
+
         let snapshotSnr = coverageSnrMax
         let snapshotCount = coveragePackets
-        coverageSnrMax = -999
-        coveragePackets = 0
-        Task {
-            guard let location = await LocationProvider.shared.current() else { return }
-            await store.addCoverageSample(latitude: location.coordinate.latitude,
-                                          longitude: location.coordinate.longitude,
-                                          snr: snapshotSnr, packets: snapshotCount)
+
+        if let latitude, let longitude {
+            coverageSampledAt = Date()
+            coverageSnrMax = -999
+            coveragePackets = 0
+            Task {
+                await store.addCoverageSample(latitude: latitude, longitude: longitude,
+                                              snr: snapshotSnr, packets: snapshotCount)
+            }
+        } else if UIStateObserver.shared.isActive, LocationProvider.shared.isAuthorized {
+            // On screen: allowed to spin up a fresh fix.
+            coverageSampledAt = Date()
+            coverageSnrMax = -999
+            coveragePackets = 0
+            Task {
+                guard let location = await LocationProvider.shared.current() else { return }
+                await store.addCoverageSample(latitude: location.coordinate.latitude,
+                                              longitude: location.coordinate.longitude,
+                                              snr: snapshotSnr, packets: snapshotCount)
+            }
         }
     }
 
@@ -543,6 +568,10 @@ final class RadioManager: ObservableObject {
 
         case .positionApp:
             guard let position = try? Position(serializedBytes: decoded.payload) else { return }
+            if fromNum == myNodeNum, position.latitudeI != 0 || position.longitudeI != 0 {
+                myLastPosition = (Double(position.latitudeI) * 1e-7,
+                                  Double(position.longitudeI) * 1e-7, Date())
+            }
             Task { await store.applyPositionPacket(position, from: fromNum) }
 
         case .nodeinfoApp:
