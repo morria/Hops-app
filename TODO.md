@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+42. [x] Map locate-me button moved to bottom-trailing via a custom-scoped
+        MapUserLocationButton, clear of the title area.
+41. [x] Photo association now offers pinch-to-zoom + drag positioning in a
+        circular crop view before saving (512px render of exactly what's
+        framed).
+40. [x] "Set Photo" silently did nothing: the picker's presentation binding
+        cleared photoTarget on dismiss — before the selection arrived — so the
+        save had no target. Presentation now uses a separate flag; the target
+        survives into the crop step.
 39. [x] LoRa settings moved from Device configuration into Mesh Setup as
         "Custom LoRa Settings", with a footer nudge to save results as a preset.
 38. [x] Mesh Setup: "Save Current as Preset…" stores the radio's current

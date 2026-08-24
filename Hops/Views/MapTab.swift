@@ -10,6 +10,7 @@ struct MapTab: View {
 
     @State private var selectedNodeNum: Int64?
     @State private var position: MapCameraPosition = .automatic
+    @Namespace private var mapScope
 
     private var placedNodes: [NodeEntity] {
         nodes.filter { $0.hasPosition && $0.num != radio.myNodeNum }
@@ -56,7 +57,7 @@ struct MapTab: View {
 
     var body: some View {
         NavigationStack {
-            Map(position: $position) {
+            Map(position: $position, scope: mapScope) {
                 UserAnnotation()
                 ForEach(displayNodes, id: \.node.num) { placed in
                     let node = placed.node
@@ -88,9 +89,16 @@ struct MapTab: View {
             }
             .mapStyle(.standard(elevation: .flat))
             .mapControls {
-                MapUserLocationButton()
                 MapCompass()
             }
+            // Locate-me sits bottom-trailing, clear of the title and node pins.
+            .overlay(alignment: .bottomTrailing) {
+                MapUserLocationButton(scope: mapScope)
+                    .buttonBorderShape(.circle)
+                    .padding(.trailing, 16)
+                    .padding(.bottom, 16)
+            }
+            .mapScope(mapScope)
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
             .sheet(item: $selectedNodeNum) { num in

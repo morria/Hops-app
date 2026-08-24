@@ -15,7 +15,15 @@ struct ChatsListView: View {
     @State private var showCompose = false
     @State private var path = NavigationPath()
     @State private var photoTarget: ConversationEntity?
+    @State private var showPhotoPicker = false
     @State private var pickedPhoto: PhotosPickerItem?
+    @State private var cropBox: CropBox?
+
+    struct CropBox: Identifiable {
+        let id = UUID()
+        let image: UIImage
+        let target: ConversationEntity
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -44,19 +52,24 @@ struct ChatsListView: View {
                 appModel.pendingConversationKey = nil
                 path.append(key)
             }
-            .photosPicker(isPresented: Binding(
-                get: { photoTarget != nil },
-                set: { if !$0 { photoTarget = nil } }
-            ), selection: $pickedPhoto, matching: .images)
+            .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
             .onChange(of: pickedPhoto) { _, item in
+                // photoTarget survives the picker's dismissal (a separate flag
+                // drives presentation) — clearing it via the presentation binding
+                // was the old race that silently dropped the photo.
                 guard let item, let target = photoTarget else { return }
                 pickedPhoto = nil
                 Task {
                     if let data = try? await item.loadTransferable(type: Data.self),
-                       let scaled = UIImage(data: data)?.scaledForAvatar() {
-                        setIconData(scaled, for: target)
+                       let image = UIImage(data: data) {
+                        cropBox = CropBox(image: image, target: target)
                     }
                     photoTarget = nil
+                }
+            }
+            .sheet(item: $cropBox) { box in
+                AvatarCropView(image: box.image) { cropped in
+                    setIconData(cropped.jpegData(compressionQuality: 0.85), for: box.target)
                 }
             }
             .onAppear {
@@ -275,6 +288,7 @@ struct ChatsListView: View {
         .pickerStyle(.menu)
         Button {
             photoTarget = convo
+            showPhotoPicker = true
         } label: {
             Label("Set Photo…", systemImage: "photo")
         }
