@@ -68,15 +68,16 @@ struct MapTab: View {
                             .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
                     }
                     Annotation(node.shortName, coordinate: placed.coordinate) {
-                        Button {
-                            selectedNodeNum = node.num
-                        } label: {
-                            MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
-                                           dimmed: !node.isOnline, imageData: node.iconData)
-                                .overlay(Circle().strokeBorder(.white, lineWidth: 2))
-                                .shadow(radius: 2)
-                        }
-                        .buttonStyle(.plain)
+                        // Tap gesture, not Button: buttons claim touches on contact,
+                        // which ate one finger of every pinch over dense pin fields.
+                        MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
+                                       dimmed: !node.isOnline, imageData: node.iconData)
+                            .overlay(Circle().strokeBorder(.white, lineWidth: 2))
+                            .shadow(radius: 2)
+                            .contentShape(Circle())
+                            .onTapGesture {
+                                selectedNodeNum = node.num
+                            }
                     }
                 }
                 ForEach(activeWaypoints) { waypoint in
@@ -88,7 +89,7 @@ struct MapTab: View {
                     }
                 }
             }
-            .mapStyle(.standard(elevation: .flat))
+            .mapStyle(.standard(elevation: .realistic))   // zoomed out, it's a globe
             .mapControls {
                 MapCompass()
             }

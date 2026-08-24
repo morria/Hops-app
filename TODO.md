@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+48. [x] Map renders with realistic elevation — zoomed out it's a globe.
+47. [x] Pinch-zoom works over crowded pin fields: node pins switched from
+        Buttons (which claimed touches on contact, eating one finger of every
+        pinch) to tap gestures that let the map's pinch through.
 46. [x] Custom photos now replace the monogram everywhere: conversation title
         bar, transcript sender avatars, map pins, node info card, compose picker
         (channels and people), search results, reaction details, and the
