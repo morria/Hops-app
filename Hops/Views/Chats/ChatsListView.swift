@@ -12,6 +12,7 @@ struct ChatsListView: View {
     private var conversations: [ConversationEntity]
 
     @State private var searchText = ""
+    @FocusState private var searchFocused: Bool
     @State private var showCompose = false
     @State private var path = NavigationPath()
     @State private var deleteTarget: ConversationEntity?
@@ -46,6 +47,10 @@ struct ChatsListView: View {
                         conversationList
                     }
                 }
+                // Tapping or scrolling anywhere below the field releases focus
+                // (simultaneous, so row taps still land).
+                .simultaneousGesture(TapGesture().onEnded { searchFocused = false })
+                .scrollDismissesKeyboard(.immediately)
             }
             .toolbar(.hidden, for: .navigationBar)
             .navigationDestination(for: String.self) { key in
@@ -138,6 +143,8 @@ struct ChatsListView: View {
                         .foregroundStyle(.secondary)
                     TextField("Search", text: $searchText)
                         .autocorrectionDisabled()
+                        .focused($searchFocused)
+                        .submitLabel(.search)
                     if !searchText.isEmpty {
                         Button {
                             searchText = ""
