@@ -124,6 +124,21 @@ actor MessageStore {
         try? modelContext.save()
     }
 
+    /// Give the (blank-named) primary channel a friendly local name from the
+    /// applied metro preset — e.g. "NYC Mesh". Never overrides a mesh-set name
+    /// or one the user chose.
+    func setPrimaryChannelName(ifUnnamed name: String) {
+        let zero: Int32 = 0
+        guard let entity = try? modelContext.fetch(
+            FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == zero })
+        ).first, entity.customName.isEmpty, entity.name.isEmpty else { return }
+        entity.customName = name
+        if let convo = fetchConversation(key: ConversationEntity.channelKey(0)) {
+            convo.title = entity.displayName
+        }
+        try? modelContext.save()
+    }
+
     func activeChannelIndices() -> [Int32] {
         let channels = (try? modelContext.fetch(FetchDescriptor<ChannelEntity>())) ?? []
         return channels.filter { $0.isActive }.map { $0.index }

@@ -270,6 +270,14 @@ final class RadioManager: ObservableObject {
             touchLastSynced()
             needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
             flushOutboxAndSweep()
+            // Friendly default name for a blank primary channel: the applied
+            // metro's name ("NYC Mesh"), handled store-side only when unnamed.
+            if let id = MetroPresetStore.shared.appliedPresetId,
+               let preset = MetroPresetStore.shared.allPresets.first(where: { $0.id == id }),
+               let store {
+                let shortName = preset.name.components(separatedBy: " (").first ?? preset.name
+                Task { await store.setPrimaryChannelName(ifUnnamed: shortName) }
+            }
             // Node DB is deliberately deferred: on a big mesh it can take minutes and
             // messages must never wait behind it.
             Task { @MainActor in

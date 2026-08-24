@@ -181,7 +181,7 @@ final class ChannelEntity {
     var displayName: String {
         if !customName.isEmpty { return customName }
         if !name.isEmpty { return name }
-        return roleRaw == 1 ? "Primary Channel" : "Channel \(index)"
+        return roleRaw == 1 ? "Public" : "Channel \(index)"
     }
 
     static let reservedNames: Set<String> = ["admin", "gpio", "serial", "mqtt"]
