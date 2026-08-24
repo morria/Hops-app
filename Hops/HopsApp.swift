@@ -13,12 +13,21 @@ struct HopsApp: App {
     @Environment(\.scenePhase) private var scenePhase
 
     init() {
+        let schema = Schema([ConversationEntity.self, MessageEntity.self, NodeEntity.self,
+                             ChannelEntity.self, WaypointEntity.self])
         do {
-            container = try ModelContainer(
-                for: ConversationEntity.self, MessageEntity.self, NodeEntity.self,
-                     ChannelEntity.self, WaypointEntity.self)
+            // iCloud-synced store: messages, nodes, conversations, custom icons
+            // follow the user across devices. Falls back to local-only if the
+            // CloudKit container is unavailable (no iCloud account, etc.).
+            let cloud = ModelConfiguration(schema: schema, cloudKitDatabase: .automatic)
+            container = try ModelContainer(for: schema, configurations: [cloud])
         } catch {
-            fatalError("Could not create model container: \(error)")
+            do {
+                let local = ModelConfiguration(schema: schema, cloudKitDatabase: .none)
+                container = try ModelContainer(for: schema, configurations: [local])
+            } catch {
+                fatalError("Could not create model container: \(error)")
+            }
         }
         RadioManager.shared.configure(container: container)
         #if DEBUG

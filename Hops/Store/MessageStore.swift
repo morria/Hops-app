@@ -415,6 +415,7 @@ actor MessageStore {
     /// Backfill conversations stranded without a lastMessageAt (e.g. a single failed
     /// send from before the direct-stamp fix). Cheap; run once per launch.
     func repairConversations() {
+        dedupeAfterSync()
         // Backfill legacy boolean mutes into the notify-level field.
         let mutedDescriptor = FetchDescriptor<ConversationEntity>(
             predicate: #Predicate { $0.muted == true && $0.notifyLevelRaw == 0 }
@@ -436,6 +437,48 @@ actor MessageStore {
                 convo.lastMessageAt = latest.timestamp
                 convo.lastPreview = latest.text
             }
+        }
+        try? modelContext.save()
+    }
+
+    /// CloudKit can't enforce unique keys, so two devices may each create a row
+    /// for the same logical entity before sync merges. Collapse duplicates,
+    /// keeping the richest copy.
+    private func dedupeAfterSync() {
+        // Conversations by key.
+        let convos = (try? modelContext.fetch(FetchDescriptor<ConversationEntity>())) ?? []
+        for (_, group) in Dictionary(grouping: convos, by: { $0.key }) where group.count > 1 {
+            let keeper = group.max(by: { ($0.lastMessageAt ?? .distantPast) < ($1.lastMessageAt ?? .distantPast) })!
+            for other in group where other !== keeper {
+                keeper.pinned = keeper.pinned || other.pinned
+                if keeper.notifyLevelRaw == 0 { keeper.notifyLevelRaw = other.notifyLevelRaw }
+                modelContext.delete(other)
+            }
+        }
+        // Nodes by num.
+        let nodes = (try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? []
+        for (_, group) in Dictionary(grouping: nodes, by: { $0.num }) where group.count > 1 {
+            let keeper = group.max(by: { ($0.lastHeard ?? .distantPast) < ($1.lastHeard ?? .distantPast) })!
+            for other in group where other !== keeper {
+                if keeper.iconData == nil { keeper.iconData = other.iconData }
+                if keeper.publicKey.isEmpty { keeper.publicKey = other.publicKey }
+                modelContext.delete(other)
+            }
+        }
+        // Channels by index, messages by packetId, waypoints by id.
+        let channels = (try? modelContext.fetch(FetchDescriptor<ChannelEntity>())) ?? []
+        for (_, group) in Dictionary(grouping: channels, by: { $0.index }) where group.count > 1 {
+            let keeper = group.first(where: { $0.iconData != nil }) ?? group[0]
+            for other in group where other !== keeper { modelContext.delete(other) }
+        }
+        let messages = (try? modelContext.fetch(FetchDescriptor<MessageEntity>())) ?? []
+        for (_, group) in Dictionary(grouping: messages, by: { $0.packetId }) where group.count > 1 {
+            let keeper = group.max(by: { $0.statusRaw < $1.statusRaw })!
+            for other in group where other !== keeper { modelContext.delete(other) }
+        }
+        let waypoints = (try? modelContext.fetch(FetchDescriptor<WaypointEntity>())) ?? []
+        for (_, group) in Dictionary(grouping: waypoints, by: { $0.waypointId }) where group.count > 1 {
+            for other in group.dropFirst() { modelContext.delete(other) }
         }
         try? modelContext.save()
     }

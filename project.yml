@@ -27,6 +27,9 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
+        # Re-enable once an Apple developer account is signed in to Xcode
+        # (registers the iCloud container + push capability):
+        # CODE_SIGN_ENTITLEMENTS: Hops/Hops.entitlements
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
         DEVELOPMENT_TEAM: 7Q2SS8772K
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
@@ -37,7 +40,7 @@ targets:
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
-        UIBackgroundModes: [bluetooth-central, fetch]
+        UIBackgroundModes: [bluetooth-central, fetch, remote-notification]
         BGTaskSchedulerPermittedIdentifiers: [com.w2asm.hops.refresh]
         NSBluetoothAlwaysUsageDescription: Hops connects to your Meshtastic radio over Bluetooth to send and receive messages.
         NSCameraUsageDescription: Hops uses the camera to scan channel QR codes so you can join a mesh.

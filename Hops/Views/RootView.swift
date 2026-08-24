@@ -94,9 +94,17 @@ struct MonogramAvatar: View {
     var size: CGFloat = 44
     var dimmed: Bool = false
     var assetImage: String? = nil
+    var imageData: Data? = nil
 
     var body: some View {
-        if let assetImage {
+        if let imageData, let image = UIImage(data: imageData) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: size, height: size)
+                .clipShape(Circle())
+                .opacity(dimmed ? 0.45 : 1)
+        } else if let assetImage {
             Image(assetImage)
                 .resizable()
                 .scaledToFill()

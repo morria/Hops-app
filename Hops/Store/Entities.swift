@@ -1,6 +1,10 @@
 import Foundation
 import SwiftData
 
+// CloudKit-synced schema: no unique constraints (CloudKit forbids them — logical
+// keys are deduplicated by fetch-before-insert plus the launch repair pass), and
+// every stored property carries an inline default.
+
 // MARK: - Conversation
 
 enum ConversationKind: Int {
@@ -16,16 +20,16 @@ enum NotifyLevel: Int {
 
 @Model
 final class ConversationEntity {
-    @Attribute(.unique) var key: String        // "ch-<index>" or "dm-<nodeNum>"
-    var kindRaw: Int
-    var channelIndex: Int32
-    var peerNum: Int64
-    var title: String
+    var key: String = ""        // "ch-<index>" or "dm-<nodeNum>"
+    var kindRaw: Int = 0
+    var channelIndex: Int32 = 0
+    var peerNum: Int64 = 0
+    var title: String = ""
     var lastMessageAt: Date?
-    var lastPreview: String
-    var unreadCount: Int
-    var pinned: Bool
-    var muted: Bool                            // legacy; kept in sync with notifyLevel
+    var lastPreview: String = ""
+    var unreadCount: Int = 0
+    var pinned: Bool = false
+    var muted: Bool = false                    // legacy; kept in sync with notifyLevel
     var notifyLevelRaw: Int = 0
 
     var kind: ConversationKind { ConversationKind(rawValue: kindRaw) ?? .channel }
@@ -44,11 +48,6 @@ final class ConversationEntity {
         self.channelIndex = channelIndex
         self.peerNum = peerNum
         self.title = title
-        self.lastMessageAt = nil
-        self.lastPreview = ""
-        self.unreadCount = 0
-        self.pinned = false
-        self.muted = false
     }
 
     static func channelKey(_ index: Int32) -> String { "ch-\(index)" }
@@ -70,20 +69,20 @@ enum MessageStatus: Int {
 
 @Model
 final class MessageEntity {
-    @Attribute(.unique) var packetId: Int64
-    var conversationKey: String
-    var fromNum: Int64
-    var toNum: Int64
-    var channel: Int32
-    var text: String
-    var timestamp: Date
-    var outgoing: Bool
-    var statusRaw: Int
-    var ackErrorRaw: Int32     // Routing.Error raw value when failed
-    var isEmoji: Bool          // tapback/reaction
-    var replyId: Int64         // packet id this replies/reacts to (0 = none)
-    var read: Bool
-    var portNum: Int32
+    var packetId: Int64 = 0
+    var conversationKey: String = ""
+    var fromNum: Int64 = 0
+    var toNum: Int64 = 0
+    var channel: Int32 = 0
+    var text: String = ""
+    var timestamp: Date = Date(timeIntervalSince1970: 0)
+    var outgoing: Bool = false
+    var statusRaw: Int = 0
+    var ackErrorRaw: Int32 = 0 // Routing.Error raw value when failed
+    var isEmoji: Bool = false  // tapback/reaction
+    var replyId: Int64 = 0     // packet id this replies/reacts to (0 = none)
+    var read: Bool = false
+    var portNum: Int32 = 1
 
     var status: MessageStatus {
         get { MessageStatus(rawValue: statusRaw) ?? .received }
@@ -102,7 +101,6 @@ final class MessageEntity {
         self.timestamp = timestamp
         self.outgoing = outgoing
         self.statusRaw = status.rawValue
-        self.ackErrorRaw = 0
         self.isEmoji = isEmoji
         self.replyId = replyId
         self.read = outgoing
@@ -114,36 +112,27 @@ final class MessageEntity {
 
 @Model
 final class NodeEntity {
-    @Attribute(.unique) var num: Int64
-    var longName: String
-    var shortName: String
+    var num: Int64 = 0
+    var longName: String = ""
+    var shortName: String = ""
     var lastHeard: Date?
-    var snr: Float
-    var hopsAway: Int
-    var hasPosition: Bool
-    var latitude: Double
-    var longitude: Double
-    var precisionBits: Int32
-    var batteryLevel: Int      // -1 unknown, 101 = plugged in
-    var roleRaw: Int32
-    var publicKey: Data
-    var unmessagable: Bool
+    var snr: Float = 0
+    var hopsAway: Int = -1
+    var hasPosition: Bool = false
+    var latitude: Double = 0
+    var longitude: Double = 0
+    var precisionBits: Int32 = 0
+    var batteryLevel: Int = -1 // -1 unknown, 101 = plugged in
+    var roleRaw: Int32 = 0
+    var publicKey: Data = Data()
+    var unmessagable: Bool = false
+    /// User-chosen avatar photo (device-set, synced via iCloud).
+    @Attribute(.externalStorage) var iconData: Data?
 
     init(num: Int64) {
         self.num = num
         self.longName = "Node \(String(format: "%08x", UInt32(truncatingIfNeeded: num)))"
         self.shortName = String(format: "%04x", UInt32(truncatingIfNeeded: num) & 0xFFFF)
-        self.lastHeard = nil
-        self.snr = 0
-        self.hopsAway = -1
-        self.hasPosition = false
-        self.latitude = 0
-        self.longitude = 0
-        self.precisionBits = 0
-        self.batteryLevel = -1
-        self.roleRaw = 0
-        self.publicKey = Data()
-        self.unmessagable = false
     }
 
     var isOnline: Bool {
@@ -168,10 +157,12 @@ final class NodeEntity {
 
 @Model
 final class ChannelEntity {
-    @Attribute(.unique) var index: Int32
-    var name: String
-    var roleRaw: Int32          // 0 disabled, 1 primary, 2 secondary
-    var psk: Data
+    var index: Int32 = 0
+    var name: String = ""
+    var roleRaw: Int32 = 0     // 0 disabled, 1 primary, 2 secondary
+    var psk: Data = Data()
+    /// User-chosen avatar photo (device-set, synced via iCloud).
+    @Attribute(.externalStorage) var iconData: Data?
 
     init(index: Int32, name: String, roleRaw: Int32, psk: Data) {
         self.index = index
@@ -194,13 +185,13 @@ final class ChannelEntity {
 
 @Model
 final class WaypointEntity {
-    @Attribute(.unique) var waypointId: Int64
-    var name: String
-    var icon: String
-    var latitude: Double
-    var longitude: Double
+    var waypointId: Int64 = 0
+    var name: String = ""
+    var icon: String = "📍"
+    var latitude: Double = 0
+    var longitude: Double = 0
     var expires: Date?
-    var createdBy: Int64
+    var createdBy: Int64 = 0
 
     init(waypointId: Int64, name: String, icon: String, latitude: Double, longitude: Double, expires: Date?, createdBy: Int64) {
         self.waypointId = waypointId

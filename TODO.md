@@ -4,7 +4,18 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
-(nothing currently)
+37. [~] iCloud sync (messages, nodes, conversations, custom icons): fully
+        implemented — CloudKit-compatible schema (no unique constraints, inline
+        defaults, launch-time cross-device dedupe), CloudKit-backed store with
+        local fallback, entitlements file ready. ACTIVATION BLOCKED: Xcode has
+        no signed-in developer account, so the iCloud container/push capability
+        cannot be provisioned. Sign in (Xcode → Settings → Accounts), then
+        re-enable CODE_SIGN_ENTITLEMENTS in project.yml and rebuild. Same
+        sign-in unblocks TestFlight.
+36. [x] Custom photos for channels and nodes: long-press a conversation → Set
+        Photo… (or Remove Photo) — picked from the photo library, downscaled to
+        256px, shown in the list, pinned grid, and title bars. Stored in the
+        data store, so it rides iCloud sync once #37 activates.
 
 35. [x] Telemetry interval now truly reads and confirms: module-config writes
         do not reboot the radio, so nothing re-synced and the screen showed a

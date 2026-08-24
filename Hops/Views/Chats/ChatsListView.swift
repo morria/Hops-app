@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import PhotosUI
 
 struct ChatsListView: View {
     @EnvironmentObject private var radio: RadioManager
@@ -13,6 +14,8 @@ struct ChatsListView: View {
     @State private var searchText = ""
     @State private var showCompose = false
     @State private var path = NavigationPath()
+    @State private var photoTarget: ConversationEntity?
+    @State private var pickedPhoto: PhotosPickerItem?
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -40,6 +43,21 @@ struct ChatsListView: View {
                 guard let key else { return }
                 appModel.pendingConversationKey = nil
                 path.append(key)
+            }
+            .photosPicker(isPresented: Binding(
+                get: { photoTarget != nil },
+                set: { if !$0 { photoTarget = nil } }
+            ), selection: $pickedPhoto, matching: .images)
+            .onChange(of: pickedPhoto) { _, item in
+                guard let item, let target = photoTarget else { return }
+                pickedPhoto = nil
+                Task {
+                    if let data = try? await item.loadTransferable(type: Data.self),
+                       let scaled = UIImage(data: data)?.scaledForAvatar() {
+                        setIconData(scaled, for: target)
+                    }
+                    photoTarget = nil
+                }
             }
             .onAppear {
                 // Consume a deep link that arrived while this tab wasn't built yet
@@ -145,7 +163,7 @@ struct ChatsListView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         MonogramAvatar(text: monogram(for: convo), isChannel: convo.kind == .channel, size: 64,
-                                       assetImage: iconAsset(for: convo))
+                                       assetImage: iconAsset(for: convo), imageData: iconData(for: convo))
                             .overlay(alignment: .topTrailing) {
                                 if convo.unreadCount > 0 {
                                     unreadBadge(convo.unreadCount)
@@ -170,7 +188,7 @@ struct ChatsListView: View {
         } label: {
             HStack(spacing: 12) {
                 MonogramAvatar(text: monogram(for: convo), isChannel: convo.kind == .channel,
-                               assetImage: iconAsset(for: convo))
+                               assetImage: iconAsset(for: convo), imageData: iconData(for: convo))
                 VStack(alignment: .leading, spacing: 2) {
                     HStack {
                         Text(convo.title)
@@ -255,6 +273,49 @@ struct ChatsListView: View {
             Label("Muted", systemImage: "bell.slash").tag(NotifyLevel.muted.rawValue)
         }
         .pickerStyle(.menu)
+        Button {
+            photoTarget = convo
+        } label: {
+            Label("Set Photo…", systemImage: "photo")
+        }
+        if iconData(for: convo) != nil {
+            Button(role: .destructive) {
+                setIconData(nil, for: convo)
+            } label: {
+                Label("Remove Photo", systemImage: "photo.badge.exclamationmark")
+            }
+        }
+    }
+
+    private func iconData(for convo: ConversationEntity) -> Data? {
+        switch convo.kind {
+        case .channel:
+            let index = convo.channelIndex
+            return (try? modelContext.fetch(
+                FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == index })
+            ).first)?.iconData
+        case .directMessage:
+            let num = convo.peerNum
+            return (try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+            ).first)?.iconData
+        }
+    }
+
+    private func setIconData(_ data: Data?, for convo: ConversationEntity) {
+        switch convo.kind {
+        case .channel:
+            let index = convo.channelIndex
+            (try? modelContext.fetch(
+                FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == index })
+            ).first)?.iconData = data
+        case .directMessage:
+            let num = convo.peerNum
+            (try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+            ).first)?.iconData = data
+        }
+        try? modelContext.save()
     }
 
     private func unreadBadge(_ count: Int) -> some View {
@@ -395,6 +456,10 @@ struct ChatsListView: View {
     }
 
     private func relativeDate(_ date: Date) -> String {
+        Self.formatRelativeDate(date)
+    }
+
+    static func formatRelativeDate(_ date: Date) -> String {
         if Calendar.current.isDateInToday(date) {
             return date.formatted(date: .omitted, time: .shortened)
         }
