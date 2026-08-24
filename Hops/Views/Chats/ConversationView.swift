@@ -81,13 +81,6 @@ struct ConversationView: View {
         }
     }
 
-    private func senderIconData(_ message: MessageEntity) -> Data? {
-        let num = message.fromNum
-        return (try? modelContext.fetch(
-            FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
-        ).first)?.iconData
-    }
-
     private var title: String {
         if let convo = conversation { return convo.title }
         if case .node(let num) = destination {
@@ -108,6 +101,84 @@ struct ConversationView: View {
     private var transcript: [MessageEntity] { messages.filter { !$0.isEmoji } }
     private var tapbacks: [Int64: [MessageEntity]] {
         Dictionary(grouping: messages.filter { $0.isEmoji && $0.replyId != 0 }, by: { $0.replyId })
+    }
+
+    // MARK: - Row snapshots (performance)
+    //
+    // Rendering straight from @Query cost 3 DB fetches + an NSDataDetector per
+    // bubble per render. Rows are now precomputed once per change into value
+    // snapshots; bubbles render dumb. Initial window is the newest 60 messages.
+
+    struct RowModel: Identifiable {
+        let message: MessageEntity
+        let senderName: String?
+        let senderMonogram: String?
+        let senderIconData: Data?
+        let replyPreview: String?
+        let tapbacks: [MessageEntity]
+        let linkified: AttributedString
+        let coordinate: CLLocationCoordinate2D?
+        let showsDaySeparator: Bool
+        var id: Int64 { message.packetId }
+    }
+
+    @State private var rows: [RowModel] = []
+    @State private var visibleCount = 60
+
+    private var hiddenEarlierCount: Int { max(0, transcript.count - visibleCount) }
+
+    private func rebuildRows() {
+        let visible = Array(transcript.suffix(visibleCount))
+        // One fetch for every sender in the window.
+        let senderNums = Set(visible.map(\.fromNum))
+        var senders: [Int64: NodeEntity] = [:]
+        if !senderNums.isEmpty {
+            let fetched = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
+                predicate: #Predicate { senderNums.contains($0.num) }))) ?? []
+            for node in fetched { senders[node.num] = node }
+        }
+        let tapbackMap = tapbacks
+        let byId = Dictionary(uniqueKeysWithValues: transcript.map { ($0.packetId, $0.text) })
+        let dm = isDM
+        var built: [RowModel] = []
+        built.reserveCapacity(visible.count)
+        for (index, message) in visible.enumerated() {
+            let sender = senders[message.fromNum]
+            let showSender = !dm && !message.outgoing
+            let separator = index == 0
+                ? hiddenEarlierCount == 0
+                : !Calendar.current.isDate(message.timestamp, inSameDayAs: visible[index - 1].timestamp)
+            built.append(RowModel(
+                message: message,
+                senderName: showSender ? (sender.map { $0.customName.isEmpty ? $0.shortName : $0.customName } ?? String(format: "%04x", UInt32(truncatingIfNeeded: message.fromNum) & 0xFFFF)) : nil,
+                senderMonogram: showSender ? sender?.monogram : nil,
+                senderIconData: showSender ? sender?.iconData : nil,
+                replyPreview: message.replyId != 0 ? byId[message.replyId] : nil,
+                tapbacks: tapbackMap[message.packetId] ?? [],
+                linkified: Self.linkify(message.text),
+                coordinate: message.sharedCoordinate,
+                showsDaySeparator: separator))
+        }
+        rows = built
+    }
+
+    /// Shared detector — building one per bubble was a hidden hot spot.
+    private static let linkDetector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    static func linkify(_ text: String) -> AttributedString {
+        var attributed = AttributedString(text)
+        guard text.contains("."), let detector = linkDetector else { return attributed }
+        let fullRange = NSRange(text.startIndex..., in: text)
+        for match in detector.matches(in: text, range: fullRange) {
+            guard let url = match.url,
+                  let range = Range(match.range, in: text),
+                  let lower = AttributedString.Index(range.lowerBound, within: attributed),
+                  let upper = AttributedString.Index(range.upperBound, within: attributed)
+            else { continue }
+            attributed[lower..<upper].link = url
+            attributed[lower..<upper].underlineStyle = .single
+        }
+        return attributed
     }
 
     var body: some View {
@@ -201,14 +272,30 @@ struct ConversationView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 4) {
-                    ForEach(Array(transcript.enumerated()), id: \.element.packetId) { index, message in
-                        if showsDaySeparator(at: index) {
-                            Text(message.timestamp.formatted(date: .abbreviated, time: .omitted))
+                    if hiddenEarlierCount > 0 {
+                        Button {
+                            let anchor = rows.first?.id
+                            visibleCount += 150
+                            rebuildRows()
+                            if let anchor {
+                                proxy.scrollTo(anchor, anchor: .top)
+                            }
+                        } label: {
+                            Text("Load Earlier Messages (\(hiddenEarlierCount))")
+                                .font(.footnote)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.bordered)
+                        .padding(.top, 4)
+                    }
+                    ForEach(rows) { row in
+                        if row.showsDaySeparator {
+                            Text(row.message.timestamp.formatted(date: .abbreviated, time: .omitted))
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .padding(.vertical, 8)
                         }
-                        timeRevealRow(for: message)
+                        timeRevealRow(for: row)
                     }
                 }
                 .padding(.horizontal, 12)
@@ -227,13 +314,15 @@ struct ConversationView: View {
             // when content grows after layout (map cards, status lines) and can
             // blank the pane entirely when the keyboard moves the safe area.
             .onAppear {
+                rebuildRows()
                 scrollToBottom(proxy, animated: false)
                 // Second pass catches late layout (async map tiles, images).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     scrollToBottom(proxy, animated: false)
                 }
             }
-            .onChange(of: transcript.count) {
+            .onChange(of: messages.count) {
+                rebuildRows()
                 scrollToBottom(proxy, animated: true)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -255,11 +344,11 @@ struct ConversationView: View {
         }
     }
 
-    private func timeRevealRow(for message: MessageEntity) -> some View {
+    private func timeRevealRow(for row: RowModel) -> some View {
         ZStack(alignment: .trailing) {
-            bubbleRow(for: message)
+            bubbleRow(for: row)
                 .offset(x: timeReveal)
-            Text(message.timestamp.formatted(date: .omitted, time: .shortened))
+            Text(row.message.timestamp.formatted(date: .omitted, time: .shortened))
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.secondary)
                 .fixedSize()
@@ -267,18 +356,21 @@ struct ConversationView: View {
                 .opacity(timeReveal < -10 ? 1 : 0)
         }
         .animation(.spring(duration: 0.3), value: timeReveal)
-        .id(message.packetId)
+        .id(row.id)
     }
 
-    private func bubbleRow(for message: MessageEntity) -> some View {
-        MessageBubble(
+    private func bubbleRow(for row: RowModel) -> some View {
+        let message = row.message
+        return MessageBubble(
             message: message,
             isDM: isDM,
-            senderName: senderShortName(message),
-            senderMonogram: senderMonogram(message),
-            senderIconData: senderIconData(message),
-            replyPreview: replyPreview(message),
-            tapbacks: tapbacks[message.packetId] ?? [],
+            senderName: row.senderName,
+            senderMonogram: row.senderMonogram,
+            senderIconData: row.senderIconData,
+            replyPreview: row.replyPreview,
+            linkified: row.linkified,
+            coordinate: row.coordinate,
+            tapbacks: row.tapbacks,
             onReply: { replyTarget = message },
             onTapback: { emoji in sendTapback(emoji, to: message) },
             onReactOther: { reactionTarget = message },
@@ -286,38 +378,6 @@ struct ConversationView: View {
             onShowSender: { senderCard = message.fromNum },
             onRetry: { radio.retry(packetId: message.packetId) }
         )
-    }
-
-    private func showsDaySeparator(at index: Int) -> Bool {
-        guard index > 0 else { return true }
-        return !Calendar.current.isDate(transcript[index].timestamp,
-                                        inSameDayAs: transcript[index - 1].timestamp)
-    }
-
-    private func senderNode(_ message: MessageEntity) -> NodeEntity? {
-        let num = message.fromNum
-        return try? modelContext.fetch(
-            FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
-        ).first
-    }
-
-    /// Label above channel messages: override name wins, else the mesh long name.
-    private func senderShortName(_ message: MessageEntity) -> String? {
-        guard !isDM, !message.outgoing else { return nil }
-        guard let node = senderNode(message) else {
-            return String(format: "%04x", UInt32(truncatingIfNeeded: message.fromNum) & 0xFFFF)
-        }
-        return node.displayName
-    }
-
-    private func senderMonogram(_ message: MessageEntity) -> String? {
-        guard !isDM, !message.outgoing else { return nil }
-        return senderNode(message)?.monogram
-    }
-
-    private func replyPreview(_ message: MessageEntity) -> String? {
-        guard message.replyId != 0 else { return nil }
-        return transcript.first(where: { $0.packetId == message.replyId })?.text
     }
 
     // MARK: - Input
@@ -433,14 +493,12 @@ struct ConversationView: View {
     }
 
     private func markRead() {
-        conversation?.unreadCount = 0
-        for message in messages where !message.read {
-            message.read = true
-        }
+        conversation?.unreadCount = 0   // instant UI; the actor does the rows
         NotificationManager.shared.clearNotifications(for: conversationKey)
+        let key = conversationKey
         Task {
-            let container = modelContext.container
-            let store = MessageStore(modelContainer: container)
+            let store = MessageStore(modelContainer: modelContext.container)
+            await store.markConversationRead(key: key)
             let unread = await store.totalUnreadConversations()
             await NotificationManager.shared.setBadge(unread)
         }
@@ -456,6 +514,8 @@ struct MessageBubble: View {
     var senderMonogram: String? = nil
     var senderIconData: Data? = nil
     let replyPreview: String?
+    var linkified: AttributedString = AttributedString()
+    var coordinate: CLLocationCoordinate2D? = nil
     let tapbacks: [MessageEntity]
     var onReply: () -> Void
     var onTapback: (String) -> Void
@@ -521,9 +581,9 @@ struct MessageBubble: View {
                     .padding(.vertical, 4)
                     .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             }
-            Text(linkifiedText)
+            Text(linkified)
                 .tint(message.outgoing ? .white : .accentColor)
-            if let coordinate = message.sharedCoordinate {
+            if let coordinate {
                 LocationCard(coordinate: coordinate, title: senderName ?? (message.outgoing ? "My location" : "Shared location"))
             }
         }
@@ -566,25 +626,6 @@ struct MessageBubble: View {
                 }
             }
         }
-    }
-
-    /// Message text with URLs made tappable (opens the default browser).
-    private var linkifiedText: AttributedString {
-        var attributed = AttributedString(message.text)
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
-            return attributed
-        }
-        let fullRange = NSRange(message.text.startIndex..., in: message.text)
-        for match in detector.matches(in: message.text, range: fullRange) {
-            guard let url = match.url,
-                  let range = Range(match.range, in: message.text),
-                  let lower = AttributedString.Index(range.lowerBound, within: attributed),
-                  let upper = AttributedString.Index(range.upperBound, within: attributed)
-            else { continue }
-            attributed[lower..<upper].link = url
-            attributed[lower..<upper].underlineStyle = .single
-        }
-        return attributed
     }
 
     @ViewBuilder

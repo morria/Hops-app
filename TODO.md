@@ -4,6 +4,13 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+93. [x] Conversation view performance: rows precompute into value snapshots
+        (one sender fetch per window instead of 3 DB fetches per bubble render;
+        shared NSDataDetector; cached linkified text, coordinates, tapbacks,
+        reply previews, day separators); initial window is the newest 60
+        messages with a Load Earlier button (anchor-preserving); markRead moved
+        off the render path onto the store actor.
+
 92. [x] Device telemetry can be shut off: "Off — never broadcast" option (an
         interval the radio never reaches; firmware has no boolean); long
         read-back intervals display as Off.
