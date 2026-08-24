@@ -4,6 +4,13 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+91. [x] Blank transcript when tapping the input: removed defaultScrollAnchor
+        (known blank-content failure when the keyboard shifts the safe area);
+        interactive keyboard dismissal added.
+90. [x] Scroll landing a few messages up: explicit bottom scrolling on appear
+        (with a second pass after async layout like map cards), on new
+        messages, and on keyboard show.
+
 89. [x] Trademark compliance: About screen carries the Meshtastic® registered-
         trademark disclaimer; app name stays "Hops" (no Meshtastic in branding
         per policy); "client for Meshtastic radios" phrasing reserved for

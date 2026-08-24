@@ -214,7 +214,7 @@ struct ConversationView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
             }
-            .defaultScrollAnchor(.bottom)
+            .scrollDismissesKeyboard(.interactively)
             // iMessage's timestamp reveal: drag left anywhere on the transcript.
             .simultaneousGesture(
                 DragGesture(minimumDistance: 15)
@@ -223,11 +223,35 @@ struct ConversationView: View {
                         state = max(-72, min(0, value.translation.width))
                     }
             )
-            .onChange(of: transcript.count) {
-                if let last = transcript.last {
-                    withAnimation { proxy.scrollTo(last.packetId, anchor: .bottom) }
+            // Explicit bottom management. defaultScrollAnchor(.bottom) mis-lands
+            // when content grows after layout (map cards, status lines) and can
+            // blank the pane entirely when the keyboard moves the safe area.
+            .onAppear {
+                scrollToBottom(proxy, animated: false)
+                // Second pass catches late layout (async map tiles, images).
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    scrollToBottom(proxy, animated: false)
                 }
             }
+            .onChange(of: transcript.count) {
+                scrollToBottom(proxy, animated: true)
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    scrollToBottom(proxy, animated: true)
+                }
+            }
+        }
+    }
+
+    private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
+        guard let last = transcript.last else { return }
+        if animated {
+            withAnimation(.easeOut(duration: 0.2)) {
+                proxy.scrollTo(last.packetId, anchor: .bottom)
+            }
+        } else {
+            proxy.scrollTo(last.packetId, anchor: .bottom)
         }
     }
 
