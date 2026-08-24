@@ -95,10 +95,12 @@ struct MapTab: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .padding(.horizontal, 40)
-                .padding(.top, 4)
-                .background(.thinMaterial, in: Capsule())
-                .padding(.horizontal, 32)
+                .padding(5)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
+                .frame(maxWidth: 340)
+                .padding(.horizontal, 24)
+                .padding(.top, 8)
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
             }
             .overlay(alignment: .bottomTrailing) {
                 MapUserLocationButton(scope: mapScope)
@@ -127,11 +129,20 @@ struct MapTab: View {
             }
             .overlay {
                 if mode == .weather && weatherNodes.isEmpty {
-                    ContentUnavailableView(
-                        "No weather reports",
-                        systemImage: "cloud.sun",
-                        description: Text("Nodes with environment sensors appear here as their readings arrive.")
-                    )
+                    VStack(spacing: 8) {
+                        Image(systemName: "cloud.sun")
+                            .font(.title)
+                            .foregroundStyle(.secondary)
+                        Text("No weather reports")
+                            .font(.headline)
+                        Text("Nodes with environment sensors appear here as their readings arrive.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 300)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
                     .allowsHitTesting(false)
                 }
             }

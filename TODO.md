@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+77. [x] Weather empty state is a readable material card instead of raw text
+        over satellite imagery.
+76. [x] Map mode picker: single clean material pill (no doubled backgrounds),
+        max width, subtle shadow.
+
 75. [x] Mesh Traffic hop/SNR row formatting: tight icon-text pairs, monospaced
         digits, consistent spacing.
 
