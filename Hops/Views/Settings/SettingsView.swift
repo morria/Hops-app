@@ -241,7 +241,7 @@ struct SettingsView: View {
             Link(destination: URL(string: "https://meshtastic.org")!) {
                 Text("Meshtastic Project")
             }
-            Text("Hops configures the app. For device administration — modules, firmware, remote nodes — use the official Meshtastic app; both work with the same radio.")
+            Text("Hops is an independent client for Meshtastic® radios. Meshtastic® is a registered trademark of Meshtastic LLC. For device administration — modules, firmware, remote nodes — use the official Meshtastic app; both work with the same radio.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }

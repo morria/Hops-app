@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+89. [x] Trademark compliance: About screen carries the Meshtastic® registered-
+        trademark disclaimer; app name stays "Hops" (no Meshtastic in branding
+        per policy); "client for Meshtastic radios" phrasing reserved for
+        descriptions. M-Powered badge available if wanted for marketing.
+
 88. [x] Connection resilience pass: fixed the scan fallback that discovered but
         never connected (now a scan hit on the desired radio connects
         immediately); scan-assist runs alongside pending connects so whichever
