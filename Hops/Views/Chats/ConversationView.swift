@@ -437,11 +437,29 @@ struct ConversationView: View {
     }
 
     private var sendButton: some View {
-        Button {
-            send()
-        } label: {
-            Image(systemName: "arrow.up.circle.fill")
-                .font(.system(size: 30))
+        Group {
+            if isDM {
+                // Tap sends immediately; long-press offers alternatives.
+                Menu {
+                    Button {
+                        send(holdForPeer: true)
+                    } label: {
+                        Label("Send When Their Radio Is Heard", systemImage: "clock.arrow.circlepath")
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                } primaryAction: {
+                    send()
+                }
+            } else {
+                Button {
+                    send()
+                } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 30))
+                }
+            }
         }
         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
@@ -462,10 +480,11 @@ struct ConversationView: View {
         .accessibilityLabel("Send something special")
     }
 
-    private func send() {
+    private func send(holdForPeer: Bool = false) {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, let destination else { return }
-        radio.sendText(text, to: destination, replyId: replyTarget?.packetId ?? 0)
+        radio.sendText(text, to: destination, replyId: replyTarget?.packetId ?? 0,
+                       holdForPeer: holdForPeer)
         draft = ""
         replyTarget = nil
     }

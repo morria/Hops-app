@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+102. [x] Long-press Send offers "Send When Their Radio Is Heard" (DMs); a plain
+         tap always transmits immediately — the automatic 30-min hold heuristic
+         from #98 is now opt-in.
+101. [x] Radio-less messaging: "Use Without a Radio" skip in onboarding (with
+         the iCloud-relay explanation); Settings gains "Pair a Radio…" to enter
+         pairing later. Composes queue in the outbox and transmit via the other
+         device's radio through the #99 mailbox sweep.
+
 100. [x] Coverage survey map layer: while foregrounded, connected, and location-
          authorized, Hops records ≤1 sample per 30 s pairing your position with
          the best SNR heard; the Coverage layer paints them as green/yellow/red

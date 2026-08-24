@@ -701,24 +701,21 @@ final class RadioManager: ObservableObject {
     }
 
     func sendText(_ text: String, to destination: MessageDestinationRef,
-                  isEmoji: Bool = false, replyId: Int64 = 0) {
+                  isEmoji: Bool = false, replyId: Int64 = 0, holdForPeer: Bool = false) {
         guard let store else { return }
         let packetId = newPacketId()
         let connected = state == .connected || state == .syncing
         let myNum = myNodeNum
+        // Hold is explicit (long-press Send); a plain tap always transmits now.
+        var hold = holdForPeer
+        if case .node = destination {} else { hold = false }
+        let shouldHold = hold
         Task {
-            // Send-when-reachable: a DM to a peer silent for 30+ minutes is held
-            // and released the moment their radio is heard again.
-            var holdForPeer = false
-            if connected, case .node(let num) = destination {
-                let heard = await store.nodeSnapshot(num: num)?.lastHeard
-                holdForPeer = (heard.map { Date().timeIntervalSince($0) > 1800 } ?? true)
-            }
             let record = await store.persistOutgoing(packetId: Int64(packetId), myNum: myNum,
                                                      destination: destination, text: text,
                                                      isEmoji: isEmoji, replyId: replyId,
-                                                     connected: connected, holdForPeer: holdForPeer)
-            if holdForPeer { return }
+                                                     connected: connected, holdForPeer: shouldHold)
+            if shouldHold { return }
             if connected, !isEmoji {
                 await MainActor.run { self.transmit(record) }
                 // The delivery drama, live — DMs and channel sends alike.

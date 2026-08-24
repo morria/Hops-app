@@ -140,12 +140,24 @@ struct PairingView: View {
             .listStyle(.insetGrouped)
         }
         .safeAreaInset(edge: .bottom) {
-            Text("iOS will ask for a PIN the first time — it's shown on your radio's screen.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-                .padding(.vertical, 10)
+            VStack(spacing: 10) {
+                Text("iOS will ask for a PIN the first time — it's shown on your radio's screen.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                Button("Use Without a Radio") {
+                    onboardingComplete = true
+                    radio.finishOnboarding()
+                }
+                .font(.subheadline)
+                Text("Messages you write sync via iCloud and transmit through your other device's radio.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 40)
+            }
+            .padding(.vertical, 10)
         }
     }
 

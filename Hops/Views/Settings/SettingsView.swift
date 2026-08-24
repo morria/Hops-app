@@ -9,6 +9,7 @@ struct SettingsView: View {
     @AppStorage("notifyDMs") private var notifyDMs = true
     @AppStorage("notifyChannels") private var notifyChannels = true
     @AppStorage("useFahrenheit") private var useFahrenheit = Locale.current.measurementSystem != .metric
+    @AppStorage("onboardingComplete") private var onboardingComplete = false
 
     @State private var showForgetConfirm = false
 
@@ -101,7 +102,11 @@ struct SettingsView: View {
                 }
             }
 
-            if radio.userDisconnected {
+            if radio.state == .noRadio {
+                Button("Pair a Radio…") {
+                    onboardingComplete = false   // reopens the guided pairing flow
+                }
+            } else if radio.userDisconnected {
                 Button("Connect") {
                     radio.reconnectByUser()
                 }

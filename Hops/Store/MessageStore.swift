@@ -491,7 +491,7 @@ actor MessageStore {
             text: text,
             timestamp: Date(),
             outgoing: true,
-            status: !connected ? .waitingForRadio : (holdForPeer ? .waitingForPeer : .sending),
+            status: holdForPeer ? .waitingForPeer : (!connected ? .waitingForRadio : .sending),
             isEmoji: isEmoji,
             replyId: replyId
         )
