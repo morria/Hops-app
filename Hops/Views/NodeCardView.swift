@@ -75,7 +75,7 @@ struct NodeCardView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text("Key fingerprint")
                                     .font(.subheadline)
-                                Text(fingerprint(node.publicKey))
+                                Text(node.publicKey.keyFingerprint)
                                     .font(.caption.monospaced())
                                     .foregroundStyle(.secondary)
                                     .textSelection(.enabled)
@@ -202,17 +202,6 @@ struct NodeCardView: View {
             convo.title = node.displayName
         }
         try? modelContext.save()
-    }
-
-    /// Human-comparable digest of the peer's public key (SHA-256, grouped hex).
-    private func fingerprint(_ key: Data) -> String {
-        let digest = SHA256.hash(data: key)
-        let hex = digest.map { String(format: "%02x", $0) }.joined().prefix(32)
-        return stride(from: 0, to: hex.count, by: 4).map { offset -> String in
-            let start = hex.index(hex.startIndex, offsetBy: offset)
-            let end = hex.index(start, offsetBy: 4)
-            return String(hex[start..<end])
-        }.joined(separator: " ")
     }
 
     private func openInMaps(_ node: NodeEntity) {

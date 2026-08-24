@@ -267,6 +267,19 @@ struct IdentityView: View {
                 dismiss()
             }
             .disabled(longName.trimmingCharacters(in: .whitespaces).isEmpty || shortName.trimmingCharacters(in: .whitespaces).isEmpty)
+
+            if let key = nodes.first(where: { $0.num == radio.myNodeNum })?.publicKey, !key.isEmpty {
+                Section {
+                    Text(key.keyFingerprint)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                } header: {
+                    Text("Your key fingerprint")
+                } footer: {
+                    Text("This is what others see on your node card. Read it to each other over another channel to verify your DMs are end-to-end encrypted with the right person.")
+                }
+            }
         }
         .navigationTitle("Your Name")
         .onAppear {

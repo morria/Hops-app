@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+82. [x] Your own key fingerprint shows under Settings → Your name (same shared
+        SHA-256 formatting as peer node cards, selectable text) so out-of-band
+        comparison works both directions.
+
 81. [x] Node sheet title is the node itself (avatar + name in the principal
         position); redundant "Node" label and duplicate header row removed,
         last-heard becomes a normal row.
