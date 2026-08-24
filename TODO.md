@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+75. [x] Mesh Traffic hop/SNR row formatting: tight icon-text pairs, monospaced
+        digits, consistent spacing.
+
 74. [x] Composer accessory is now a "+" menu (Send My Location inside) so
         location can't be fat-fingered; extensible for future special sends.
 73. [x] Map modes: Nodes / Weather / Mesh segmented control. Weather shows
