@@ -476,6 +476,9 @@ final class RadioManager: ObservableObject {
             } else if packet.from != packet.to && fromNum != myNodeNum {
                 LiveActivityManager.shared.update(packetId: requestId,
                                                   status: "Delivered to their radio", phase: 2, final: true)
+            } else if LiveActivityManager.shared.isChannelSend(requestId) {
+                LiveActivityManager.shared.update(packetId: requestId,
+                                                  status: "Sent to mesh", phase: 2, final: true)
             } else {
                 LiveActivityManager.shared.update(packetId: requestId,
                                                   status: "Relayed by the mesh…", phase: 1, final: false)
@@ -657,17 +660,26 @@ final class RadioManager: ObservableObject {
                                                      destination: destination, text: text,
                                                      isEmoji: isEmoji, replyId: replyId,
                                                      connected: connected)
-            if connected {
+            if connected, !isEmoji {
                 await MainActor.run { self.transmit(record) }
-                // The delivery drama, live: DMs only, not reactions.
-                if case .node(let num) = destination, !isEmoji {
+                // The delivery drama, live — DMs and channel sends alike.
+                switch destination {
+                case .node(let num):
                     let snapshot = await store.nodeSnapshot(num: num)
                     await MainActor.run {
                         LiveActivityManager.shared.start(packetId: Int64(packetId),
                                                          peerName: snapshot?.longName ?? "Mesh node",
                                                          preview: text)
                     }
+                case .channel(let index):
+                    let title = await store.fetchConversationTitle(key: ConversationEntity.channelKey(index)) ?? "Channel \(index)"
+                    await MainActor.run {
+                        LiveActivityManager.shared.start(packetId: Int64(packetId),
+                                                         peerName: title, preview: text, isChannel: true)
+                    }
                 }
+            } else if connected {
+                await MainActor.run { self.transmit(record) }
             }
         }
     }

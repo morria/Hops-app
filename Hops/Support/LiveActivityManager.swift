@@ -8,8 +8,10 @@ final class LiveActivityManager {
     static let shared = LiveActivityManager()
 
     private var activities: [Int64: Activity<SendActivityAttributes>] = [:]
+    private var channelSends: Set<Int64> = []
 
-    func start(packetId: Int64, peerName: String, preview: String) {
+    func start(packetId: Int64, peerName: String, preview: String, isChannel: Bool = false) {
+        if isChannel { channelSends.insert(packetId) }
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let attributes = SendActivityAttributes(peerName: peerName,
                                                 preview: String(preview.prefix(50)))
@@ -23,6 +25,9 @@ final class LiveActivityManager {
             await self?.finish(packetId: packetId, status: "No response yet", phase: 3, ifStillRunning: true)
         }
     }
+
+    /// Channel broadcasts terminate on the implicit ack ("Sent to mesh").
+    func isChannelSend(_ packetId: Int64) -> Bool { channelSends.contains(packetId) }
 
     func update(packetId: Int64, status: String, phase: Int, final isFinal: Bool) {
         guard activities[packetId] != nil else { return }
@@ -38,6 +43,7 @@ final class LiveActivityManager {
     private func finish(packetId: Int64, status: String, phase: Int, ifStillRunning: Bool) async {
         guard let activity = activities[packetId] else { return }
         activities[packetId] = nil
+        channelSends.remove(packetId)
         let state = SendActivityAttributes.ContentState(statusText: status, phase: phase)
         // Linger briefly so the final state is seen, then dismiss.
         await activity.end(ActivityContent(state: state, staleDate: nil),

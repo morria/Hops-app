@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+97. [x] Live Activity extended to channel sends (was DM-only, which is why it
+        never appeared for channel-first usage): channel broadcasts run the
+        activity and terminate on the implicit ack as "Sent to mesh".
+
 96. [x] Node retention setting (Settings → Node database): remove unheard nodes
         after 7/30/90/180 days or Never (default 90); renamed/photographed/
         messaged nodes always kept; trail samples cleaned with them; runs at

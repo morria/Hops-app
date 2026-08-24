@@ -239,6 +239,10 @@ actor MessageStore {
 
     // MARK: - Conversations
 
+    func fetchConversationTitle(key: String) -> String? {
+        fetchConversation(key: key)?.title
+    }
+
     func fetchConversation(key: String) -> ConversationEntity? {
         try? modelContext.fetch(
             FetchDescriptor<ConversationEntity>(predicate: #Predicate { $0.key == key })
