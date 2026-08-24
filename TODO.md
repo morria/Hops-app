@@ -4,6 +4,8 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+86. [x] Settings → About links to the GitHub repo.
+
 85. [x] Guided onboarding overhaul: Bluetooth-off state with guidance,
         troubleshooting tips after 12 s of empty scanning, staged
         connect/sync progress instead of dumping to an empty list, factory-name

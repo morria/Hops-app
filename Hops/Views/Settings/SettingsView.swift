@@ -235,6 +235,9 @@ struct SettingsView: View {
     private var aboutSection: some View {
         Section("About") {
             LabeledContent("Version", value: appVersion)
+            Link(destination: URL(string: "https://github.com/morria/Hops-app")!) {
+                Label("Hops on GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
             Link(destination: URL(string: "https://meshtastic.org")!) {
                 Text("Meshtastic Project")
             }
