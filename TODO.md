@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+104. [x] Sending scrolls to the sent message: a second scroll pass after layout
+         settles (the immediate scroll fired before the new row had geometry).
+
 103. [x] Coverage sampling works in the background: position comes from the
          radio's own GPS (arrives in the same packet flushes, ≤10 min fresh)
          or the phone's passively cached fix (≤5 min); active GPS only when

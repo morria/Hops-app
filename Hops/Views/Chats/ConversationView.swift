@@ -324,6 +324,11 @@ struct ConversationView: View {
             .onChange(of: messages.count) {
                 rebuildRows()
                 scrollToBottom(proxy, animated: true)
+                // Second pass after the new row has real layout — without it a
+                // just-sent message can land below the fold.
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                    scrollToBottom(proxy, animated: true)
+                }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
