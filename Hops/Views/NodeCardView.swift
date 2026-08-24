@@ -27,7 +27,7 @@ struct NodeCardView: View {
                             MonogramAvatar(text: node.monogram, isChannel: false, size: 56,
                                            dimmed: !node.isOnline, imageData: node.iconData)
                             VStack(alignment: .leading) {
-                                Text(node.longName).font(.headline)
+                                Text(node.displayName).font(.headline)
                                 if let heard = node.lastHeard {
                                     Text("Heard \(heard.formatted(.relative(presentation: .named)))")
                                         .font(.subheadline)
@@ -98,7 +98,7 @@ struct NodeCardView: View {
     private func openInMaps(_ node: NodeEntity) {
         let placemark = MKPlacemark(coordinate: node.coordinate)
         let item = MKMapItem(placemark: placemark)
-        item.name = node.longName
+        item.name = node.displayName
         item.openInMaps()
     }
 }

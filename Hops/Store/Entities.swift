@@ -128,6 +128,11 @@ final class NodeEntity {
     var unmessagable: Bool = false
     /// User-chosen avatar photo (device-set, synced via iCloud).
     @Attribute(.externalStorage) var iconData: Data?
+    /// Local override name; empty = use the mesh-reported longName.
+    var customName: String = ""
+
+    /// What to show anywhere this node is named.
+    var displayName: String { customName.isEmpty ? longName : customName }
 
     init(num: Int64) {
         self.num = num
@@ -163,6 +168,8 @@ final class ChannelEntity {
     var psk: Data = Data()
     /// User-chosen avatar photo (device-set, synced via iCloud).
     @Attribute(.externalStorage) var iconData: Data?
+    /// Local override name; empty = derive from the mesh channel name.
+    var customName: String = ""
 
     init(index: Int32, name: String, roleRaw: Int32, psk: Data) {
         self.index = index
@@ -172,6 +179,7 @@ final class ChannelEntity {
     }
 
     var displayName: String {
+        if !customName.isEmpty { return customName }
         if !name.isEmpty { return name }
         return roleRaw == 1 ? "Primary Channel" : "Channel \(index)"
     }

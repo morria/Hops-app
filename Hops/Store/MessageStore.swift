@@ -51,7 +51,7 @@ actor MessageStore {
         // Keep DM conversation titles in sync with renamed nodes.
         let key = ConversationEntity.dmKey(num)
         if let convo = fetchConversation(key: key) {
-            convo.title = node.longName
+            convo.title = node.displayName
         }
         try? modelContext.save()
     }
@@ -183,7 +183,7 @@ actor MessageStore {
             let peer = outgoing ? toNum : fromNum
             let peerNode = upsertNode(num: peer)
             key = ConversationEntity.dmKey(peer)
-            convo = ensureConversation(key: key, kind: .directMessage, channelIndex: 0, peerNum: peer, title: peerNode.longName)
+            convo = ensureConversation(key: key, kind: .directMessage, channelIndex: 0, peerNum: peer, title: peerNode.displayName)
         } else {
             let index = Int32(packet.channel)
             key = ConversationEntity.channelKey(index)
@@ -233,7 +233,7 @@ actor MessageStore {
             conversationKey: key,
             conversationTitle: convo.title,
             senderNum: fromNum,
-            senderName: sender.longName,
+            senderName: sender.displayName,
             text: text,
             isDM: isDM,
             notifyLevelRaw: convo.notifyLevelRaw == 0 && convo.muted
@@ -312,7 +312,7 @@ actor MessageStore {
             channel = 0
             let node = upsertNode(num: num)
             publicKey = node.publicKey
-            convo = ensureConversation(key: key, kind: .directMessage, channelIndex: 0, peerNum: num, title: node.longName)
+            convo = ensureConversation(key: key, kind: .directMessage, channelIndex: 0, peerNum: num, title: node.displayName)
         }
         let message = MessageEntity(
             packetId: packetId,

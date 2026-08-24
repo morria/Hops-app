@@ -40,7 +40,7 @@ struct SettingsView: View {
                     .font(.title2)
                     .foregroundStyle(stateColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(myNode?.longName ?? "Meshtastic radio")
+                    Text(myNode?.displayName ?? "Meshtastic radio")
                         .font(.headline)
                     Text(stateDescription)
                         .font(.subheadline)

@@ -45,7 +45,7 @@ struct ReactionDetailsSheet: View {
 
     private func name(for num: Int64) -> String {
         if num == RadioManager.shared.myNodeNum { return "You" }
-        return node(for: num)?.longName ?? String(format: "!%08x", UInt32(truncatingIfNeeded: num))
+        return node(for: num)?.displayName ?? String(format: "!%08x", UInt32(truncatingIfNeeded: num))
     }
 
     private func monogram(for num: Int64) -> String {

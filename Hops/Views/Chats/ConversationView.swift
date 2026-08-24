@@ -86,7 +86,7 @@ struct ConversationView: View {
             let node = try? modelContext.fetch(
                 FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
             ).first
-            if let node { return node.longName }
+            if let node { return node.displayName }
         }
         if case .channel(let index) = destination {
             let channel = try? modelContext.fetch(

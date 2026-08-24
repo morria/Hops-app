@@ -15,6 +15,8 @@ struct ChatsListView: View {
     @State private var showCompose = false
     @State private var path = NavigationPath()
     @State private var deleteTarget: ConversationEntity?
+    @State private var renameTarget: ConversationEntity?
+    @State private var renameText = ""
     @State private var photoTarget: ConversationEntity?
     @State private var showPhotoPicker = false
     @State private var pickedPhoto: PhotosPickerItem?
@@ -79,6 +81,17 @@ struct ChatsListView: View {
                 AvatarCropView(image: box.image) { cropped in
                     setIconData(cropped.jpegData(compressionQuality: 0.85), for: box.target)
                 }
+            }
+            .alert("Rename", isPresented: Binding(get: { renameTarget != nil },
+                                                  set: { if !$0 { renameTarget = nil } })) {
+                TextField("Name", text: $renameText)
+                Button("Save") {
+                    if let target = renameTarget { applyRename(target) }
+                    renameTarget = nil
+                }
+                Button("Cancel", role: .cancel) { renameTarget = nil }
+            } message: {
+                Text("Shown only on your devices. Leave blank to use the name from the mesh.")
             }
             .confirmationDialog("Delete this conversation?",
                                 isPresented: Binding(get: { deleteTarget != nil },
@@ -288,6 +301,46 @@ struct ChatsListView: View {
         .contextMenu { swipeMenuItems(for: convo) }
     }
 
+    private func currentOverride(for convo: ConversationEntity) -> String {
+        switch convo.kind {
+        case .channel:
+            let index = convo.channelIndex
+            return (try? modelContext.fetch(
+                FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == index })
+            ).first)?.customName ?? ""
+        case .directMessage:
+            let num = convo.peerNum
+            return (try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+            ).first)?.customName ?? ""
+        }
+    }
+
+    /// Local-only override; blank restores the mesh-reported name. The
+    /// denormalized conversation title updates immediately.
+    private func applyRename(_ convo: ConversationEntity) {
+        let trimmed = renameText.trimmingCharacters(in: .whitespaces)
+        switch convo.kind {
+        case .channel:
+            let index = convo.channelIndex
+            if let channel = try? modelContext.fetch(
+                FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == index })
+            ).first {
+                channel.customName = trimmed
+                convo.title = channel.displayName
+            }
+        case .directMessage:
+            let num = convo.peerNum
+            if let node = try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+            ).first {
+                node.customName = trimmed
+                convo.title = node.displayName
+            }
+        }
+        try? modelContext.save()
+    }
+
     private func deleteConversation(_ convo: ConversationEntity) {
         let key = convo.key
         NotificationManager.shared.clearNotifications(for: key)
@@ -317,6 +370,12 @@ struct ChatsListView: View {
             Label("Muted", systemImage: "bell.slash").tag(NotifyLevel.muted.rawValue)
         }
         .pickerStyle(.menu)
+        Button {
+            renameText = currentOverride(for: convo)
+            renameTarget = convo
+        } label: {
+            Label("Rename…", systemImage: "pencil")
+        }
         Button {
             photoTarget = convo
             showPhotoPicker = true
@@ -392,7 +451,7 @@ struct ChatsListView: View {
         let matchingNodes = allNodes.filter { node in
             node.num != radio.myNodeNum
                 && node.isMessageable
-                && (node.longName.lowercased().contains(query) || node.shortName.lowercased().contains(query))
+                && (node.displayName.lowercased().contains(query) || node.longName.lowercased().contains(query) || node.shortName.lowercased().contains(query))
                 && !existingDMKeys.contains(ConversationEntity.dmKey(node.num))
         }
         let matchingMessages = allMessages
@@ -417,7 +476,7 @@ struct ChatsListView: View {
                                 MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
                                                dimmed: !node.isOnline, imageData: node.iconData)
                                 VStack(alignment: .leading, spacing: 2) {
-                                    Text(node.longName)
+                                    Text(node.displayName)
                                     if let heard = node.lastHeard {
                                         Text("Heard \(heard.formatted(.relative(presentation: .named)))")
                                             .font(.caption)
@@ -555,7 +614,7 @@ struct ComposePickerView: View {
                     }
                 }
                 Section("People") {
-                    ForEach(messageableNodes.filter { query.isEmpty || $0.longName.lowercased().contains(query) || $0.shortName.lowercased().contains(query) }) { node in
+                    ForEach(messageableNodes.filter { query.isEmpty || $0.displayName.lowercased().contains(query) || $0.longName.lowercased().contains(query) || $0.shortName.lowercased().contains(query) }) { node in
                         Button {
                             onPick(ConversationEntity.dmKey(node.num))
                         } label: {
@@ -563,7 +622,7 @@ struct ComposePickerView: View {
                                 MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
                                                dimmed: !node.isOnline, imageData: node.iconData)
                                 VStack(alignment: .leading) {
-                                    Text(node.longName)
+                                    Text(node.displayName)
                                     if let heard = node.lastHeard {
                                         Text("Heard \(heard.formatted(.relative(presentation: .named)))")
                                             .font(.caption)
