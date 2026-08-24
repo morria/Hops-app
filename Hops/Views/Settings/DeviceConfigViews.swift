@@ -37,9 +37,13 @@ struct DeviceConfigurationView: View {
         ("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800),
         ("1 hour", 3600), ("6 hours", 21600),
     ]
+    /// Firmware has no boolean for device metrics; "off" is an interval the
+    /// radio will never reach.
+    static let telemetryOff = 4_294_967_295
     private static let telemetryChoices: [(String, Int)] = [
         ("30 minutes (firmware default)", 1800), ("1 hour", 3600), ("2 hours", 7200),
         ("6 hours (community recommended)", 21600), ("12 hours", 43200), ("24 hours", 86400),
+        ("Off — never broadcast", telemetryOff),
     ]
 
     var body: some View {
@@ -178,7 +182,9 @@ struct DeviceConfigurationView: View {
 
     private func syncTelemetry() {
         guard let telemetry = radio.telemetryConfig else { return }
-        let current = telemetry.deviceUpdateInterval == 0 ? 1800 : Int(telemetry.deviceUpdateInterval)
+        var current = telemetry.deviceUpdateInterval == 0 ? 1800 : Int(telemetry.deviceUpdateInterval)
+        // Anything a year or beyond reads back as Off.
+        if current >= 31_536_000 { current = Self.telemetryOff }
         if Self.telemetryChoices.map(\.1).contains(current) { deviceInterval = current }
     }
 

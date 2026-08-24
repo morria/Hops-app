@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+92. [x] Device telemetry can be shut off: "Off — never broadcast" option (an
+        interval the radio never reaches; firmware has no boolean); long
+        read-back intervals display as Off.
+
 91. [x] Blank transcript when tapping the input: removed defaultScrollAnchor
         (known blank-content failure when the keyboard shifts the safe area);
         interactive keyboard dismissal added.
