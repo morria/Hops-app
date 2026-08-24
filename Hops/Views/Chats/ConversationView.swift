@@ -257,13 +257,13 @@ struct ConversationView: View {
         ).first
     }
 
-    /// Label above channel messages: the user's override name wins, else short name.
+    /// Label above channel messages: override name wins, else the mesh long name.
     private func senderShortName(_ message: MessageEntity) -> String? {
         guard !isDM, !message.outgoing else { return nil }
         guard let node = senderNode(message) else {
             return String(format: "%04x", UInt32(truncatingIfNeeded: message.fromNum) & 0xFFFF)
         }
-        return node.customName.isEmpty ? node.shortName : node.customName
+        return node.displayName
     }
 
     private func senderMonogram(_ message: MessageEntity) -> String? {

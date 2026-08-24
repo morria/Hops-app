@@ -132,7 +132,7 @@ struct ChatsListView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text("Chats")
+                Text("Conversations")
                     .font(.largeTitle.bold())
                 StatusCapsule()
                 Spacer()
