@@ -4,6 +4,8 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+39. [x] LoRa settings moved from Device configuration into Mesh Setup as
+        "Custom LoRa Settings", with a footer nudge to save results as a preset.
 38. [x] Mesh Setup: "Save Current as Preset…" stores the radio's current
         region/preset/slot/hop limit as a named custom configuration in the
         preset list (persisted, adopted as applied); custom rows delete via

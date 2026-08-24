@@ -191,11 +191,6 @@ struct SettingsView: View {
     private var deviceConfigSection: some View {
         Section("Device configuration") {
             NavigationLink {
-                LoRaSettingsView()
-            } label: {
-                Label("LoRa Radio", systemImage: "dot.radiowaves.left.and.right")
-            }
-            NavigationLink {
                 BluetoothSettingsView()
             } label: {
                 Label("Bluetooth", systemImage: "antenna.radiowaves.left.and.right.circle")
@@ -365,7 +360,16 @@ struct MeshSetupView: View {
             } header: {
                 Text("Set up for your mesh")
             } footer: {
-                Text("Community recommendations, refreshed from each mesh's published settings, plus your own saved configurations (swipe to delete). Fine-grained radio configuration lives under Device configuration → LoRa Radio.")
+                Text("Community recommendations, refreshed from each mesh's published settings, plus your own saved configurations (swipe to delete).")
+            }
+            Section {
+                NavigationLink {
+                    LoRaSettingsView()
+                } label: {
+                    Label("Custom LoRa Settings", systemImage: "dot.radiowaves.left.and.right")
+                }
+            } footer: {
+                Text("Region, modem preset, frequency slot, and hop limit — for going off-book. Save the result as a preset above to get back easily.")
             }
             if radio.loRa.received {
                 Section("Current radio settings") {
