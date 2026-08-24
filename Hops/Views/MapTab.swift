@@ -11,11 +11,43 @@ struct MapTab: View {
 
     @State private var selectedNodeNum: Int64?
     @State private var weatherNodeNum: Int64?
-    @State private var position: MapCameraPosition = .automatic
-    @State private var mode: MapMode = .nodes
+    @State private var position: MapCameraPosition
+    @AppStorage("mapModeRaw") private var modeRaw = MapMode.nodes.rawValue
     @State private var waypointDraft: WaypointDraft?
     @State private var visibleRegion: MKCoordinateRegion?
     @Namespace private var mapScope
+
+    /// Persisted view mode — reopening the map lands where you left it.
+    private var mode: MapMode {
+        get { MapMode(rawValue: modeRaw) ?? .nodes }
+    }
+    private var modeBinding: Binding<MapMode> {
+        Binding(get: { MapMode(rawValue: modeRaw) ?? .nodes },
+                set: { modeRaw = $0.rawValue })
+    }
+
+    init() {
+        // Restore the last camera; fall back to auto-framing the mesh.
+        let defaults = UserDefaults.standard
+        if defaults.object(forKey: "mapCenterLat") != nil {
+            let region = MKCoordinateRegion(
+                center: CLLocationCoordinate2D(latitude: defaults.double(forKey: "mapCenterLat"),
+                                               longitude: defaults.double(forKey: "mapCenterLon")),
+                span: MKCoordinateSpan(latitudeDelta: defaults.double(forKey: "mapSpanLat"),
+                                       longitudeDelta: defaults.double(forKey: "mapSpanLon")))
+            _position = State(initialValue: .region(region))
+        } else {
+            _position = State(initialValue: .automatic)
+        }
+    }
+
+    private func persistCamera(_ region: MKCoordinateRegion) {
+        let defaults = UserDefaults.standard
+        defaults.set(region.center.latitude, forKey: "mapCenterLat")
+        defaults.set(region.center.longitude, forKey: "mapCenterLon")
+        defaults.set(region.span.latitudeDelta, forKey: "mapSpanLat")
+        defaults.set(region.span.longitudeDelta, forKey: "mapSpanLon")
+    }
 
     /// Pan so a tapped coordinate sits in the upper half, clear of the sheet.
     private func focus(on coordinate: CLLocationCoordinate2D) {
@@ -107,7 +139,7 @@ struct MapTab: View {
             .overlay(alignment: .bottomTrailing) {
                 VStack(spacing: 10) {
                     Menu {
-                        Picker("Map view", selection: $mode) {
+                        Picker("Map view", selection: modeBinding) {
                             ForEach(MapMode.allCases) { choice in
                                 Label(choice.rawValue, systemImage: choice.icon).tag(choice)
                             }
@@ -128,6 +160,7 @@ struct MapTab: View {
             .mapScope(mapScope)
             .onMapCameraChange { context in
                 visibleRegion = context.region
+                persistCamera(context.region)
             }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)

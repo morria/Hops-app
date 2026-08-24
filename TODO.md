@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+87. [x] Map remembers its last layer (Nodes/Weather) and camera
+        (center + zoom) across sessions; restored on open until changed.
+
 86. [x] Settings → About links to the GitHub repo.
 
 85. [x] Guided onboarding overhaul: Bluetooth-off state with guidance,
