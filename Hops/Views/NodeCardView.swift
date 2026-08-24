@@ -37,22 +37,8 @@ struct NodeCardView: View {
             if let node = nodes.first {
                 List {
                     Section {
-                        HStack(spacing: 12) {
-                            MonogramAvatar(text: node.monogram, isChannel: false, size: 56,
-                                           dimmed: !node.isOnline, imageData: node.iconData)
-                            VStack(alignment: .leading) {
-                                Text(node.displayName).font(.headline)
-                                if let heard = node.lastHeard {
-                                    Text("Heard \(heard.formatted(.relative(presentation: .named)))")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                } else {
-                                    Text("Never heard directly")
-                                        .font(.subheadline)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                        }
+                        LabeledContent("Last heard",
+                                       value: node.lastHeard.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
 
                         if node.batteryLevel >= 0 {
                             LabeledContent("Battery",
@@ -155,9 +141,18 @@ struct NodeCardView: View {
                         }
                     }
                 }
-                .navigationTitle("Node")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
+                    // The node itself is the title: avatar + name, no "Node" label.
+                    ToolbarItem(placement: .principal) {
+                        HStack(spacing: 8) {
+                            MonogramAvatar(text: node.monogram, isChannel: false, size: 26,
+                                           dimmed: !node.isOnline, imageData: node.iconData)
+                            Text(node.displayName)
+                                .font(.headline)
+                                .lineLimit(1)
+                        }
+                    }
                     ToolbarItem(placement: .confirmationAction) {
                         Button("Done") { dismiss() }
                     }

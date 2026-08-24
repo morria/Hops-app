@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+81. [x] Node sheet title is the node itself (avatar + name in the principal
+        position); redundant "Node" label and duplicate header row removed,
+        last-heard becomes a normal row.
+80. [x] Tapping a node (or weather pill) pans the map so the pin sits in the
+        upper half, clear of the sheet, preserving zoom.
+
 79. [x] Map mode switcher is an Apple Maps-style floating layers circle above
         locate-me, opening a Nodes/Weather chooser. Mesh view dropped for now
         (NeighborInfo plumbing stays dormant in RadioManager for a revival).

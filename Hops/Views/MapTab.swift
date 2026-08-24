@@ -14,7 +14,18 @@ struct MapTab: View {
     @State private var position: MapCameraPosition = .automatic
     @State private var mode: MapMode = .nodes
     @State private var waypointDraft: WaypointDraft?
+    @State private var visibleRegion: MKCoordinateRegion?
     @Namespace private var mapScope
+
+    /// Pan so a tapped coordinate sits in the upper half, clear of the sheet.
+    private func focus(on coordinate: CLLocationCoordinate2D) {
+        let span = visibleRegion?.span ?? MKCoordinateSpan(latitudeDelta: 0.08, longitudeDelta: 0.08)
+        let center = CLLocationCoordinate2D(latitude: coordinate.latitude - span.latitudeDelta * 0.22,
+                                            longitude: coordinate.longitude)
+        withAnimation(.easeInOut(duration: 0.35)) {
+            position = .region(MKCoordinateRegion(center: center, span: span))
+        }
+    }
 
     enum MapMode: String, CaseIterable, Identifiable {
         case nodes = "Nodes"
@@ -115,6 +126,9 @@ struct MapTab: View {
                 .padding(.bottom, 16)
             }
             .mapScope(mapScope)
+            .onMapCameraChange { context in
+                visibleRegion = context.region
+            }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
@@ -173,6 +187,7 @@ struct MapTab: View {
                     .shadow(radius: 2)
                     .contentShape(Circle())
                     .onTapGesture {
+                        focus(on: placed.coordinate)
                         selectedNodeNum = node.num
                     }
             }
@@ -197,6 +212,7 @@ struct MapTab: View {
             Annotation(node.displayName, coordinate: node.coordinate) {
                 WeatherPill(node: node)
                     .onTapGesture {
+                        focus(on: node.coordinate)
                         weatherNodeNum = node.num
                     }
             }
