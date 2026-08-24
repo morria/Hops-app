@@ -713,6 +713,16 @@ final class RadioManager: ObservableObject {
         write(toRadio)
     }
 
+    /// Post-onboarding: introduce ourselves to the mesh (fills the roster fast)
+    /// and only now ask for notification permission — after the app proved useful.
+    func finishOnboarding() {
+        NotificationManager.shared.requestPermission()
+        if !defaults.bool(forKey: "didFirstAnnounce") {
+            defaults.set(true, forKey: "didFirstAnnounce")
+            announceNodeInfo(onChannel: 0)
+        }
+    }
+
     /// Ask a known Store & Forward router to replay messages covering our offline
     /// window. Only when a router heartbeated recently and we were actually away.
     private func requestStoreForwardHistoryIfUseful() {

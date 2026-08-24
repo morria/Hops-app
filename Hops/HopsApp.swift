@@ -30,6 +30,11 @@ struct HopsApp: App {
             }
         }
         RadioManager.shared.configure(container: container)
+        // Existing installs that paired before guided onboarding existed skip it.
+        if RadioManager.shared.pairedPeripheralId != nil,
+           UserDefaults.standard.object(forKey: "onboardingComplete") == nil {
+            UserDefaults.standard.set(true, forKey: "onboardingComplete")
+        }
         #if DEBUG
         if ScreenshotMode.isActive {
             ScreenshotMode.seedIfNeeded(container: container)

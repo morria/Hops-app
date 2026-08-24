@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+85. [x] Guided onboarding overhaul: Bluetooth-off state with guidance,
+        troubleshooting tips after 12 s of empty scanning, staged
+        connect/sync progress instead of dumping to an empty list, factory-name
+        prompt ("What should the mesh call you?"), mesh setup as an onboarding
+        step (gating Start Messaging when region unset), notification
+        permission deferred until after first sync, one-time nodeinfo announce
+        on completion. Existing installs skip it via migration flag.
+
 84. [x] Weather pills carry no station label on the map; the name lives in the
         tap-through sheet.
 83. [x] Temperatures render as whole degrees with a °F/°C picker in Settings →

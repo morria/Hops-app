@@ -28,9 +28,13 @@ final class NotificationManager: NSObject {
             identifier: Self.messageCategory, actions: [reply, thumbsUp],
             intentIdentifiers: [], options: [])
         center.setNotificationCategories([category])
+    }
 
+    /// Asked once the app has shown value (first successful sync), not at launch.
+    func requestPermission() {
         Task {
-            _ = try? await center.requestAuthorization(options: [.alert, .sound, .badge])
+            _ = try? await UNUserNotificationCenter.current()
+                .requestAuthorization(options: [.alert, .sound, .badge])
         }
     }
 

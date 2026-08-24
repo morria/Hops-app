@@ -4,6 +4,7 @@ import SwiftData
 struct RootView: View {
     @EnvironmentObject private var radio: RadioManager
     @EnvironmentObject private var appModel: AppModel
+    @AppStorage("onboardingComplete") private var onboardingComplete = false
 
     var body: some View {
         TabView(selection: $appModel.selectedTab) {
@@ -17,10 +18,13 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(2)
         }
-        .fullScreenCover(isPresented: .constant(radio.state == .noRadio)) {
+        .fullScreenCover(isPresented: .constant(!onboardingComplete)) {
             PairingView()
         }
-        .sheet(isPresented: $radio.needsMeshSetup) {
+        // Post-onboarding only — during onboarding, mesh setup is a step inside
+        // the pairing flow (a sheet can't present under the cover anyway).
+        .sheet(isPresented: Binding(get: { radio.needsMeshSetup && onboardingComplete },
+                                    set: { if !$0 { radio.needsMeshSetup = false } })) {
             NavigationStack {
                 MeshSetupView(isFirstRun: true)
             }
