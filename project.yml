@@ -27,9 +27,7 @@ targets:
         MARKETING_VERSION: "0.1.0"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: "1,2"
-        # Re-enable once an Apple developer account is signed in to Xcode
-        # (registers the iCloud container + push capability):
-        # CODE_SIGN_ENTITLEMENTS: Hops/Hops.entitlements
+        CODE_SIGN_ENTITLEMENTS: Hops/Hops.entitlements
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
         DEVELOPMENT_TEAM: 7Q2SS8772K
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

@@ -41,6 +41,20 @@ struct MeshTrafficLogView: View {
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
+                        if entry.snr != 0 || entry.hopsAway >= 0 {
+                            HStack(spacing: 8) {
+                                if entry.hopsAway >= 0 {
+                                    Label(entry.hopsAway == 0 ? "Direct" : "\(entry.hopsAway) hop\(entry.hopsAway == 1 ? "" : "s")",
+                                          systemImage: "arrow.triangle.branch")
+                                }
+                                if entry.snr != 0 {
+                                    Label(String(format: "%.1f dB", entry.snr),
+                                          systemImage: "waveform")
+                                }
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                        }
                     }
                     .padding(.vertical, 1)
                 }

@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import CoreLocation
+import MapKit
 
 struct ConversationView: View {
     let conversationKey: String
@@ -458,6 +459,9 @@ struct MessageBubble: View {
                     .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             }
             Text(message.text)
+            if let coordinate = message.sharedCoordinate {
+                LocationCard(coordinate: coordinate, title: senderName ?? (message.outgoing ? "My location" : "Shared location"))
+            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -544,3 +548,44 @@ struct MessageBubble: View {
 }
 
 // The shared node card lives in Views/NodeCardView.swift.
+
+// MARK: - Shared-location card
+
+extension MessageEntity {
+    /// A coordinate pair in the text (e.g. "📍 40.71280, -74.00600").
+    /// Requires ≥3 decimals per component so prices/versions don't match.
+    var sharedCoordinate: CLLocationCoordinate2D? {
+        guard let regex = try? NSRegularExpression(pattern: #"(-?\d{1,2}\.\d{3,8})\s*,\s*(-?\d{1,3}\.\d{3,8})"#),
+              let match = regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)),
+              let latRange = Range(match.range(at: 1), in: text),
+              let lonRange = Range(match.range(at: 2), in: text),
+              let lat = Double(text[latRange]), let lon = Double(text[lonRange]),
+              abs(lat) <= 90, abs(lon) <= 180, lat != 0 || lon != 0
+        else { return nil }
+        return CLLocationCoordinate2D(latitude: lat, longitude: lon)
+    }
+}
+
+/// Mini map rendered under a coordinate message; tapping opens Apple Maps.
+struct LocationCard: View {
+    let coordinate: CLLocationCoordinate2D
+    let title: String
+
+    var body: some View {
+        Map(initialPosition: .region(MKCoordinateRegion(
+            center: coordinate,
+            span: MKCoordinateSpan(latitudeDelta: 0.012, longitudeDelta: 0.012)))) {
+            Marker(title, coordinate: coordinate)
+        }
+        .allowsHitTesting(false)   // static preview; the tap belongs to the card
+        .frame(width: 220, height: 120)
+        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .contentShape(RoundedRectangle(cornerRadius: 12))
+        .onTapGesture {
+            let item = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+            item.name = title
+            item.openInMaps()
+        }
+        .padding(.top, 2)
+    }
+}

@@ -43,15 +43,19 @@ final class RadioManager: ObservableObject {
         let fromNum: Int64
         let portName: String
         let summary: String
+        let snr: Float          // 0 = not reported
+        let hopsAway: Int       // -1 = unknown
     }
     /// Rolling log of decoded mesh traffic, newest first (capped).
     @Published private(set) var trafficLog: [TrafficEntry] = []
     private var trafficCounter = 0
 
-    private func logTraffic(from: Int64, port: String, summary: String) {
+    private func logTraffic(from: Int64, port: String, summary: String,
+                            snr: Float = 0, hopsAway: Int = -1) {
         trafficCounter += 1
         trafficLog.insert(TrafficEntry(id: trafficCounter, date: Date(), fromNum: from,
-                                       portName: port, summary: summary), at: 0)
+                                       portName: port, summary: summary,
+                                       snr: snr, hopsAway: hopsAway), at: 0)
         if trafficLog.count > 200 {
             trafficLog.removeLast(trafficLog.count - 200)
         }
@@ -380,14 +384,18 @@ final class RadioManager: ObservableObject {
                                   rxTime: packet.rxTime)
             }
         }
+        let hops = packet.hopStart > 0 && packet.hopStart >= packet.hopLimit
+            ? Int(packet.hopStart - packet.hopLimit) : -1
         guard case .decoded(let decoded) = packet.payloadVariant else {
-            logTraffic(from: fromNum, port: "encrypted", summary: "Undecodable (no matching channel key)")
+            logTraffic(from: fromNum, port: "encrypted", summary: "Undecodable (no matching channel key)",
+                       snr: packet.rxSnr, hopsAway: hops)
             return
         }
         if decoded.portnum == .textMessageApp, fromNum != myNodeNum {
             textMessagesHeard += 1
         }
-        logTraffic(from: fromNum, port: portLabel(decoded.portnum), summary: trafficSummary(decoded))
+        logTraffic(from: fromNum, port: portLabel(decoded.portnum), summary: trafficSummary(decoded),
+                   snr: packet.rxSnr, hopsAway: hops)
 
         switch decoded.portnum {
         case .textMessageApp, .detectionSensorApp, .alertApp:
