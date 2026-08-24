@@ -158,6 +158,25 @@ actor MessageStore {
         try? modelContext.save()
     }
 
+    func addCoverageSample(latitude: Double, longitude: Double, snr: Float, packets: Int) {
+        modelContext.insert(CoverageSampleEntity(latitude: latitude, longitude: longitude,
+                                                 snr: snr, packets: packets, timestamp: Date()))
+        try? modelContext.save()
+    }
+
+    /// Coverage retention: 30 days, capped at 2000 samples.
+    func pruneCoverage() {
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+        let old = (try? modelContext.fetch(FetchDescriptor<CoverageSampleEntity>(
+            predicate: #Predicate { $0.timestamp < cutoff }))) ?? []
+        for sample in old { modelContext.delete(sample) }
+        var descriptor = FetchDescriptor<CoverageSampleEntity>()
+        descriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]
+        let all = (try? modelContext.fetch(descriptor)) ?? []
+        for sample in all.dropFirst(2000) { modelContext.delete(sample) }
+        try? modelContext.save()
+    }
+
     /// Trim trail samples: older than 24 h, or beyond 200 per node.
     func pruneTrails() {
         let cutoff = Date().addingTimeInterval(-24 * 60 * 60)

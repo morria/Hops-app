@@ -66,6 +66,34 @@ final class RadioManager: ObservableObject {
         let snr: Float          // 0 = not reported
         let hopsAway: Int       // -1 = unknown
     }
+    // Coverage survey accumulator: best SNR heard since the last sample.
+    private var coverageSnrMax: Float = -999
+    private var coveragePackets = 0
+    private var coverageSampledAt = Date.distantPast
+
+    /// Foreground-only, ≤1 GPS fix per 30 s, and only with location already
+    /// authorized — passive by design.
+    private func accumulateCoverage(snr: Float) {
+        guard snr != 0 else { return }
+        coverageSnrMax = max(coverageSnrMax, snr)
+        coveragePackets += 1
+        guard UIStateObserver.shared.isActive,
+              Date().timeIntervalSince(coverageSampledAt) > 30,
+              LocationProvider.shared.isAuthorized,
+              let store else { return }
+        coverageSampledAt = Date()
+        let snapshotSnr = coverageSnrMax
+        let snapshotCount = coveragePackets
+        coverageSnrMax = -999
+        coveragePackets = 0
+        Task {
+            guard let location = await LocationProvider.shared.current() else { return }
+            await store.addCoverageSample(latitude: location.coordinate.latitude,
+                                          longitude: location.coordinate.longitude,
+                                          snr: snapshotSnr, packets: snapshotCount)
+        }
+    }
+
     /// Rolling log of decoded mesh traffic, newest first (capped).
     @Published private(set) var trafficLog: [TrafficEntry] = []
     private var trafficCounter = 0
@@ -163,6 +191,7 @@ final class RadioManager: ObservableObject {
         Task {
             await store.repairConversations()
             await store.pruneTrails()
+            await store.pruneCoverage()
             await store.pruneStaleNodes(olderThanDays: UserDefaults.standard.object(forKey: "nodeMaxAgeDays") as? Int ?? 90)
         }
     }
@@ -450,6 +479,7 @@ final class RadioManager: ObservableObject {
         if fromNum != myNodeNum {
             meshPacketsHeard += 1
             lastMeshPacketAt = Date()
+            accumulateCoverage(snr: packet.rxSnr)
             Task {
                 await store.heard(num: fromNum, snr: packet.rxSnr,
                                   hopStart: packet.hopStart, hopLimit: packet.hopLimit,

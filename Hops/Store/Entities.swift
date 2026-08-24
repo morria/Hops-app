@@ -221,6 +221,26 @@ final class PositionSampleEntity {
     }
 }
 
+// MARK: - Coverage survey
+
+/// Where we were and how well we heard the mesh there (best SNR in the window).
+@Model
+final class CoverageSampleEntity {
+    var latitude: Double = 0
+    var longitude: Double = 0
+    var snr: Float = 0
+    var packets: Int = 0
+    var timestamp: Date = Date(timeIntervalSince1970: 0)
+
+    init(latitude: Double, longitude: Double, snr: Float, packets: Int, timestamp: Date) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.snr = snr
+        self.packets = packets
+        self.timestamp = timestamp
+    }
+}
+
 // MARK: - Waypoint
 
 @Model

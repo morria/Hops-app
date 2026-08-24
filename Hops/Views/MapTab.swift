@@ -67,12 +67,14 @@ struct MapTab: View {
     enum MapMode: String, CaseIterable, Identifiable {
         case nodes = "Nodes"
         case weather = "Weather"
+        case coverage = "Coverage"
         var id: String { rawValue }
 
         var icon: String {
             switch self {
             case .nodes: return "dot.radiowaves.left.and.right"
             case .weather: return "cloud.sun"
+            case .coverage: return "chart.dots.scatter"
             }
         }
     }
@@ -121,9 +123,34 @@ struct MapTab: View {
     @State private var placedSnapshot: [PlacedNode] = []
     @State private var weatherSnapshot: [NodeEntity] = []
 
+    struct CoveragePoint: Identifiable {
+        let id: Int
+        let coordinate: CLLocationCoordinate2D
+        let snr: Float
+    }
+    @State private var coverageSnapshot: [CoveragePoint] = []
+
     private func refreshSnapshots() {
         placedSnapshot = displayNodes(from: placedNodes)
         weatherSnapshot = weatherNodes
+        if mode == .coverage {
+            var descriptor = FetchDescriptor<CoverageSampleEntity>()
+            descriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]
+            descriptor.fetchLimit = 600
+            let samples = (try? modelContext.fetch(descriptor)) ?? []
+            coverageSnapshot = samples.enumerated().map { index, sample in
+                CoveragePoint(id: index,
+                              coordinate: CLLocationCoordinate2D(latitude: sample.latitude,
+                                                                 longitude: sample.longitude),
+                              snr: sample.snr)
+            }
+        }
+    }
+
+    private func coverageColor(_ snr: Float) -> Color {
+        if snr >= -5 { return .green }
+        if snr >= -12 { return .yellow }
+        return .red
     }
 
     var body: some View {
@@ -137,6 +164,8 @@ struct MapTab: View {
                         waypointContent
                     case .weather:
                         weatherContent
+                    case .coverage:
+                        coverageContent
                     }
                     trailContent
                 }
@@ -212,6 +241,23 @@ struct MapTab: View {
                     .presentationDetents([.height(360)])
             }
             .overlay {
+                if mode == .coverage && coverageSnapshot.isEmpty {
+                    VStack(spacing: 8) {
+                        Image(systemName: "chart.dots.scatter")
+                            .font(.title)
+                            .foregroundStyle(.secondary)
+                        Text("No coverage data yet")
+                            .font(.headline)
+                        Text("Walk around with Hops open and connected — every 30 seconds it records how well you hear the mesh, and paints it here. Green is strong, red is weak.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    .padding(24)
+                    .frame(maxWidth: 300)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                    .allowsHitTesting(false)
+                }
                 if mode == .weather && weatherNodes.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "cloud.sun")
@@ -268,6 +314,18 @@ struct MapTab: View {
                     .background(.thinMaterial, in: Circle())
             }
         }
+    }
+
+    /// Signal survey: each circle is ~30 s of listening at a spot, colored by
+    /// the best SNR heard there.
+    @MapContentBuilder
+    private var coverageContent: some MapContent {
+        ForEach(coverageSnapshot) { point in
+            MapCircle(center: point.coordinate, radius: 60)
+                .foregroundStyle(coverageColor(point.snr).opacity(0.3))
+                .stroke(coverageColor(point.snr).opacity(0.5), lineWidth: 1)
+        }
+        UserAnnotation()
     }
 
     @MapContentBuilder

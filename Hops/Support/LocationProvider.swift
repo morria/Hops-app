@@ -17,6 +17,12 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
     }
 
+    /// True only when the user already granted access — safe to fetch without
+    /// triggering a permission prompt (used by passive samplers).
+    var isAuthorized: Bool {
+        [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus)
+    }
+
     /// Resolves with a location, or nil when denied/unavailable.
     func current() async -> CLLocation? {
         // A recent fix is good enough for sharing.

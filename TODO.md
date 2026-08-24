@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+100. [x] Coverage survey map layer: while foregrounded, connected, and location-
+         authorized, Hops records ≤1 sample per 30 s pairing your position with
+         the best SNR heard; the Coverage layer paints them as green/yellow/red
+         circles. 30-day/2000-sample retention; passive by design (never prompts
+         for location, foreground only).
+
 99. [x] Book-as-mailbox: a 60 s outbox sweep while connected sends messages
         that synced in from another device via iCloud — compose on the phone
         anywhere, the home device with the base radio transmits. Duplicate
