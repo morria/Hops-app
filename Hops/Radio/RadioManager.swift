@@ -531,7 +531,6 @@ final class RadioManager: ObservableObject {
         }
         if UIStateObserver.shared.isActive && activeConversationKey == inbound.conversationKey { return }
         let prefs = UserDefaults.standard
-        if !prefs.boolWithDefault("notificationsEnabled", true) { return }
         if inbound.isDM {
             guard prefs.boolWithDefault("notifyDMs", true) else { return }
         } else {

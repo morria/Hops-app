@@ -6,7 +6,6 @@ struct SettingsView: View {
     @EnvironmentObject private var radio: RadioManager
     @Query private var nodes: [NodeEntity]
 
-    @AppStorage("notificationsEnabled") private var notificationsEnabled = true
     @AppStorage("notifyDMs") private var notifyDMs = true
     @AppStorage("notifyChannels") private var notifyChannels = true
 
@@ -203,17 +202,18 @@ struct SettingsView: View {
     // MARK: - Notifications
 
     private var notificationsSection: some View {
-        Section("Notifications") {
-            Toggle("Allow Notifications", isOn: $notificationsEnabled)
-            if notificationsEnabled {
-                Toggle("Direct Messages", isOn: $notifyDMs)
-                Toggle("Channel Messages", isOn: $notifyChannels)
-            }
-            Button("Notification Settings…") {
+        Section {
+            Toggle("Direct messages", isOn: $notifyDMs)
+            Toggle("Messages in channels", isOn: $notifyChannels)
+            Button("iOS Notification Settings…") {
                 if let url = URL(string: UIApplication.openNotificationSettingsURLString) {
                     UIApplication.shared.open(url)
                 }
             }
+        } header: {
+            Text("Notify me about")
+        } footer: {
+            Text("Per-conversation control (mute, mentions only) is a long-press on the conversation in Chats. Turning notifications off entirely lives in iOS Settings, like any app.")
         }
     }
 
