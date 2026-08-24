@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+45. [x] Pinned conversations long-press independently: the grid moved out of
+        the List (whose row-level context-menu preview lifted every pin at once
+        and mistargeted the menu) into the header area. Layout unchanged;
+        verified in simulator.
 44. [x] Reaction sheet closes itself immediately on pick (one-shot guard also
         prevents duplicate sends from the typed-emoji path).
 43. [x] Conversations can be deleted from the list via swipe or long-press, with

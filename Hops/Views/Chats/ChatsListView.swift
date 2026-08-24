@@ -30,6 +30,13 @@ struct ChatsListView: View {
         NavigationStack(path: $path) {
             VStack(spacing: 0) {
                 header
+                // Outside the List so each pin long-presses independently — as a
+                // List row, the context-menu preview lifted the whole grid at once.
+                if searchText.isEmpty && !pinned.isEmpty {
+                    pinnedGrid
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 4)
+                }
                 Group {
                     if conversations.isEmpty && searchText.isEmpty {
                         emptyState
@@ -160,13 +167,6 @@ struct ChatsListView: View {
     private var conversationList: some View {
         List {
             if searchText.isEmpty {
-                if !pinned.isEmpty {
-                    Section {
-                        pinnedGrid
-                            .listRowSeparator(.hidden)
-                            .listRowBackground(Color.clear)
-                    }
-                }
                 Section {
                     ForEach(unpinned) { convo in
                         row(for: convo)
