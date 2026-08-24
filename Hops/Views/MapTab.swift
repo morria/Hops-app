@@ -19,8 +19,14 @@ struct MapTab: View {
     enum MapMode: String, CaseIterable, Identifiable {
         case nodes = "Nodes"
         case weather = "Weather"
-        case mesh = "Mesh"
         var id: String { rawValue }
+
+        var icon: String {
+            switch self {
+            case .nodes: return "dot.radiowaves.left.and.right"
+            case .weather: return "cloud.sun"
+            }
+        }
     }
 
     struct WaypointDraft: Identifiable {
@@ -64,10 +70,6 @@ struct MapTab: View {
                         waypointContent
                     case .weather:
                         weatherContent
-                    case .mesh:
-                        nodePins(displayNodes(from: meshRelevantNodes))
-                        myNodePin
-                        meshEdges
                     }
                     trailContent
                 }
@@ -89,25 +91,28 @@ struct MapTab: View {
                         }
                 )
             }
-            .overlay(alignment: .top) {
-                Picker("Map mode", selection: $mode) {
-                    ForEach(MapMode.allCases) { mode in
-                        Text(mode.rawValue).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding(5)
-                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 13))
-                .frame(maxWidth: 340)
-                .padding(.horizontal, 24)
-                .padding(.top, 8)
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 1)
-            }
+            // Apple Maps-style layers control: a circle that opens the view chooser,
+            // stacked above locate-me.
             .overlay(alignment: .bottomTrailing) {
-                MapUserLocationButton(scope: mapScope)
-                    .buttonBorderShape(.circle)
-                    .padding(.trailing, 16)
-                    .padding(.bottom, 16)
+                VStack(spacing: 10) {
+                    Menu {
+                        Picker("Map view", selection: $mode) {
+                            ForEach(MapMode.allCases) { choice in
+                                Label(choice.rawValue, systemImage: choice.icon).tag(choice)
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "square.3.layers.3d.top.filled")
+                            .font(.system(size: 17, weight: .medium))
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                            .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                    }
+                    MapUserLocationButton(scope: mapScope)
+                        .buttonBorderShape(.circle)
+                }
+                .padding(.trailing, 16)
+                .padding(.bottom, 16)
             }
             .mapScope(mapScope)
             .navigationTitle("Map")
@@ -129,23 +134,6 @@ struct MapTab: View {
                     .presentationDetents([.height(360)])
             }
             .overlay {
-                if mode == .mesh && meshRelevantNodes.isEmpty {
-                    VStack(spacing: 8) {
-                        Image(systemName: "point.3.connected.trianglepath.dotted")
-                            .font(.title)
-                            .foregroundStyle(.secondary)
-                        Text("No known links yet")
-                            .font(.headline)
-                        Text("Direct neighbors appear as they're heard; more links arrive if nodes broadcast NeighborInfo (many meshes don't).")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .padding(24)
-                    .frame(maxWidth: 300)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    .allowsHitTesting(false)
-                }
                 if mode == .weather && weatherNodes.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "cloud.sun")
@@ -168,24 +156,6 @@ struct MapTab: View {
     }
 
     // MARK: - Layers
-
-    /// Mesh view is connectivity only: nodes we're directly linked to, or that
-    /// appear in NeighborInfo reports — not the whole node database.
-    private var meshRelevantNodes: [NodeEntity] {
-        let edgeNums = Set(radio.neighborEdges.flatMap { [$0.from, $0.to] })
-        return placedNodes.filter { $0.hopsAway == 0 || edgeNums.contains($0.num) }
-    }
-
-    @MapContentBuilder
-    private var myNodePin: some MapContent {
-        if let mine = myNode {
-            Annotation("You", coordinate: mine.coordinate) {
-                MonogramAvatar(text: mine.monogram, isChannel: false, size: 34, imageData: mine.iconData)
-                    .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 3))
-                    .shadow(radius: 2)
-            }
-        }
-    }
 
     @MapContentBuilder
     private func nodePins(_ nodes: [PlacedNode]) -> some MapContent {
@@ -230,39 +200,6 @@ struct MapTab: View {
                         weatherNodeNum = node.num
                     }
             }
-        }
-    }
-
-    /// Direct (0-hop) links from our node, plus edges other nodes report
-    /// via NeighborInfo — line strength follows SNR.
-    @MapContentBuilder
-    private var meshEdges: some MapContent {
-        if let mine = myNode {
-            ForEach(placedNodes.filter { $0.hopsAway == 0 }, id: \.num) { neighbor in
-                MapPolyline(coordinates: [mine.coordinate, neighbor.coordinate])
-                    .stroke(Color.accentColor.opacity(0.8), lineWidth: 2.5)
-            }
-        }
-        ForEach(resolvedNeighborEdges) { edge in
-            MapPolyline(coordinates: [edge.a, edge.b])
-                .stroke(.white.opacity(edge.strong ? 0.7 : 0.35), lineWidth: edge.strong ? 2 : 1)
-        }
-    }
-
-    private struct ResolvedEdge: Identifiable {
-        let id: String
-        let a: CLLocationCoordinate2D
-        let b: CLLocationCoordinate2D
-        let strong: Bool
-    }
-
-    private var resolvedNeighborEdges: [ResolvedEdge] {
-        let positioned = Dictionary(uniqueKeysWithValues: nodes.filter(\.hasPosition).map { ($0.num, $0.coordinate) })
-        var seen = Set<String>()
-        return radio.neighborEdges.compactMap { edge in
-            guard let a = positioned[edge.from], let b = positioned[edge.to],
-                  seen.insert(edge.id).inserted else { return nil }
-            return ResolvedEdge(id: edge.id, a: a, b: b, strong: edge.snr > -10)
         }
     }
 

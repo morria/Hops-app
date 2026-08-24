@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+79. [x] Map mode switcher is an Apple Maps-style floating layers circle above
+        locate-me, opening a Nodes/Weather chooser. Mesh view dropped for now
+        (NeighborInfo plumbing stays dormant in RadioManager for a revival).
+
 78. [x] Mesh view shows connectivity only: your node (accent-ringed), direct
         0-hop neighbors, and NeighborInfo participants with edges — not the
         whole node database. Explanatory empty state when no links are known.
