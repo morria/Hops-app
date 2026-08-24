@@ -231,6 +231,7 @@ struct ConversationView: View {
             message: message,
             isDM: isDM,
             senderName: senderShortName(message),
+            senderMonogram: senderMonogram(message),
             senderIconData: senderIconData(message),
             replyPreview: replyPreview(message),
             tapbacks: tapbacks[message.packetId] ?? [],
@@ -249,13 +250,25 @@ struct ConversationView: View {
                                         inSameDayAs: transcript[index - 1].timestamp)
     }
 
-    private func senderShortName(_ message: MessageEntity) -> String? {
-        guard !isDM, !message.outgoing else { return nil }
+    private func senderNode(_ message: MessageEntity) -> NodeEntity? {
         let num = message.fromNum
-        let node = try? modelContext.fetch(
+        return try? modelContext.fetch(
             FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
         ).first
-        return node?.shortName ?? String(format: "%04x", UInt32(truncatingIfNeeded: num) & 0xFFFF)
+    }
+
+    /// Label above channel messages: the user's override name wins, else short name.
+    private func senderShortName(_ message: MessageEntity) -> String? {
+        guard !isDM, !message.outgoing else { return nil }
+        guard let node = senderNode(message) else {
+            return String(format: "%04x", UInt32(truncatingIfNeeded: message.fromNum) & 0xFFFF)
+        }
+        return node.customName.isEmpty ? node.shortName : node.customName
+    }
+
+    private func senderMonogram(_ message: MessageEntity) -> String? {
+        guard !isDM, !message.outgoing else { return nil }
+        return senderNode(message)?.monogram
     }
 
     private func replyPreview(_ message: MessageEntity) -> String? {
@@ -391,6 +404,7 @@ struct MessageBubble: View {
     let message: MessageEntity
     let isDM: Bool
     let senderName: String?
+    var senderMonogram: String? = nil
     var senderIconData: Data? = nil
     let replyPreview: String?
     let tapbacks: [MessageEntity]
@@ -418,7 +432,7 @@ struct MessageBubble: View {
                 if message.outgoing { Spacer(minLength: 48) }
                 if let senderName, !message.outgoing {
                     Button(action: onShowSender) {
-                        MonogramAvatar(text: senderName, isChannel: false, size: 26,
+                        MonogramAvatar(text: senderMonogram ?? senderName, isChannel: false, size: 26,
                                        imageData: senderIconData)
                     }
                     .buttonStyle(.plain)
