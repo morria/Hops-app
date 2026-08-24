@@ -189,27 +189,14 @@ struct SettingsView: View {
     // MARK: - Device configuration
 
     private var deviceConfigSection: some View {
-        Section("Device configuration") {
+        Section {
             NavigationLink {
-                BluetoothSettingsView()
+                DeviceConfigurationView()
             } label: {
-                Label("Bluetooth", systemImage: "antenna.radiowaves.left.and.right.circle")
+                Label("Device Configuration", systemImage: "slider.horizontal.3")
             }
-            NavigationLink {
-                DisplaySettingsView()
-            } label: {
-                Label("Display", systemImage: "sun.max")
-            }
-            NavigationLink {
-                PositionSettingsView()
-            } label: {
-                Label("Position", systemImage: "location")
-            }
-            NavigationLink {
-                TelemetrySettingsView()
-            } label: {
-                Label("Telemetry", systemImage: "battery.75percent")
-            }
+        } footer: {
+            Text("Bluetooth, display, position, and telemetry in one place.")
         }
     }
 
