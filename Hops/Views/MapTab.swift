@@ -209,7 +209,8 @@ struct MapTab: View {
     @MapContentBuilder
     private var weatherContent: some MapContent {
         ForEach(weatherNodes, id: \.num) { node in
-            Annotation(node.displayName, coordinate: node.coordinate) {
+            // No station label on the map — the sheet has the name.
+            Annotation("", coordinate: node.coordinate) {
                 WeatherPill(node: node)
                     .onTapGesture {
                         focus(on: node.coordinate)
@@ -281,9 +282,13 @@ extension NodeEntity {
         23_905_787.925 * pow(0.5, Double(precisionBits))
     }
 
-    var temperatureText: String {
-        Measurement(value: Double(temperature), unit: UnitTemperature.celsius)
-            .formatted(.measurement(width: .narrow, usage: .weather))
+}
+
+/// Whole-degree temperature text in the user's chosen unit.
+enum TempFormat {
+    static func text(celsius: Float, fahrenheit: Bool) -> String {
+        let value = fahrenheit ? Double(celsius) * 9 / 5 + 32 : Double(celsius)
+        return "\(Int(value.rounded()))°\(fahrenheit ? "F" : "C")"
     }
 }
 
@@ -291,10 +296,11 @@ extension NodeEntity {
 
 struct WeatherPill: View {
     let node: NodeEntity
+    @AppStorage("useFahrenheit") private var useFahrenheit = Locale.current.measurementSystem != .metric
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(node.temperatureText)
+            Text(TempFormat.text(celsius: node.temperature, fahrenheit: useFahrenheit))
                 .font(.footnote.weight(.semibold))
             if node.humidity >= 0 {
                 Text("\(Int(node.humidity))%")
@@ -314,6 +320,7 @@ struct WeatherNodeSheet: View {
     let nodeNum: Int64
     @Query private var nodes: [NodeEntity]
     @Environment(\.dismiss) private var dismiss
+    @AppStorage("useFahrenheit") private var useFahrenheit = Locale.current.measurementSystem != .metric
 
     init(nodeNum: Int64) {
         self.nodeNum = nodeNum
@@ -325,7 +332,8 @@ struct WeatherNodeSheet: View {
         NavigationStack {
             if let node = nodes.first {
                 List {
-                    LabeledContent("Temperature", value: node.temperatureText)
+                    LabeledContent("Temperature",
+                                   value: TempFormat.text(celsius: node.temperature, fahrenheit: useFahrenheit))
                     if node.humidity >= 0 {
                         LabeledContent("Humidity", value: "\(Int(node.humidity))%")
                     }

@@ -8,6 +8,7 @@ struct SettingsView: View {
 
     @AppStorage("notifyDMs") private var notifyDMs = true
     @AppStorage("notifyChannels") private var notifyChannels = true
+    @AppStorage("useFahrenheit") private var useFahrenheit = Locale.current.measurementSystem != .metric
 
     @State private var showForgetConfirm = false
 
@@ -22,6 +23,7 @@ struct SettingsView: View {
                 channelsSection
                 deviceConfigSection
                 notificationsSection
+                unitsSection
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -214,6 +216,17 @@ struct SettingsView: View {
             Text("Notify me about")
         } footer: {
             Text("Per-conversation control (mute, mentions only) is a long-press on the conversation in Chats. Turning notifications off entirely lives in iOS Settings, like any app.")
+        }
+    }
+
+    // MARK: - Units
+
+    private var unitsSection: some View {
+        Section("Units") {
+            Picker("Temperature", selection: $useFahrenheit) {
+                Text("°F").tag(true)
+                Text("°C").tag(false)
+            }
         }
     }
 

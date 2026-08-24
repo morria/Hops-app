@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+84. [x] Weather pills carry no station label on the map; the name lives in the
+        tap-through sheet.
+83. [x] Temperatures render as whole degrees with a °F/°C picker in Settings →
+        Units (defaults from locale; pills and sheet update live).
+
 82. [x] Your own key fingerprint shows under Settings → Your name (same shared
         SHA-256 formatting as peer node cards, selectable text) so out-of-band
         comparison works both directions.
