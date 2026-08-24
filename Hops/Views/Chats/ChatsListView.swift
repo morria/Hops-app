@@ -133,7 +133,7 @@ struct ChatsListView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
                 Text("Messages")
-                    .font(.largeTitle.bold())
+                    .font(.title2.bold())
                 Spacer()
                 StatusCapsule()
             }
