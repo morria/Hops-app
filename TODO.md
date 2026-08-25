@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+112. [x] Coverage samples render as screen-space dots (constant pixel size at
+         any zoom) — 60 m geographic circles were sub-pixel at city scale;
+         layer switches refresh snapshots immediately instead of waiting for
+         the timer.
+
 111. [x] Coverage was waiting for location permission nothing ever requested:
          entering the Coverage layer now prompts/warms a fix, app-activation
          warms the cache when authorized, and the empty state says exactly

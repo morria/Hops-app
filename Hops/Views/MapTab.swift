@@ -265,6 +265,7 @@ struct MapTab: View {
                 loadTrail(for: num)
             }
             .onChange(of: modeRaw) { _, raw in
+                refreshSnapshots()   // switching layers shouldn't wait for the timer
                 if raw == MapMode.coverage.rawValue {
                     // Explicit intent: ask for location if never asked, and warm
                     // a fix so passive sampling has something to pair with SNR.
@@ -385,14 +386,18 @@ struct MapTab: View {
         }
     }
 
-    /// Signal survey: each circle is ~30 s of listening at a spot, colored by
-    /// the best SNR heard there.
+    /// Signal survey: each dot is ~30 s of listening at a spot, colored by the
+    /// best SNR heard there. Screen-space dots stay visible at any zoom —
+    /// 60 m geographic circles vanished below city scale.
     @MapContentBuilder
     private var coverageContent: some MapContent {
         ForEach(coverageSnapshot) { point in
-            MapCircle(center: point.coordinate, radius: 60)
-                .foregroundStyle(coverageColor(point.snr).opacity(0.3))
-                .stroke(coverageColor(point.snr).opacity(0.5), lineWidth: 1)
+            Annotation("", coordinate: point.coordinate) {
+                Circle()
+                    .fill(coverageColor(point.snr).opacity(0.8))
+                    .frame(width: 11, height: 11)
+                    .overlay(Circle().strokeBorder(.white.opacity(0.7), lineWidth: 1))
+            }
         }
         UserAnnotation()
     }
