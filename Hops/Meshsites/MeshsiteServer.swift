@@ -133,6 +133,10 @@ final class MeshsiteServer: ObservableObject {
             sendError(to: from, id: id, code: 3)
             return
         }
+        // POST etag is ignored (§2) — normalize it to 0 before keying the
+        // caches so an etag-varying POST retry still hits (§3).
+        var bytes = bytes
+        if method == 1 { bytes[4] = 0; bytes[5] = 0; bytes[6] = 0; bytes[7] = 0 }
 
         // Single-flight per requester (spec §3): identical duplicate of the
         // in-flight request is a link-level retransmit — drop silently.

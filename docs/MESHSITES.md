@@ -130,9 +130,11 @@ nearly free.
   fails. The client MAY retry once, and SHOULD reuse the same id so the
   server's response cache can re-serve the already-rendered chunks.
 - The server SHOULD cache the rendered response (chunks or NOT_MODIFIED)
-  per `(requester, id)` for 2 minutes, keyed by the *full* request content:
-  if the same id arrives with a different method/etag/path/body (random u16
-  ids do collide), render fresh and replace the entry. A duplicate of a
+  per `(requester, id)` for 2 minutes, keyed by the *full* request content
+  with the POST etag normalized to 0 first (it's ignored anyway — §2, and
+  normalizing keeps an etag-varying POST retry cacheable): if the same id
+  arrives with different content (random u16 ids do collide), render fresh
+  and replace the entry. A duplicate of a
   request that is still being answered is dropped silently — it is most
   likely a link-level retransmit, and BUSY would be wrong. The cache SHOULD
   be size-bounded with oldest-first eviction — `requester` is
@@ -214,8 +216,8 @@ Line-oriented UTF-8. Every line is one of:
   paths get ERROR 1.
 - An empty (0-byte) file is not a page — ERROR 1, same as absent.
 - A page that exists but is temporarily unreadable (e.g. a cloud-sync
-  placeholder on a phone-hosted server) gets ERROR 4 with a short message;
-  clients MAY retry later.
+  placeholder on a phone-hosted server) gets ERROR 4 with a short message
+  (bounded by ERROR's 120-byte limit); clients MAY retry later.
 - Dynamic handlers (e.g. a guestbook POST target) are server-local details;
   a handler answers with a normal Meshdown page or an ERROR.
 - If a page deflates to more than 16 chunks, respond ERROR 2 (preferred) or
