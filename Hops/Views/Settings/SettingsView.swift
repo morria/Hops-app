@@ -26,6 +26,9 @@ struct SettingsView: View {
                 notificationsSection
                 unitsSection
                 batterySection
+                #if MESHSITES
+                meshsitesSection
+                #endif
                 nodeRetentionSection
                 aboutSection
             }
@@ -240,6 +243,27 @@ struct SettingsView: View {
     // MARK: - Battery
 
     @AppStorage("batterySaver") private var batterySaver = false
+
+    #if MESHSITES
+    @AppStorage("meshsitesEnabled") private var meshsitesEnabled = false
+
+    private var meshsitesSection: some View {
+        Section {
+            Toggle("Meshsites", isOn: $meshsitesEnabled)
+            if meshsitesEnabled {
+                NavigationLink {
+                    MeshsitesListView()
+                } label: {
+                    Label("Nearby Sites", systemImage: "globe")
+                }
+            }
+        } header: {
+            Text("Experimental")
+        } footer: {
+            Text("Browse tiny pages served by nearby nodes over direct radio contact. Development builds only.")
+        }
+    }
+    #endif
 
     private var batterySection: some View {
         Section {

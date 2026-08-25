@@ -7,6 +7,12 @@ options:
 packages:
   MeshtasticProtobufs:
     path: MeshtasticProtobufs
+# AppStore mirrors Release but omits the MESHSITES compilation flag; the
+# scheme archives with it, so public distributions carry no Meshsites code.
+configs:
+  Debug: debug
+  Release: release
+  AppStore: release
 settings:
   base:
     SWIFT_VERSION: "5.10"
@@ -34,6 +40,11 @@ targets:
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic
         DEVELOPMENT_TEAM: 7Q2SS8772K
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+      configs:
+        Debug:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MESHSITES
+        Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: MESHSITES
     info:
       path: Hops/Info.plist
       properties:
@@ -64,3 +75,18 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.hops.widgets
         SKIP_INSTALL: YES
+schemes:
+  Hops:
+    build:
+      targets:
+        Hops: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: AppStore

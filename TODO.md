@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+117. [x] Meshsites (experimental, dev builds only): protocol spec in
+         docs/MESHSITES.md (port 421, direct-RF-only via hop-limit 1 +
+         relay-discard, one-packet requests, deflate chunks, etag caching
+         with NOT_MODIFIED, Meshdown pages with forms). Client: passive
+         beacon discovery, browser with back/refresh, GET/POST forms, page
+         cache. Settings toggle default off; AppStore build config strips
+         the code from public distributions. Python server lives in the
+         parent repo meshsites/. Both sides cross-reviewed; spec draft 5.
+
 116. [x] Link topology feeds the coverage prediction: BFS over NeighborInfo
          edges + our direct links refines hop estimates (observed paths beat
          the flood counter), and each RF link contributes corridor evidence at

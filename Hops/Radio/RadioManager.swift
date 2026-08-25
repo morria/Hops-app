@@ -648,11 +648,20 @@ final class RadioManager: ObservableObject {
             }
 
         default:
+            #if MESHSITES
+            if case .UNRECOGNIZED(MeshsitesManager.port) = decoded.portnum {
+                MeshsitesManager.shared.handle(from: fromNum, payload: decoded.payload,
+                                               hopStart: packet.hopStart, hopLimit: packet.hopLimit)
+            }
+            #endif
             break
         }
     }
 
     private func portLabel(_ port: PortNum) -> String {
+        #if MESHSITES
+        if case .UNRECOGNIZED(MeshsitesManager.port) = port { return "meshsite" }
+        #endif
         switch port {
         case .textMessageApp: return "message"
         case .positionApp: return "position"
@@ -830,6 +839,28 @@ final class RadioManager: ObservableObject {
         toRadio.packet = packet
         write(toRadio)
     }
+
+    #if MESHSITES
+    /// Sends a Meshsites frame. hop_limit is pinned to 1 per spec §1 so the
+    /// packet is never relayed beyond the direct RF link.
+    func sendMeshsites(to num: Int64, payload: Data, wantAck: Bool = true) {
+        var decoded = DataMessage()
+        decoded.portnum = PortNum.UNRECOGNIZED(MeshsitesManager.port)
+        decoded.payload = payload
+
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: num)
+        packet.hopLimit = 1
+        packet.wantAck = wantAck
+        packet.decoded = decoded
+
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+    }
+    #endif
 
     func sendCurrentPosition(latitude: Double, longitude: Double, to destination: MessageDestinationRef) {
         var waypoint = Waypoint()
