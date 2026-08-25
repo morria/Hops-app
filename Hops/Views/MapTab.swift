@@ -184,10 +184,54 @@ struct MapTab: View {
     private func recomputeHeatGrid() {
         guard mode == .coverage, let region = visibleRegion else { return }
         lastHeatAt = Date()
+        // Observed-topology refinement: BFS over NeighborInfo links plus our
+        // own direct links beats the firmware's flood-based hop counter where
+        // we have real edges.
+        var adjacency: [Int64: Set<Int64>] = [:]
+        for edge in radio.neighborEdges {
+            adjacency[edge.from, default: []].insert(edge.to)
+            adjacency[edge.to, default: []].insert(edge.from)
+        }
+        let myNum = radio.myNodeNum
+        for point in reachSnapshot where point.hops == 0 {
+            adjacency[myNum, default: []].insert(point.id)
+            adjacency[point.id, default: []].insert(myNum)
+        }
+        var graphHops: [Int64: Int] = [myNum: 0]
+        var frontier: [Int64] = [myNum]
+        while !frontier.isEmpty {
+            var next: [Int64] = []
+            for node in frontier {
+                for neighbor in adjacency[node] ?? [] where graphHops[neighbor] == nil {
+                    graphHops[neighbor] = graphHops[node]! + 1
+                    next.append(neighbor)
+                }
+            }
+            frontier = next
+        }
+        func refinedHops(_ id: Int64, firmware: Int) -> Double {
+            let fw = firmware >= 0 ? Double(firmware) : 3.0
+            if let g = graphHops[id] { return min(fw, Double(g)) }
+            return fw
+        }
+
         // Evidence points: (lat, lon, effectiveHops)
-        var points: [(Double, Double, Double)] = reachSnapshot.compactMap {
-            let hops = $0.hops >= 0 ? Double($0.hops) : 3.0
-            return ($0.coordinate.latitude, $0.coordinate.longitude, hops)
+        var points: [(Double, Double, Double)] = reachSnapshot.map {
+            ($0.coordinate.latitude, $0.coordinate.longitude, refinedHops($0.id, firmware: $0.hops))
+        }
+
+        // Corridor evidence: an observed RF link means propagation works along
+        // that segment — color the space between linked nodes, not just endpoints.
+        let positionByNum = Dictionary(uniqueKeysWithValues: reachSnapshot.map { ($0.id, ($0.coordinate, $0.hops)) })
+        for edge in radio.neighborEdges {
+            guard let (a, aHops) = positionByNum[edge.from],
+                  let (b, bHops) = positionByNum[edge.to] else { continue }
+            let best = min(refinedHops(edge.from, firmware: aHops), refinedHops(edge.to, firmware: bHops))
+            for t in [0.3, 0.5, 0.7] {
+                points.append((a.latitude + (b.latitude - a.latitude) * t,
+                               a.longitude + (b.longitude - a.longitude) * t,
+                               best + 0.75))
+            }
         }
         points += coverageSnapshot.map {
             // A strong measured sample is as good as being next to a direct node.

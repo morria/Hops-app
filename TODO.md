@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+116. [x] Link topology feeds the coverage prediction: BFS over NeighborInfo
+         edges + our direct links refines hop estimates (observed paths beat
+         the flood counter), and each RF link contributes corridor evidence at
+         30/50/70% along the segment so space between linked nodes gets color.
+
 115. [x] Coverage is an interpolated contact-prediction surface: IDW over node
          hop counts + measured SNR samples, gridded per viewport (recomputed on
          pan/zoom, debounced), hue green→red by expected hops, opacity by
