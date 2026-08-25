@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+107. [x] Send Now on held messages hardened: works while syncing, and when
+         disconnected it demotes the message to the outbox (sends at next
+         connection) instead of silently doing nothing.
+
 106. [x] Map base style chooser in the layers menu: Explore (standard), Hybrid,
          Satellite — persisted, all with realistic elevation.
 

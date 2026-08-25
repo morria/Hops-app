@@ -769,13 +769,19 @@ final class RadioManager: ObservableObject {
         }
     }
 
-    /// User override on a held (send-when-reachable) message.
+    /// User override on a held (send-when-reachable) message. Connected →
+    /// transmit immediately; otherwise demote to the outbox so the next
+    /// connection sends it — never a silent no-op.
     func forceSendNow(packetId: Int64) {
-        guard let store, state == .connected else { return }
-        Task {
-            if let record = await store.recordForceSend(packetId: packetId) {
-                await MainActor.run { self.transmit(record) }
+        guard let store else { return }
+        if state == .connected || state == .syncing {
+            Task {
+                if let record = await store.recordForceSend(packetId: packetId) {
+                    await MainActor.run { self.transmit(record) }
+                }
             }
+        } else {
+            Task { await store.demoteHeldToOutbox(packetId: packetId) }
         }
     }
 

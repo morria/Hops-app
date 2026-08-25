@@ -61,6 +61,16 @@ actor MessageStore {
         try? modelContext.save()
     }
 
+    /// Send Now while disconnected: demote the held message to the plain
+    /// outbox so the next connection (any device) transmits it.
+    func demoteHeldToOutbox(packetId: Int64) {
+        guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.packetId == packetId })).first,
+              message.status == .waitingForPeer else { return }
+        message.status = .waitingForRadio
+        try? modelContext.save()
+    }
+
     /// "Send Now" override on a held message.
     func recordForceSend(packetId: Int64) -> OutgoingRecord? {
         guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(
