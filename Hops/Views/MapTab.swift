@@ -253,7 +253,14 @@ struct MapTab: View {
                 visibleRegion = context.region
                 persistCamera(context.region)
             }
-            .onAppear { refreshSnapshots() }
+            .onAppear {
+                refreshSnapshots()
+                // The map can LAUNCH in Coverage (persisted layer) — the
+                // switch-based prompt never fires in that case.
+                if mode == .coverage {
+                    Task { _ = await LocationProvider.shared.current() }
+                }
+            }
             .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
                 // Only while the Map tab is actually visible; slower in saver.
                 guard appModel.selectedTab == 1,

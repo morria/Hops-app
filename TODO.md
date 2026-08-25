@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+113. [x] Location prompt also fires when the map launches already in the
+         Coverage layer (persisted mode skipped the switch-based prompt).
+
 112. [x] Coverage samples render as screen-space dots (constant pixel size at
          any zoom) — 60 m geographic circles were sub-pixel at city scale;
          layer switches refresh snapshots immediately instead of waiting for
