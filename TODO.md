@@ -4,6 +4,13 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+120. [x] Coverage map readability: four discrete color bins (node reach
+         palette) replace the continuous hue whose olive mids blended into
+         satellite terrain; two opacity levels kill the confidence
+         checkerboard; grid origin snapped to world coordinates so panning
+         slides over a stable surface; legend chip (top-left) explains bins
+         and measured-signal dots.
+
 119. [x] Map filters: hop count (any/direct/1/2/4) and max age (any/1h/6h/
          24h/7d) via a filter button above the layers control, applied to
          Nodes and Weather layers. Persisted in AppStorage; filled icon +

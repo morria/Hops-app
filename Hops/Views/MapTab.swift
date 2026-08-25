@@ -190,12 +190,15 @@ struct MapTab: View {
     @State private var reachSnapshot: [ReachPoint] = []
 
     /// Interpolated contact-prediction surface: grid cells colored by expected
-    /// hop distance (IDW over nodes + measured samples), fading to clear where
-    /// there's no evidence within ~1.5 km.
+    /// hop distance (IDW over nodes + measured samples), clear where there's
+    /// no evidence within ~1.5 km. Four discrete color bins (matching the
+    /// node reach palette) instead of a continuous hue — contiguous regions
+    /// of one color read at a glance; olive in-betweens vanish into satellite
+    /// terrain.
     struct HeatCell: Identifiable {
         let id: Int
         let corners: [CLLocationCoordinate2D]
-        let hue: Double
+        let color: Color
         let opacity: Double
     }
     @State private var heatGrid: [HeatCell] = []
@@ -260,18 +263,20 @@ struct MapTab: View {
         }
         guard !points.isEmpty else { heatGrid = []; return }
 
-        let cols = 16
-        let rows = min(28, max(12, Int(Double(cols) * region.span.latitudeDelta / region.span.longitudeDelta)))
+        let cols = 18
+        let rows = min(32, max(12, Int(Double(cols) * region.span.latitudeDelta / region.span.longitudeDelta)))
         let influence = 0.015   // ~1.5 km in degrees latitude
         let cellLat = region.span.latitudeDelta / Double(rows)
         let cellLon = region.span.longitudeDelta / Double(cols)
-        let originLat = region.center.latitude - region.span.latitudeDelta / 2
-        let originLon = region.center.longitude - region.span.longitudeDelta / 2
+        // World-anchored origin (snapped to cell multiples): panning slides
+        // over a fixed grid instead of reflowing every cell.
+        let originLat = floor((region.center.latitude - region.span.latitudeDelta / 2) / cellLat) * cellLat
+        let originLon = floor((region.center.longitude - region.span.longitudeDelta / 2) / cellLon) * cellLon
         var cells: [HeatCell] = []
-        cells.reserveCapacity(rows * cols)
+        cells.reserveCapacity((rows + 1) * (cols + 1))
         var cellId = 0
-        for row in 0..<rows {
-            for col in 0..<cols {
+        for row in 0...rows {
+            for col in 0...cols {
                 let lat = originLat + (Double(row) + 0.5) * cellLat
                 let lon = originLon + (Double(col) + 0.5) * cellLon
                 var weightSum = 0.0
@@ -287,9 +292,13 @@ struct MapTab: View {
                 }
                 guard weightSum > 0 else { cellId += 1; continue }
                 let expectedHops = valueSum / weightSum
-                // hops 0 → green (0.33), 6+ → red (0.0)
-                let hue = max(0.0, 0.33 - expectedHops * 0.055)
-                // Confidence from evidence density, capped.
+                // Same four bins as the node reach palette — one legend.
+                let color: Color = expectedHops < 0.75 ? .green
+                    : expectedHops < 2.5 ? .mint
+                    : expectedHops < 4.5 ? .yellow
+                    : .orange
+                // Two opacity levels, not a continuum — neighboring cells at
+                // slightly different confidence otherwise checkerboard.
                 let confidence = min(1.0, weightSum / 20_000)
                 cells.append(HeatCell(
                     id: cellId,
@@ -299,8 +308,8 @@ struct MapTab: View {
                         CLLocationCoordinate2D(latitude: originLat + Double(row + 1) * cellLat, longitude: originLon + Double(col + 1) * cellLon),
                         CLLocationCoordinate2D(latitude: originLat + Double(row + 1) * cellLat, longitude: originLon + Double(col) * cellLon),
                     ],
-                    hue: hue,
-                    opacity: 0.10 + 0.16 * confidence))
+                    color: color,
+                    opacity: confidence >= 0.3 ? 0.26 : 0.15))
                 cellId += 1
             }
         }
@@ -336,6 +345,13 @@ struct MapTab: View {
         if snr >= -5 { return .green }
         if snr >= -12 { return .yellow }
         return .red
+    }
+
+    private func legendKey(_ color: Color, _ label: String) -> some View {
+        HStack(spacing: 4) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(label)
+        }
     }
 
     private func reachColor(_ hops: Int) -> Color {
@@ -444,6 +460,27 @@ struct MapTab: View {
                 }
                 .padding(.trailing, 16)
                 .padding(.bottom, 16)
+            }
+            // The coverage layer needs a key — four colors, two dot palettes.
+            .overlay(alignment: .topLeading) {
+                if mode == .coverage {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack(spacing: 10) {
+                            legendKey(.green, "Direct")
+                            legendKey(.mint, "1–2 hops")
+                            legendKey(.yellow, "3–4")
+                            legendKey(.orange, "5+")
+                        }
+                        Text("Predicted hops from there to you · dots are your measured signal")
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.caption2)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding(.leading, 16)
+                    .padding(.top, 8)
+                }
             }
             .mapScope(mapScope)
             .onChange(of: filterMaxHops) { _, _ in refreshSnapshots() }
@@ -604,8 +641,7 @@ struct MapTab: View {
     private var coverageContent: some MapContent {
         ForEach(heatGrid) { cell in
             MapPolygon(coordinates: cell.corners)
-                .foregroundStyle(Color(hue: cell.hue, saturation: 0.85, brightness: 0.9)
-                    .opacity(cell.opacity))
+                .foregroundStyle(cell.color.opacity(cell.opacity))
         }
         ForEach(coverageSnapshot) { point in
             Annotation("", coordinate: point.coordinate) {
