@@ -36,8 +36,9 @@ final class MeshsiteServer: ObservableObject {
     static var serving: Bool { UserDefaults.standard.bool(forKey: "meshsiteServing") }
     static var siteName: String { UserDefaults.standard.string(forKey: "meshsiteName") ?? "" }
 
-    static let chunkDataBytes = 191
+    static let chunkDataBytes = 190
     static let maxChunks = 16
+    static let protocolVersion: UInt8 = 1   // both our min and max today
 
     @Published private(set) var lastBeaconAt: Date?
     @Published private(set) var requestsServed = 0
@@ -78,7 +79,9 @@ final class MeshsiteServer: ObservableObject {
     }
 
     private func sendBeacon() {
-        var name = Self.siteName.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Spec §2: no control/bidi characters on the air.
+        var name = MeshsitesManager.sanitizeDisplay(Self.siteName)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         while name.utf8.count > 40 { name.removeLast() }
         guard !name.isEmpty else { return }
         var frame = Data([0x01, 0x01])
@@ -114,21 +117,27 @@ final class MeshsiteServer: ObservableObject {
     func handleRequest(from: Int64, bytes: [UInt8]) {
         guard MeshsitesManager.enabled, Self.serving else { return }
         MeshsiteStore.shared.startIfNeeded()
-        guard bytes.count >= 3 else { return }   // id unparseable → silent
-        let id = UInt16(bytes[1]) << 8 | UInt16(bytes[2])
-        guard bytes.count >= 10 else { sendError(to: from, id: id, code: 3); return }
-        let method = bytes[3]
-        let reqEtag = UInt32(bytes[4]) << 24 | UInt32(bytes[5]) << 16
-                    | UInt32(bytes[6]) << 8 | UInt32(bytes[7])
-        let pathLen = Int(bytes[8])
+        guard bytes.count >= 4 else { return }   // id unparseable → silent
+        let version = bytes[1]
+        let id = UInt16(bytes[2]) << 8 | UInt16(bytes[3])
+        // Spec §7: client below our minimum version → ERROR 6.
+        guard version >= Self.protocolVersion else {
+            sendError(to: from, id: id, code: 6, message: "Requires Meshsites protocol v1")
+            return
+        }
+        guard bytes.count >= 11 else { sendError(to: from, id: id, code: 3); return }
+        let method = bytes[4]
+        let reqEtag = UInt32(bytes[5]) << 24 | UInt32(bytes[6]) << 16
+                    | UInt32(bytes[7]) << 8 | UInt32(bytes[8])
+        let pathLen = Int(bytes[9])
         guard id != 0, method <= 1, pathLen > 0, pathLen <= 120,
-              bytes.count >= 9 + pathLen,
-              let path = String(bytes: bytes[9..<(9 + pathLen)], encoding: .utf8),
+              bytes.count >= 10 + pathLen,
+              let path = String(bytes: bytes[10..<(10 + pathLen)], encoding: .utf8),
               path.hasPrefix("/") else {
             sendError(to: from, id: id, code: 3)
             return
         }
-        let body = bytes.count > 9 + pathLen ? Array(bytes[(9 + pathLen)...]) : []
+        let body = bytes.count > 10 + pathLen ? Array(bytes[(10 + pathLen)...]) : []
         guard method == 1 || body.isEmpty else {   // GET with body (spec §2)
             sendError(to: from, id: id, code: 3)
             return
@@ -136,7 +145,7 @@ final class MeshsiteServer: ObservableObject {
         // POST etag is ignored (§2) — normalize it to 0 before keying the
         // caches so an etag-varying POST retry still hits (§3).
         var bytes = bytes
-        if method == 1 { bytes[4] = 0; bytes[5] = 0; bytes[6] = 0; bytes[7] = 0 }
+        if method == 1 { bytes[5] = 0; bytes[6] = 0; bytes[7] = 0; bytes[8] = 0 }
 
         // Single-flight per requester (spec §3): identical duplicate of the
         // in-flight request is a link-level retransmit — drop silently.
@@ -231,7 +240,8 @@ final class MeshsiteServer: ObservableObject {
         for seq in 0..<total {
             let start = seq * Self.chunkDataBytes
             let end = min(start + Self.chunkDataBytes, compressed.count)
-            var frame = Data([0x03, UInt8(id >> 8), UInt8(id & 0xFF),
+            var frame = Data([0x03, Self.protocolVersion,
+                              UInt8(id >> 8), UInt8(id & 0xFF),
                               UInt8(seq), UInt8(total),
                               UInt8(etag >> 24 & 0xFF), UInt8(etag >> 16 & 0xFF),
                               UInt8(etag >> 8 & 0xFF), UInt8(etag & 0xFF)])

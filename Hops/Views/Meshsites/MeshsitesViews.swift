@@ -19,17 +19,33 @@ struct MeshsitesListView: View {
                 }
             } else {
                 ForEach(manager.sites) { site in
-                    NavigationLink {
-                        MeshsiteBrowserView(site: site)
-                    } label: {
+                    if site.deprecated {
+                        // Spec §6: retired protocol versions surface as
+                        // outdated, not broken — and aren't browsable.
                         HStack(spacing: 12) {
                             Image(systemName: "globe")
-                                .foregroundStyle(Color.accentColor)
+                                .foregroundStyle(.secondary)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(site.name)
-                                Text("Heard \(site.lastHeard, style: .relative) ago")
+                                    .foregroundStyle(.secondary)
+                                Text("This site's server is too old for this version of Hops.")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                            }
+                        }
+                    } else {
+                        NavigationLink {
+                            MeshsiteBrowserView(site: site)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: "globe")
+                                    .foregroundStyle(Color.accentColor)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(site.name)
+                                    Text("Heard \(site.lastHeard, style: .relative) ago")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                     }
@@ -225,10 +241,10 @@ struct MeshsiteBrowserView: View {
         loading = true
         errorText = nil
         do {
-            let markdown = try await manager.fetch(path, from: site.id, post: post,
-                                                   form: form, policy: policy)
+            let page = try await manager.fetch(path, from: site.id, post: post,
+                                               form: form, policy: policy)
             guard !Task.isCancelled else { return }
-            document = MeshdownDocument.parse(markdown)
+            document = MeshdownDocument.parse(page.markdown, version: page.version)
             resetToken += 1
         } catch is CancellationError {
             return   // dismissed or superseded — a newer load owns the state

@@ -33,7 +33,15 @@ struct MeshdownDocument {
 
     var items: [Item] = []
 
-    static func parse(_ text: String) -> MeshdownDocument {
+    /// `version` is the protocol/format version the page was served with
+    /// (spec §7). v1 is the only syntax today; future syntaxes switch here so
+    /// old pages keep rendering with old rules.
+    static func parse(_ text: String, version: UInt8 = 1) -> MeshdownDocument {
+        _ = version   // one grammar so far
+        return parseV1(text)
+    }
+
+    private static func parseV1(_ text: String) -> MeshdownDocument {
         var doc = MeshdownDocument()
         var nextId = 0
         var paragraphBuffer: [String] = []

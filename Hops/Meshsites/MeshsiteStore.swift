@@ -14,8 +14,11 @@ import Foundation
 final class MeshsiteStore: ObservableObject {
     static let shared = MeshsiteStore()
 
-    nonisolated static let maxCompressedBytes = 3056   // spec: 16 chunks × 191
+    nonisolated static let maxCompressedBytes = 3040   // spec: 16 chunks × 190
     nonisolated static let maxSubmissionsBytes = 128 * 1024
+    nonisolated static let maxSourceBytes = 32 * 1024  // editor input cap
+    nonisolated static let maxReadBytes = 1_048_576    // never load bigger files
+    nonisolated static let maxListedPages = 200
 
     struct PageInfo: Identifiable, Equatable {
         let name: String        // "index"
@@ -171,7 +174,9 @@ final class MeshsiteStore: ObservableObject {
             if b.name == "index" { return false }
             return a.name < b.name
         }
-        return infos
+        // Bound the listing — a Files-app dump of thousands of .md files
+        // must not balloon memory.
+        return Array(infos.prefix(maxListedPages))
     }
 
     nonisolated private static func title(of content: String, fallback: String) -> String {
@@ -184,26 +189,31 @@ final class MeshsiteStore: ObservableObject {
 
     // MARK: - Page IO (editor-facing; user-initiated, tiny files)
 
+    // Every page-IO entry point re-validates the name — defense in depth
+    // even though callers only pass names derived from validated listings.
+
     func read(page name: String) -> String? {
-        guard let root else { return nil }
+        guard let root, Self.isValidPageName(name) else { return nil }
         return Self.readText(root.appendingPathComponent(name + ".md"))
     }
 
     func write(page name: String, content: String) {
-        guard let root else { return }
-        Self.coordWrite(root.appendingPathComponent(name + ".md"), Data(content.utf8))
+        guard let root, Self.isValidPageName(name) else { return }
+        var clamped = content
+        while clamped.utf8.count > Self.maxSourceBytes { clamped.removeLast() }
+        Self.coordWrite(root.appendingPathComponent(name + ".md"), Data(clamped.utf8))
         refresh()
     }
 
     func create(page name: String) {
-        guard let root else { return }
+        guard let root, Self.isValidPageName(name) else { return }
         let content = "# \(name)\n\nWrite something here.\n\n=> / Home\n"
         Self.coordWrite(root.appendingPathComponent(name + ".md"), Data(content.utf8))
         refresh()
     }
 
     func delete(page name: String) {
-        guard let root, name != "index" else { return }
+        guard let root, Self.isValidPageName(name), name != "index" else { return }
         try? FileManager.default.removeItem(at: root.appendingPathComponent(name + ".md"))
         refresh()
     }
@@ -326,7 +336,11 @@ final class MeshsiteStore: ObservableObject {
     // MARK: - Coordinated IO (iCloud-safe)
 
     nonisolated private static func readText(_ url: URL) -> String? {
-        coordRead(url).flatMap { String(data: $0, encoding: .utf8) }
+        // Size gate before reading — a giant file dropped in via the Files
+        // app must never be loaded whole (it can't be served anyway).
+        if let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize,
+           size > maxReadBytes { return nil }
+        return coordRead(url).flatMap { String(data: $0, encoding: .utf8) }
     }
 
     nonisolated private static func coordRead(_ url: URL) -> Data? {

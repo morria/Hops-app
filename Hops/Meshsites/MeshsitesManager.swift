@@ -14,13 +14,25 @@ final class MeshsitesManager: ObservableObject {
     static let maxFrameBytes = 200
     static let maxPathBytes = 120
     static let maxPageBytes = 64 * 1024   // decompressed cap, inclusive (spec §6)
+    static let protocolVersion: UInt8 = 1 // highest we speak (spec §7)
+    nonisolated static let minServerVersion: UInt8 = 1 // beacons below this are deprecated
+    static let maxSites = 100             // beacon senders are unauthenticated
 
     static var enabled: Bool { UserDefaults.standard.bool(forKey: "meshsitesEnabled") }
 
     struct Site: Identifiable, Equatable {
         let id: Int64        // node num
         var name: String
+        var version: UInt8
         var lastHeard: Date
+        var deprecated: Bool { version < MeshsitesManager.minServerVersion }
+    }
+
+    /// A fetched page plus the protocol/format version it was served with —
+    /// the renderer selects syntax rules by version (spec §7).
+    struct Page {
+        let markdown: String
+        let version: UInt8
     }
 
     @Published private(set) var sites: [Site] = []
@@ -42,12 +54,14 @@ final class MeshsitesManager: ObservableObject {
             case .badResponse: return "The site sent an unreadable response."
             case .requestInFlight: return "Still loading the previous page."
             case .server(let code, let message):
-                if !message.isEmpty { return message }
+                let clean = MeshsitesManager.sanitizeDisplay(message)
+                if !clean.isEmpty { return clean }
                 switch code {
                 case 1: return "Page not found."
                 case 2: return "The page is too large for the mesh."
                 case 3: return "The site rejected the request."
                 case 5: return "The site is busy — try again in a moment."
+                case 6: return "This site needs a newer version of Hops."
                 default: return "The site reported an error."
                 }
             }
@@ -58,8 +72,9 @@ final class MeshsitesManager: ObservableObject {
         let server: Int64
         var chunks: [Int: Data] = [:]
         var total: Int?
+        var version: UInt8?
         var cacheKey: CacheKey?
-        var continuation: CheckedContinuation<String, Error>
+        var continuation: CheckedContinuation<Page, Error>
         var timeoutTask: Task<Void, Never>?
     }
     private var pending: [UInt16: Pending] = [:]
@@ -80,6 +95,7 @@ final class MeshsitesManager: ObservableObject {
     private struct CacheEntry {
         let etag: UInt32
         let markdown: String
+        let version: UInt8
         var fetchedAt: Date
     }
     private var pageCache: [CacheKey: CacheEntry] = [:]
@@ -123,16 +139,37 @@ final class MeshsitesManager: ObservableObject {
         guard bytes.count >= 3, bytes[1] >= 1 else { return }
         let nameBytes = bytes[2...]
         guard nameBytes.count <= 40,
-              let name = String(bytes: nameBytes, encoding: .utf8),
-              !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
+              let raw = String(bytes: nameBytes, encoding: .utf8) else { return }
+        // Untrusted RF input headed for the UI — strip controls/bidi tricks.
+        let name = Self.sanitizeDisplay(raw)
+        guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
         if let index = sites.firstIndex(where: { $0.id == from }) {
             sites[index].name = name
+            sites[index].version = bytes[1]
             sites[index].lastHeard = Date()
         } else {
-            sites.append(Site(id: from, name: name, lastHeard: Date()))
+            sites.append(Site(id: from, name: name, version: bytes[1], lastHeard: Date()))
+        }
+        // Bound the list — beacon senders are unauthenticated (spec §6).
+        while sites.count > Self.maxSites,
+              let oldest = sites.min(by: { $0.lastHeard < $1.lastHeard }) {
+            sites.removeAll { $0.id == oldest.id }
         }
         // Sort every update — a rename must re-place the site.
         sites.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    /// Strips control characters and bidirectional-override characters —
+    /// applied to any RF-sourced string before it reaches the UI (spec §2).
+    nonisolated static func sanitizeDisplay(_ text: String) -> String {
+        var scalars = String.UnicodeScalarView()
+        for scalar in text.unicodeScalars
+        where scalar.properties.generalCategory != .control
+            && !(0x202A...0x202E).contains(scalar.value)
+            && !(0x2066...0x2069).contains(scalar.value) {
+            scalars.append(scalar)
+        }
+        return String(scalars)
     }
 
     func pruneExpired() {
@@ -148,17 +185,22 @@ final class MeshsitesManager: ObservableObject {
     }
 
     private func handleChunk(from: Int64, bytes: [UInt8]) {
-        guard bytes.count >= 9 else { return }
-        let id = UInt16(bytes[1]) << 8 | UInt16(bytes[2])
-        let seq = Int(bytes[3])
-        let total = Int(bytes[4])
-        let etag = UInt32(bytes[5]) << 24 | UInt32(bytes[6]) << 16
-                 | UInt32(bytes[7]) << 8 | UInt32(bytes[8])
+        guard bytes.count >= 10 else { return }
+        let version = bytes[1]
+        let id = UInt16(bytes[2]) << 8 | UInt16(bytes[3])
+        let seq = Int(bytes[4])
+        let total = Int(bytes[5])
+        let etag = UInt32(bytes[6]) << 24 | UInt32(bytes[7]) << 16
+                 | UInt32(bytes[8]) << 8 | UInt32(bytes[9])
+        // Spec §2: version 0 or above ours is not renderable — ignore.
+        guard (1...Self.protocolVersion).contains(version) else { return }
         guard var entry = pendingEntry(id: id, from: from),
               (1...16).contains(total), seq < total else { return }
         if let known = entry.total, known != total { return }
+        if let known = entry.version, known != version { return }
         entry.total = total
-        entry.chunks[seq] = bytes.count > 9 ? Data(bytes[9...]) : Data()
+        entry.version = version
+        entry.chunks[seq] = bytes.count > 10 ? Data(bytes[10...]) : Data()
         pending[id] = entry
         restartTimeout(id: id)
         if progressId == nil || progressId == id {
@@ -178,9 +220,10 @@ final class MeshsitesManager: ObservableObject {
                 return
             }
             if let key = entry.cacheKey, etag != 0 {
-                pageCache[key] = CacheEntry(etag: etag, markdown: markdown, fetchedAt: Date())
+                pageCache[key] = CacheEntry(etag: etag, markdown: markdown,
+                                            version: version, fetchedAt: Date())
             }
-            finish(id: id, with: .success(markdown))
+            finish(id: id, with: .success(Page(markdown: markdown, version: version)))
         }
     }
 
@@ -206,10 +249,10 @@ final class MeshsitesManager: ObservableObject {
         }
         cached.fetchedAt = Date()
         pageCache[key] = cached
-        finish(id: id, with: .success(cached.markdown))
+        finish(id: id, with: .success(Page(markdown: cached.markdown, version: cached.version)))
     }
 
-    private func finish(id: UInt16, with result: Result<String, Error>) {
+    private func finish(id: UInt16, with result: Result<Page, Error>) {
         guard let entry = pending.removeValue(forKey: id) else { return }
         entry.timeoutTask?.cancel()
         if progressId == id {
@@ -238,13 +281,13 @@ final class MeshsitesManager: ObservableObject {
     /// calling task abandons the request immediately.
     func fetch(_ path: String, from server: Int64,
                post: Bool = false, form: [(String, String)] = [],
-               policy: CachePolicy = .revalidate) async throws -> String {
+               policy: CachePolicy = .revalidate) async throws -> Page {
         let frameBody = try Self.buildRequestBody(path: path, post: post, form: form)
         let cacheKey: CacheKey? = post ? nil
             : CacheKey(server: server, path: String(decoding: frameBody.path, as: UTF8.self))
 
         if let cacheKey, policy == .cacheFirst, let entry = freshEntry(cacheKey) {
-            return entry.markdown
+            return Page(markdown: entry.markdown, version: entry.version)
         }
 
         guard RadioManager.shared.state == .connected else { throw SiteError.notConnected }
@@ -271,8 +314,9 @@ final class MeshsitesManager: ObservableObject {
 
     private func performRequest(frameBody: (method: UInt8, path: Data, body: Data),
                                 etag: UInt32, server: Int64,
-                                cacheKey: CacheKey?, id: UInt16) async throws -> String {
-        var frame = Data([0x02, UInt8(id >> 8), UInt8(id & 0xFF), frameBody.method,
+                                cacheKey: CacheKey?, id: UInt16) async throws -> Page {
+        var frame = Data([0x02, Self.protocolVersion,
+                          UInt8(id >> 8), UInt8(id & 0xFF), frameBody.method,
                           UInt8(etag >> 24 & 0xFF), UInt8(etag >> 16 & 0xFF),
                           UInt8(etag >> 8 & 0xFF), UInt8(etag & 0xFF),
                           UInt8(frameBody.path.count)])
@@ -301,7 +345,7 @@ final class MeshsitesManager: ObservableObject {
     }
 
     /// Builds (method, path+query bytes, body bytes), truncating form values
-    /// until the request fits one packet (spec §2, 9-byte header). Throws if
+    /// until the request fits one packet (spec §2, 10-byte header). Throws if
     /// it can't fit.
     static func buildRequestBody(path: String, post: Bool,
                                  form: [(String, String)]) throws -> (method: UInt8, path: Data, body: Data) {
@@ -313,7 +357,7 @@ final class MeshsitesManager: ObservableObject {
             let pathString = post || encoded.isEmpty ? path : path + separator + encoded
             let pathData = Data(pathString.utf8)
             let bodyData = post ? Data(encoded.utf8) : Data()
-            if pathData.count <= maxPathBytes, 9 + pathData.count + bodyData.count <= maxFrameBytes {
+            if pathData.count <= maxPathBytes, 10 + pathData.count + bodyData.count <= maxFrameBytes {
                 return (post ? 1 : 0, pathData, bodyData)
             }
             // Trim a character off the longest value and try again.

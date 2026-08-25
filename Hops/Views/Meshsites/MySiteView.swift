@@ -216,6 +216,13 @@ struct PageEditorView: View {
         .onAppear { attemptLoad() }
         .onChange(of: text) { _, _ in
             guard loaded else { return }
+            // Hard input cap — the serve cap is 3,040 compressed anyway.
+            if text.utf8.count > MeshsiteStore.maxSourceBytes {
+                var clamped = text
+                while clamped.utf8.count > MeshsiteStore.maxSourceBytes { clamped.removeLast() }
+                text = clamped
+                return   // onChange re-fires with the clamped value
+            }
             updateGauge()
             saveTask?.cancel()
             saveTask = Task {
