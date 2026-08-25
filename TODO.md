@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+121. [x] Delivery Details: long-press any message → info sheet with the
+         status in plain language (what it proves and does not), failure
+         reason decoded from the routing error, timestamps, packet ID
+         cross-referencing Mesh Traffic, and a primer on direct vs channel
+         delivery.
+
 120. [x] Coverage map readability: four discrete color bins (node reach
          palette) replace the continuous hue whose olive mids blended into
          satellite terrain; two opacity levels kill the confidence

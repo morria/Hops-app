@@ -14,6 +14,7 @@ struct ConversationView: View {
 
     @State private var draft = ""
     @State private var replyTarget: MessageEntity?
+    @State private var deliveryDetails: MessageEntity?
     @State private var reactionTarget: MessageEntity?
     @State private var reactionDetails: MessageEntity?   // message whose reactions to list
     @State private var senderCard: Int64?                // node card for a tapped sender
@@ -245,6 +246,10 @@ struct ConversationView: View {
             }
             .presentationDetents([.medium])
         }
+        .sheet(item: $deliveryDetails) { target in
+            DeliveryDetailsView(message: target, isDM: isDM)
+                .presentationDetents([.medium, .large])
+        }
         .onAppear {
             radio.activeConversationKey = conversationKey
             markRead()
@@ -381,6 +386,7 @@ struct ConversationView: View {
             onReactOther: { reactionTarget = message },
             onShowReactions: { reactionDetails = message },
             onShowSender: { senderCard = message.fromNum },
+            onShowDetails: { deliveryDetails = message },
             onSendNow: { radio.forceSendNow(packetId: message.packetId) },
             onRetryWhenSeen: { radio.retryWhenPeerSeen(packetId: message.packetId) },
             onRetry: { radio.retry(packetId: message.packetId) }
@@ -562,6 +568,7 @@ struct MessageBubble: View {
     var onReactOther: () -> Void
     var onShowReactions: () -> Void
     var onShowSender: () -> Void
+    var onShowDetails: () -> Void = {}
     var onSendNow: () -> Void = {}
     var onRetryWhenSeen: () -> Void = {}
     var onRetry: () -> Void
@@ -659,6 +666,11 @@ struct MessageBubble: View {
                 UIPasteboard.general.string = message.text
             } label: {
                 Label("Copy", systemImage: "doc.on.doc")
+            }
+            Button {
+                onShowDetails()
+            } label: {
+                Label("Delivery Details", systemImage: "info.circle")
             }
             if message.status == .failed {
                 Button {
