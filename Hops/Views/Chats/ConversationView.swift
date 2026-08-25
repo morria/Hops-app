@@ -478,6 +478,20 @@ struct ConversationView: View {
             } label: {
                 Label("Send My Location", systemImage: "location.fill")
             }
+            if case .channel(let index) = destination {
+                Button {
+                    radio.announceNodeInfo(onChannel: index)
+                } label: {
+                    Label("Send My Node Info", systemImage: "person.wave.2")
+                }
+            }
+            if radio.storeForwardAvailable {
+                Button {
+                    radio.requestStoreForwardHistory()
+                } label: {
+                    Label("Request Missed Messages", systemImage: "clock.arrow.circlepath")
+                }
+            }
         } label: {
             Image(systemName: "plus.circle")
                 .font(.system(size: 28))

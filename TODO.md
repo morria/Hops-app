@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+109. [x] "+" menu offers "Request Missed Messages" — only when an S&F router
+         has heartbeated within 3 h, so the option can't be a dead button;
+         replays dedupe on ingest.
+108. [x] Channel "+" menu gains "Send My Node Info" — broadcasts on that
+         channel with its encryption.
+
 107. [x] Send Now on held messages hardened: works while syncing, and when
          disconnected it demotes the message to the outbox (sends at next
          connection) instead of silently doing nothing.

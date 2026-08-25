@@ -869,18 +869,27 @@ final class RadioManager: ObservableObject {
         }
     }
 
+    /// A Store & Forward router has heartbeated recently — history requests can work.
+    var storeForwardAvailable: Bool {
+        guard sfRouterNum > 0, let heard = sfRouterHeardAt else { return false }
+        return Date().timeIntervalSince(heard) < 3 * 60 * 60
+    }
+
     /// Ask a known Store & Forward router to replay messages covering our offline
     /// window. Only when a router heartbeated recently and we were actually away.
     private func requestStoreForwardHistoryIfUseful() {
-        guard sfRouterNum > 0,
-              let heard = sfRouterHeardAt, Date().timeIntervalSince(heard) < 3 * 60 * 60,
-              let last = lastSyncedAt else { return }
+        guard storeForwardAvailable, let last = lastSyncedAt else { return }
         let awayMinutes = Int(Date().timeIntervalSince(last) / 60)
         guard awayMinutes >= 5 else { return }
+        requestStoreForwardHistory(windowMinutes: min(awayMinutes + 10, 240))
+    }
 
+    /// Manual history request (the "+" menu). Replays dedupe on ingest.
+    func requestStoreForwardHistory(windowMinutes: Int = 240) {
+        guard storeForwardAvailable else { return }
         var sf = StoreAndForward()
         sf.rr = .clientHistory
-        sf.history.window = UInt32(min(awayMinutes + 10, 240))
+        sf.history.window = UInt32(windowMinutes)
         var decoded = DataMessage()
         decoded.portnum = .storeForwardApp
         decoded.payload = (try? sf.serializedData()) ?? Data()
