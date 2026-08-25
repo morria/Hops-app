@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+114. [x] Coverage layer reworked to match the real mental model: citywide reach
+         blobs around every node heard in 24 h, colored by hop distance from
+         you (green direct → orange far → gray unknown), with personal measured
+         SNR dots on top as ground truth. No walking required.
+
 113. [x] Location prompt also fires when the map launches already in the
          Coverage layer (persisted mode skipped the switch-based prompt).
 

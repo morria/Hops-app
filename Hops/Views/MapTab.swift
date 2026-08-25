@@ -160,6 +160,15 @@ struct MapTab: View {
     }
     @State private var coverageSnapshot: [CoveragePoint] = []
 
+    /// Citywide reach: each recently-heard positioned node, with its hop
+    /// distance from us — being near that node ≈ that many hops to reach you.
+    struct ReachPoint: Identifiable {
+        let id: Int64
+        let coordinate: CLLocationCoordinate2D
+        let hops: Int
+    }
+    @State private var reachSnapshot: [ReachPoint] = []
+
     @State private var lastSnapshotAt = Date.distantPast
 
     private func refreshSnapshots() {
@@ -167,6 +176,10 @@ struct MapTab: View {
         placedSnapshot = displayNodes(from: placedNodes)
         weatherSnapshot = weatherNodes
         if mode == .coverage {
+            let dayAgo = Date().addingTimeInterval(-24 * 60 * 60)
+            reachSnapshot = nodes
+                .filter { $0.num != radio.myNodeNum && ($0.lastHeard ?? .distantPast) > dayAgo }
+                .map { ReachPoint(id: $0.num, coordinate: $0.coordinate, hops: $0.hopsAway) }
             var descriptor = FetchDescriptor<CoverageSampleEntity>()
             descriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]
             descriptor.fetchLimit = 600
@@ -184,6 +197,16 @@ struct MapTab: View {
         if snr >= -5 { return .green }
         if snr >= -12 { return .yellow }
         return .red
+    }
+
+    private func reachColor(_ hops: Int) -> Color {
+        switch hops {
+        case 0: return .green        // direct copy from here
+        case 1, 2: return .mint
+        case 3, 4: return .yellow
+        case 5...: return .orange
+        default: return .gray        // heard, path length unknown
+        }
     }
 
     var body: some View {
@@ -298,7 +321,7 @@ struct MapTab: View {
                     .presentationDetents([.height(360)])
             }
             .overlay {
-                if mode == .coverage && coverageSnapshot.isEmpty {
+                if mode == .coverage && coverageSnapshot.isEmpty && reachSnapshot.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "chart.dots.scatter")
                             .font(.title)
@@ -393,11 +416,16 @@ struct MapTab: View {
         }
     }
 
-    /// Signal survey: each dot is ~30 s of listening at a spot, colored by the
-    /// best SNR heard there. Screen-space dots stay visible at any zoom —
-    /// 60 m geographic circles vanished below city scale.
+    /// Reachability across the city: blobs around every recently-heard node,
+    /// colored by hop distance from you (green = hears you directly, warmer =
+    /// farther through the mesh). Your own measured samples draw on top as
+    /// ground-truth dots.
     @MapContentBuilder
     private var coverageContent: some MapContent {
+        ForEach(reachSnapshot) { point in
+            MapCircle(center: point.coordinate, radius: 700)
+                .foregroundStyle(reachColor(point.hops).opacity(0.14))
+        }
         ForEach(coverageSnapshot) { point in
             Annotation("", coordinate: point.coordinate) {
                 Circle()
