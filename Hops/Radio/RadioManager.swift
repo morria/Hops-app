@@ -77,7 +77,7 @@ final class RadioManager: ObservableObject {
     /// radio's own GPS or the phone's cached fix; GPS is only actively used
     /// when the app is already on screen.
     private func accumulateCoverage(snr: Float) {
-        guard snr != 0 else { return }
+        guard snr != 0, !PowerMode.saver else { return }
         coverageSnrMax = max(coverageSnrMax, snr)
         coveragePackets += 1
         guard Date().timeIntervalSince(coverageSampledAt) > 30, let store else { return }

@@ -102,8 +102,15 @@ final class BLETransport: NSObject {
                 self.central.connect(target)   // pending connect: never expires
                 // Scan-assist: an advertisement can arrive before the pending
                 // connect resolves; either path wins, the other is a no-op.
-                if self.central.state == .poweredOn {
+                // Skipped in Battery Saver; time-boxed otherwise (the pending
+                // connect keeps working after the scan stops).
+                if self.central.state == .poweredOn, !PowerMode.saver {
                     self.central.scanForPeripherals(withServices: [UUIDs.service], options: nil)
+                    self.queue.asyncAfter(deadline: .now() + 45) {
+                        if self.peripheral?.state != .connected {
+                            self.central.stopScan()
+                        }
+                    }
                 }
             } else {
                 self.startScan()               // fallback: catch an advertisement

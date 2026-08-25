@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+110. [x] Battery pass. Free wins: SwiftData saves debounced to one per ~2 s on
+         high-frequency paths (was a disk write per packet heard — the main
+         background drain), reconnect scan-assist time-boxed to 45 s, map
+         snapshot timer paused when the Map tab is hidden. Battery Saver toggle
+         (auto-follows iOS Low Power Mode): pauses coverage sampling and Live
+         Activities, map refresh 5 s → 30 s, skips scan-assist, save debounce
+         2 s → 5 s. Messaging unaffected in either mode.
+
 109. [x] "+" menu offers "Request Missed Messages" — only when an S&F router
          has heartbeated within 3 h, so the option can't be a dead button;
          replays dedupe on ingest.

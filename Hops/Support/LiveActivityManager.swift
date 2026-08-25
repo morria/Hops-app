@@ -12,7 +12,7 @@ final class LiveActivityManager {
 
     func start(packetId: Int64, peerName: String, preview: String, isChannel: Bool = false) {
         if isChannel { channelSends.insert(packetId) }
-        guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
+        guard !PowerMode.saver, ActivityAuthorizationInfo().areActivitiesEnabled else { return }
         let attributes = SendActivityAttributes(peerName: peerName,
                                                 preview: String(preview.prefix(50)))
         let state = SendActivityAttributes.ContentState(statusText: "Sending…", phase: 0)

@@ -25,6 +25,7 @@ struct SettingsView: View {
                 deviceConfigSection
                 notificationsSection
                 unitsSection
+                batterySection
                 nodeRetentionSection
                 aboutSection
             }
@@ -233,6 +234,20 @@ struct SettingsView: View {
                 Text("°F").tag(true)
                 Text("°C").tag(false)
             }
+        }
+    }
+
+    // MARK: - Battery
+
+    @AppStorage("batterySaver") private var batterySaver = false
+
+    private var batterySection: some View {
+        Section {
+            Toggle("Battery Saver", isOn: $batterySaver)
+        } header: {
+            Text("Battery")
+        } footer: {
+            Text("Pauses coverage sampling and Live Activities, slows map refresh, and skips the reconnect scan boost (reconnects still happen, slightly slower). Messaging is unaffected. Engages automatically with iOS Low Power Mode.")
         }
     }
 

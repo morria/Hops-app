@@ -160,7 +160,10 @@ struct MapTab: View {
     }
     @State private var coverageSnapshot: [CoveragePoint] = []
 
+    @State private var lastSnapshotAt = Date.distantPast
+
     private func refreshSnapshots() {
+        lastSnapshotAt = Date()
         placedSnapshot = displayNodes(from: placedNodes)
         weatherSnapshot = weatherNodes
         if mode == .coverage {
@@ -252,6 +255,10 @@ struct MapTab: View {
             }
             .onAppear { refreshSnapshots() }
             .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+                // Only while the Map tab is actually visible; slower in saver.
+                guard appModel.selectedTab == 1,
+                      Date().timeIntervalSince(lastSnapshotAt) >= (PowerMode.saver ? 30 : 5)
+                else { return }
                 refreshSnapshots()
             }
             .onChange(of: selectedNodeNum) { _, num in

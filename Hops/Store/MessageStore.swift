@@ -7,6 +7,25 @@ import MeshtasticProtobufs
 @ModelActor
 actor MessageStore {
 
+    // MARK: - Debounced persistence
+    //
+    // Saving on every packet cost a disk write per packet heard — on a busy
+    // mesh that is the app's main background battery draw. High-frequency
+    // paths coalesce into one save per ~2 s (5 s in Battery Saver); user
+    // actions and message ingest still save immediately.
+
+    private var saveScheduled = false
+
+    private func scheduleSave() {
+        guard !saveScheduled else { return }
+        saveScheduled = true
+        Task {
+            try? await Task.sleep(for: .seconds(PowerMode.saver ? 5 : 2))
+            saveScheduled = false
+            try? modelContext.save()
+        }
+    }
+
     // MARK: - Node ingest
 
     func upsertNode(num: Int64) -> NodeEntity {
@@ -94,7 +113,7 @@ actor MessageStore {
         node.lastHeard = rxTime > 0 ? Date(timeIntervalSince1970: TimeInterval(rxTime)) : Date()
         if snr != 0 { node.snr = snr }
         if hopStart > 0, hopStart >= hopLimit { node.hopsAway = Int(hopStart - hopLimit) }
-        try? modelContext.save()
+        scheduleSave()
     }
 
     func applyNodeInfo(_ info: NodeInfo) {
@@ -184,7 +203,7 @@ actor MessageStore {
     func addCoverageSample(latitude: Double, longitude: Double, snr: Float, packets: Int) {
         modelContext.insert(CoverageSampleEntity(latitude: latitude, longitude: longitude,
                                                  snr: snr, packets: packets, timestamp: Date()))
-        try? modelContext.save()
+        scheduleSave()
     }
 
     /// Coverage retention: 30 days, capped at 2000 samples.
@@ -218,7 +237,7 @@ actor MessageStore {
     func applyPositionPacket(_ position: Position, from num: Int64) {
         let node = upsertNode(num: num)
         applyPosition(position, to: node)
-        try? modelContext.save()
+        scheduleSave()
     }
 
     func applyTelemetry(_ telemetry: Telemetry, from num: Int64) {
@@ -236,7 +255,7 @@ actor MessageStore {
         default:
             return
         }
-        try? modelContext.save()
+        scheduleSave()
     }
 
     /// Store & Forward history replay: replays carry fresh packet ids and replay-time
