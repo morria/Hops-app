@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+119. [x] Map filters: hop count (any/direct/1/2/4) and max age (any/1h/6h/
+         24h/7d) via a filter button above the layers control, applied to
+         Nodes and Weather layers. Persisted in AppStorage; filled icon +
+         accent tint when active; Clear Filters shortcut.
+
 118. [x] Meshsite serving on iOS (dev builds only): the phone serves its own
          site. Pages are markdown files in iCloud Drive › Hops › Meshsite
          (Files-app visible, Mac-editable); My Site screen with serve toggle

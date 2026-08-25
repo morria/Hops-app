@@ -18,6 +18,26 @@ struct MapTab: View {
     @State private var weatherNodeNum: Int64?
     @State private var position: MapCameraPosition
     @AppStorage("mapModeRaw") private var modeRaw = MapMode.nodes.rawValue
+
+    // Map filters (persisted): -1 hops = any; 0 hours = any age.
+    @AppStorage("mapFilterMaxHops") private var filterMaxHops = -1
+    @AppStorage("mapFilterMaxAgeHours") private var filterMaxAgeHours = 0
+
+    private var filtersActive: Bool { filterMaxHops >= 0 || filterMaxAgeHours > 0 }
+
+    /// Node passes the active map filters. Hop filtering excludes nodes with
+    /// unknown path length — "within N hops" is a claim we can't make for them.
+    private func passesFilters(_ node: NodeEntity) -> Bool {
+        if filterMaxHops >= 0 {
+            guard node.hopsAway >= 0, node.hopsAway <= filterMaxHops else { return false }
+        }
+        if filterMaxAgeHours > 0 {
+            guard let heard = node.lastHeard,
+                  heard > Date().addingTimeInterval(-Double(filterMaxAgeHours) * 3600)
+            else { return false }
+        }
+        return true
+    }
     @State private var waypointDraft: WaypointDraft?
     @State private var visibleRegion: MKCoordinateRegion?
     @Namespace private var mapScope
@@ -115,7 +135,7 @@ struct MapTab: View {
     }
 
     private var placedNodes: [NodeEntity] {
-        let others = nodes.filter { $0.num != radio.myNodeNum }
+        let others = nodes.filter { $0.num != radio.myNodeNum && passesFilters($0) }
         guard others.count > Self.annotationCap else { return others }
         return Array(others.sorted { ($0.lastHeard ?? .distantPast) > ($1.lastHeard ?? .distantPast) }
             .prefix(Self.annotationCap))
@@ -126,7 +146,7 @@ struct MapTab: View {
     }
 
     private var weatherNodes: [NodeEntity] {
-        nodes.filter { $0.hasPosition && $0.hasRecentEnvironment && !$0.weatherHidden }
+        nodes.filter { $0.hasPosition && $0.hasRecentEnvironment && !$0.weatherHidden && passesFilters($0) }
     }
 
     private var activeWaypoints: [WaypointEntity] {
@@ -365,6 +385,41 @@ struct MapTab: View {
             // stacked above locate-me.
             .overlay(alignment: .bottomTrailing) {
                 VStack(spacing: 10) {
+                    if mode != .coverage {
+                        Menu {
+                            Picker("Hops away", selection: $filterMaxHops) {
+                                Text("Any distance").tag(-1)
+                                Text("Direct only").tag(0)
+                                Text("Within 1 hop").tag(1)
+                                Text("Within 2 hops").tag(2)
+                                Text("Within 4 hops").tag(4)
+                            }
+                            Divider()
+                            Picker("Heard within", selection: $filterMaxAgeHours) {
+                                Text("Any time").tag(0)
+                                Text("Last hour").tag(1)
+                                Text("Last 6 hours").tag(6)
+                                Text("Last 24 hours").tag(24)
+                                Text("Last 7 days").tag(168)
+                            }
+                            if filtersActive {
+                                Divider()
+                                Button("Clear Filters") {
+                                    filterMaxHops = -1
+                                    filterMaxAgeHours = 0
+                                }
+                            }
+                        } label: {
+                            Image(systemName: filtersActive
+                                  ? "line.3.horizontal.decrease.circle.fill"
+                                  : "line.3.horizontal.decrease.circle")
+                                .font(.system(size: 17, weight: .medium))
+                                .foregroundStyle(filtersActive ? Color.accentColor : .primary)
+                                .frame(width: 44, height: 44)
+                                .background(.regularMaterial, in: Circle())
+                                .shadow(color: .black.opacity(0.15), radius: 3, y: 1)
+                        }
+                    }
                     Menu {
                         Picker("Map view", selection: modeBinding) {
                             ForEach(MapMode.allCases) { choice in
@@ -391,6 +446,8 @@ struct MapTab: View {
                 .padding(.bottom, 16)
             }
             .mapScope(mapScope)
+            .onChange(of: filterMaxHops) { _, _ in refreshSnapshots() }
+            .onChange(of: filterMaxAgeHours) { _, _ in refreshSnapshots() }
             .onMapCameraChange { context in
                 visibleRegion = context.region
                 persistCamera(context.region)
