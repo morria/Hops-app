@@ -42,11 +42,16 @@ Design goals, in order:
   compatibility). Malformed frames are ignored silently, with one exception:
   a malformed REQUEST addressed to the server whose id is still parseable
   (e.g. empty path, body bytes on a GET) gets ERROR 3 so the client can fail
-  fast instead of timing out.
+  fast instead of timing out. Exception: a REQUEST with version 0 is a
+  version problem, not a malformation — it gets ERROR 6, never ERROR 3
+  (§2, §7).
 
 ## 2. Frames
 
 The first payload byte is the frame type. Multi-byte integers are big-endian.
+Implementer warning: the request id sits at a different offset per frame
+type — REQUEST and CHUNK carry a version byte first (id at offset 2);
+ERROR and NOT_MODIFIED do not (id at offset 1).
 
 ### 0x01 BEACON  (server → broadcast)
 
@@ -280,8 +285,10 @@ syntax) or frame semantic change bumps the version; clients keep old
 renderers and select by the CHUNK version, servers keep serving the highest
 version each requester speaks. Deprecation is client-driven: raising a
 client's minimum retires old servers gracefully (they show as outdated, not
-broken). NOT_MODIFIED carries no version — the cached page keeps the
-version it was served with.
+broken). ERROR and NOT_MODIFIED intentionally carry no version byte: they
+are terminal one-packet frames, and their layouts are frozen for all
+protocol versions — the cached page a NOT_MODIFIED refers to keeps the
+version it was originally served with.
 
 v2 candidates (explicitly out of scope for v1): chunk re-request (selective
 NACK), binary resource frames (images), multi-packet requests.
