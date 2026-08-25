@@ -19,7 +19,7 @@ struct MySiteView: View {
             pagesSection
             extrasSection
         }
-        .navigationTitle("My Site")
+        .navigationTitle("Mesh Site")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear { store.start() }
         .alert("New Page", isPresented: $showNewPage) {
@@ -44,7 +44,7 @@ struct MySiteView: View {
                     // announces the new name. Beaconing per keystroke would
                     // spam RF with every partial name.
                 }
-            Toggle("Serve My Site", isOn: $serving)
+            Toggle("Serve Mesh Site", isOn: $serving)
                 .disabled(siteName.trimmingCharacters(in: .whitespaces).isEmpty)
                 .onChange(of: serving) { _, _ in server.servingDidChange() }
             if serving {

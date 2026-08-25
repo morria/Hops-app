@@ -33,7 +33,7 @@ struct HopsApp: App {
         RadioManager.shared.configure(container: container)
         #if MESHSITES
         // Wake the site server so beacons and request handling run without
-        // the user ever opening My Site.
+        // the user ever opening the Mesh Site screen.
         _ = MeshsiteServer.shared
         #endif
         // Existing installs that paired before guided onboarding existed skip it.

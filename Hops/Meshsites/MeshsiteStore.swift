@@ -98,7 +98,7 @@ final class MeshsiteStore: ObservableObject {
 
         Welcome! This page is served straight from my radio — no internet.
 
-        * Edit these pages in Hops › Settings › Meshsites › My Site
+        * Edit these pages in Hops › Settings › Meshsites › Mesh Site
         * Or in iCloud Drive › Hops › Meshsite from any device
 
         => /guestbook Sign my guestbook

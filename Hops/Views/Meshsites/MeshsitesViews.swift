@@ -15,7 +15,7 @@ struct MeshsitesListView: View {
                 ContentUnavailableView {
                     Label("No sites nearby", systemImage: "globe")
                 } description: {
-                    Text("Sites appear when a node within direct radio range broadcasts one. Move around — discovery is the fun part.")
+                    Text("Sites appear when a node within direct radio range broadcasts one.")
                 }
             } else {
                 ForEach(manager.sites) { site in

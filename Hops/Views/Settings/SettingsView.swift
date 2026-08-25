@@ -259,7 +259,7 @@ struct SettingsView: View {
                 NavigationLink {
                     MySiteView()
                 } label: {
-                    Label("My Site", systemImage: "house")
+                    Label("Mesh Site", systemImage: "house")
                 }
             }
         } header: {
