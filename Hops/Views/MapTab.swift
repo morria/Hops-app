@@ -169,12 +169,87 @@ struct MapTab: View {
     }
     @State private var reachSnapshot: [ReachPoint] = []
 
+    /// Interpolated contact-prediction surface: grid cells colored by expected
+    /// hop distance (IDW over nodes + measured samples), fading to clear where
+    /// there's no evidence within ~1.5 km.
+    struct HeatCell: Identifiable {
+        let id: Int
+        let corners: [CLLocationCoordinate2D]
+        let hue: Double
+        let opacity: Double
+    }
+    @State private var heatGrid: [HeatCell] = []
+    @State private var lastHeatAt = Date.distantPast
+
+    private func recomputeHeatGrid() {
+        guard mode == .coverage, let region = visibleRegion else { return }
+        lastHeatAt = Date()
+        // Evidence points: (lat, lon, effectiveHops)
+        var points: [(Double, Double, Double)] = reachSnapshot.compactMap {
+            let hops = $0.hops >= 0 ? Double($0.hops) : 3.0
+            return ($0.coordinate.latitude, $0.coordinate.longitude, hops)
+        }
+        points += coverageSnapshot.map {
+            // A strong measured sample is as good as being next to a direct node.
+            let effective: Double = $0.snr >= -5 ? 0 : ($0.snr >= -12 ? 1.5 : 3.5)
+            return ($0.coordinate.latitude, $0.coordinate.longitude, effective)
+        }
+        guard !points.isEmpty else { heatGrid = []; return }
+
+        let cols = 16
+        let rows = min(28, max(12, Int(Double(cols) * region.span.latitudeDelta / region.span.longitudeDelta)))
+        let influence = 0.015   // ~1.5 km in degrees latitude
+        let cellLat = region.span.latitudeDelta / Double(rows)
+        let cellLon = region.span.longitudeDelta / Double(cols)
+        let originLat = region.center.latitude - region.span.latitudeDelta / 2
+        let originLon = region.center.longitude - region.span.longitudeDelta / 2
+        var cells: [HeatCell] = []
+        cells.reserveCapacity(rows * cols)
+        var cellId = 0
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let lat = originLat + (Double(row) + 0.5) * cellLat
+                let lon = originLon + (Double(col) + 0.5) * cellLon
+                var weightSum = 0.0
+                var valueSum = 0.0
+                for (plat, plon, hops) in points {
+                    let dLat = plat - lat
+                    let dLon = (plon - lon) * 0.766   // cos(40°) longitude squeeze
+                    let d2 = dLat * dLat + dLon * dLon
+                    guard d2 < influence * influence else { continue }
+                    let w = 1.0 / max(d2, 1e-8)
+                    weightSum += w
+                    valueSum += w * hops
+                }
+                guard weightSum > 0 else { cellId += 1; continue }
+                let expectedHops = valueSum / weightSum
+                // hops 0 → green (0.33), 6+ → red (0.0)
+                let hue = max(0.0, 0.33 - expectedHops * 0.055)
+                // Confidence from evidence density, capped.
+                let confidence = min(1.0, weightSum / 20_000)
+                cells.append(HeatCell(
+                    id: cellId,
+                    corners: [
+                        CLLocationCoordinate2D(latitude: originLat + Double(row) * cellLat, longitude: originLon + Double(col) * cellLon),
+                        CLLocationCoordinate2D(latitude: originLat + Double(row) * cellLat, longitude: originLon + Double(col + 1) * cellLon),
+                        CLLocationCoordinate2D(latitude: originLat + Double(row + 1) * cellLat, longitude: originLon + Double(col + 1) * cellLon),
+                        CLLocationCoordinate2D(latitude: originLat + Double(row + 1) * cellLat, longitude: originLon + Double(col) * cellLon),
+                    ],
+                    hue: hue,
+                    opacity: 0.10 + 0.16 * confidence))
+                cellId += 1
+            }
+        }
+        heatGrid = cells
+    }
+
     @State private var lastSnapshotAt = Date.distantPast
 
     private func refreshSnapshots() {
         lastSnapshotAt = Date()
         placedSnapshot = displayNodes(from: placedNodes)
         weatherSnapshot = weatherNodes
+        defer { if mode == .coverage { recomputeHeatGrid() } }
         if mode == .coverage {
             let dayAgo = Date().addingTimeInterval(-24 * 60 * 60)
             reachSnapshot = nodes
@@ -275,6 +350,10 @@ struct MapTab: View {
             .onMapCameraChange { context in
                 visibleRegion = context.region
                 persistCamera(context.region)
+                // Re-interpolate for the new viewport (debounced).
+                if mode == .coverage, Date().timeIntervalSince(lastHeatAt) > 1.0 {
+                    recomputeHeatGrid()
+                }
             }
             .onAppear {
                 refreshSnapshots()
@@ -422,9 +501,10 @@ struct MapTab: View {
     /// ground-truth dots.
     @MapContentBuilder
     private var coverageContent: some MapContent {
-        ForEach(reachSnapshot) { point in
-            MapCircle(center: point.coordinate, radius: 700)
-                .foregroundStyle(reachColor(point.hops).opacity(0.14))
+        ForEach(heatGrid) { cell in
+            MapPolygon(coordinates: cell.corners)
+                .foregroundStyle(Color(hue: cell.hue, saturation: 0.85, brightness: 0.9)
+                    .opacity(cell.opacity))
         }
         ForEach(coverageSnapshot) { point in
             Annotation("", coordinate: point.coordinate) {

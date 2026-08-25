@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+115. [x] Coverage is an interpolated contact-prediction surface: IDW over node
+         hop counts + measured SNR samples, gridded per viewport (recomputed on
+         pan/zoom, debounced), hue green→red by expected hops, opacity by
+         evidence density, transparent beyond ~1.5 km of any evidence.
+
 114. [x] Coverage layer reworked to match the real mental model: citywide reach
          blobs around every node heard in 24 h, colored by hop distance from
          you (green direct → orange far → gray unknown), with personal measured
