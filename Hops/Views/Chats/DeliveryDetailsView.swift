@@ -37,7 +37,7 @@ struct DeliveryDetailsView: View {
                     }
                 }
 
-                Section("Details") {
+                Section {
                     LabeledContent(message.outgoing ? "Sent" : "Received",
                                    value: message.timestamp.formatted(date: .abbreviated, time: .standard))
                     LabeledContent("Delivery", value: isDM ? "Direct message" : "Channel broadcast")
@@ -47,6 +47,8 @@ struct DeliveryDetailsView: View {
                         LabeledContent("In reply to",
                                        value: String(format: "0x%08X", UInt32(truncatingIfNeeded: message.replyId)))
                     }
+                } header: {
+                    Text("Details")
                 } footer: {
                     Text("The packet ID matches entries in Settings › Mesh traffic, if you want to trace the raw packets.")
                 }
