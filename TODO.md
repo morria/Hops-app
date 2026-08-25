@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+118. [x] Meshsite serving on iOS (dev builds only): the phone serves its own
+         site. Pages are markdown files in iCloud Drive › Hops › Meshsite
+         (Files-app visible, Mac-editable); My Site screen with serve toggle
+         + beacon status; page editor with live compressed-bytes gauge and
+         link/form insertion; every POST lands in _replies.md (private "_"
+         namespace, 128 KB tail trim) + in-app inbox; Preview runs the real
+         serving engine. Spec draft 6. Reviewed: 1 critical (placeholder
+         overwrite data loss), 2 major, 9 minor — all fixed.
+
 117. [x] Meshsites (experimental, dev builds only): protocol spec in
          docs/MESHSITES.md (port 421, direct-RF-only via hop-limit 1 +
          relay-discard, one-packet requests, deflate chunks, etag caching

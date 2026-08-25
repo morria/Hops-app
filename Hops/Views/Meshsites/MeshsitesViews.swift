@@ -45,7 +45,86 @@ struct MeshsitesListView: View {
     }
 }
 
-/// Renders one site: fetches Meshdown pages, follows links, submits forms.
+/// Renders a parsed Meshdown document — used identically by the reader
+/// browser and the creator's site preview, so what creators see is exactly
+/// what readers get. Owns form field state; navigation and submission are
+/// the caller's business.
+struct MeshdownRenderer: View {
+    let document: MeshdownDocument
+    var disabled = false
+    let onNavigate: (String) -> Void
+    let onSubmit: (MeshdownDocument.Form, [(String, String)]) -> Void
+
+    @State private var formValues: [String: String] = [:]
+
+    var body: some View {
+        LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(document.items) { item in
+                blockView(item)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func blockView(_ item: MeshdownDocument.Item) -> some View {
+        switch item.block {
+        case .heading(let level, let text):
+            Text(text)
+                .font(level == 1 ? .title.bold() : level == 2 ? .title2.bold() : .headline)
+                .padding(.top, item.id == 0 ? 0 : 4)
+        case .paragraph(let text):
+            Text(text)
+        case .listItem(let text):
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text("•")
+                Text(text)
+            }
+        case .rule:
+            Divider()
+        case .link(let path, let label):
+            Button {
+                onNavigate(path)
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.right.circle")
+                    Text(label)
+                        .multilineTextAlignment(.leading)
+                }
+            }
+            .disabled(disabled)
+        case .form(let form):
+            formView(form, itemId: item.id)
+        }
+    }
+
+    private func formView(_ form: MeshdownDocument.Form, itemId: Int) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach(form.fields, id: \.name) { field in
+                TextField(field.label, text: binding(itemId: itemId, field: field.name))
+                    .textFieldStyle(.roundedBorder)
+            }
+            Button(form.submitLabel) {
+                let pairs = form.fields.map { ($0.name, formValues["\(itemId).\($0.name)"] ?? "") }
+                onSubmit(form, pairs)
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(disabled)
+        }
+        .padding(12)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    private func binding(itemId: Int, field: String) -> Binding<String> {
+        let key = "\(itemId).\(field)"
+        return Binding(
+            get: { formValues[key] ?? "" },
+            set: { formValues[key] = $0 }
+        )
+    }
+}
+
+/// Renders one remote site: fetches Meshdown pages, follows links, submits
+/// forms.
 struct MeshsiteBrowserView: View {
     let site: MeshsitesManager.Site
 
@@ -54,7 +133,7 @@ struct MeshsiteBrowserView: View {
     @State private var document: MeshdownDocument?
     @State private var loading = false
     @State private var errorText: String?
-    @State private var formValues: [String: String] = [:]
+    @State private var resetToken = 0
     @State private var loadTask: Task<Void, Never>?
 
     var body: some View {
@@ -84,13 +163,12 @@ struct MeshsiteBrowserView: View {
                 }
             } else if let document {
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(document.items) { item in
-                            blockView(item)
-                        }
-                    }
-                    .padding()
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    MeshdownRenderer(document: document, disabled: loading,
+                                     onNavigate: { navigate(to: $0) },
+                                     onSubmit: { form, pairs in submit(form, pairs: pairs) })
+                        .id(resetToken)
+                        .padding()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Color.clear
@@ -151,7 +229,7 @@ struct MeshsiteBrowserView: View {
                                                    form: form, policy: policy)
             guard !Task.isCancelled else { return }
             document = MeshdownDocument.parse(markdown)
-            formValues.removeAll()
+            resetToken += 1
         } catch is CancellationError {
             return   // dismissed or superseded — a newer load owns the state
         } catch {
@@ -161,66 +239,7 @@ struct MeshsiteBrowserView: View {
         loading = false
     }
 
-    // MARK: - Blocks
-
-    @ViewBuilder
-    private func blockView(_ item: MeshdownDocument.Item) -> some View {
-        switch item.block {
-        case .heading(let level, let text):
-            Text(text)
-                .font(level == 1 ? .title.bold() : level == 2 ? .title2.bold() : .headline)
-                .padding(.top, item.id == 0 ? 0 : 4)
-        case .paragraph(let text):
-            Text(text)
-        case .listItem(let text):
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text("•")
-                Text(text)
-            }
-        case .rule:
-            Divider()
-        case .link(let path, let label):
-            Button {
-                navigate(to: path)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.right.circle")
-                    Text(label)
-                        .multilineTextAlignment(.leading)
-                }
-            }
-            .disabled(loading)
-        case .form(let form):
-            formView(form, itemId: item.id)
-        }
-    }
-
-    private func formView(_ form: MeshdownDocument.Form, itemId: Int) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            ForEach(form.fields, id: \.name) { field in
-                TextField(field.label, text: binding(itemId: itemId, field: field.name))
-                    .textFieldStyle(.roundedBorder)
-            }
-            Button(form.submitLabel) {
-                submit(form, itemId: itemId)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(loading)
-        }
-        .padding(12)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func binding(itemId: Int, field: String) -> Binding<String> {
-        let key = "\(itemId).\(field)"
-        return Binding(
-            get: { formValues[key] ?? "" },
-            set: { formValues[key] = $0 }
-        )
-    }
-
-    private func submit(_ form: MeshdownDocument.Form, itemId: Int) {
-        let pairs = form.fields.map { ($0.name, formValues["\(itemId).\($0.name)"] ?? "") }
+    private func submit(_ form: MeshdownDocument.Form, pairs: [(String, String)]) {
         if form.isPost {
             // POST renders the response; back/refresh re-GETs the path.
             history.append(form.path)

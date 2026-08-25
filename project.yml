@@ -59,6 +59,11 @@ targets:
         NSLocationWhenInUseUsageDescription: Hops shows your location on the mesh map and lets you share it in a conversation.
         NSSupportsLiveActivities: true
         ITSAppUsesNonExemptEncryption: false
+        NSUbiquitousContainers:
+          iCloud.com.w2asm.hops:
+            NSUbiquitousContainerIsDocumentScopePublic: true
+            NSUbiquitousContainerName: Hops
+            NSUbiquitousContainerSupportedFolderLevels: Any
   HopsWidgets:
     type: app-extension
     platform: iOS

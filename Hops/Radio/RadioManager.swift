@@ -545,6 +545,12 @@ final class RadioManager: ObservableObject {
         case .routingApp:
             guard decoded.requestID != 0, let routing = try? Routing(serializedBytes: decoded.payload) else { return }
             let errorRaw = Int32(routing.errorReason.rawValue)
+            #if MESHSITES
+            // Chunk pacing: any routing result for a Meshsites packet id
+            // releases the server's ack wait (no-op for other packet ids);
+            // a NAK aborts the remaining chunks.
+            MeshsiteServer.shared.noteAck(requestId: decoded.requestID, ok: errorRaw == 0)
+            #endif
             let requestId = Int64(decoded.requestID)
             if errorRaw != 0 {
                 LiveActivityManager.shared.update(packetId: requestId,
@@ -650,7 +656,8 @@ final class RadioManager: ObservableObject {
         default:
             #if MESHSITES
             if case .UNRECOGNIZED(MeshsitesManager.port) = decoded.portnum {
-                MeshsitesManager.shared.handle(from: fromNum, payload: decoded.payload,
+                MeshsitesManager.shared.handle(from: fromNum, to: Int64(packet.to),
+                                               payload: decoded.payload,
                                                hopStart: packet.hopStart, hopLimit: packet.hopLimit)
             }
             #endif
@@ -842,8 +849,10 @@ final class RadioManager: ObservableObject {
 
     #if MESHSITES
     /// Sends a Meshsites frame. hop_limit is pinned to 1 per spec §1 so the
-    /// packet is never relayed beyond the direct RF link.
-    func sendMeshsites(to num: Int64, payload: Data, wantAck: Bool = true) {
+    /// packet is never relayed beyond the direct RF link. Returns the packet
+    /// id so the serving side can pace chunks on routing acks.
+    @discardableResult
+    func sendMeshsites(to num: Int64, payload: Data, wantAck: Bool = true) -> UInt32 {
         var decoded = DataMessage()
         decoded.portnum = PortNum.UNRECOGNIZED(MeshsitesManager.port)
         decoded.payload = payload
@@ -859,6 +868,7 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+        return packet.id
     }
     #endif
 

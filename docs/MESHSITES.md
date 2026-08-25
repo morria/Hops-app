@@ -1,4 +1,4 @@
-# Meshsites — Protocol Specification v1 (draft 5)
+# Meshsites — Protocol Specification v1 (draft 6)
 
 Tiny sites served by Meshtastic nodes to directly-reachable clients. A server
 is any node (typically radio + attached computer) that answers requests with
@@ -55,6 +55,9 @@ The first payload byte is the frame type. Multi-byte integers are big-endian.
 ```
 
 Sent on server startup and every 5 minutes ± 30 s jitter thereafter.
+"Startup" means each transition into the serving-and-radio-connected state
+(app-lifecycle servers toggle and reconnect); a site-name change is announced
+at the next regular beacon, never immediately — no beacon-per-keystroke.
 Clients treat a site as gone if no beacon is heard for 20 minutes.
 Version is the highest protocol version the server speaks; v1 clients
 MAY browse any server whose beacon version ≥ 1. Out-of-spec beacons
@@ -70,9 +73,13 @@ exist.
 
 - `id`: random nonzero, chosen by the client, echoed in every response
   frame. A client MUST NOT reuse an id it has an outstanding request for.
+  A REQUEST with id 0 is malformed; the server SHOULD answer ERROR 3
+  echoing id 0 (no compliant client will match it, which is fine — clients
+  ignore unmatched response frames).
 - `method`: 0 = GET, 1 = POST.
 - `etag`: the client's cached validator for this exact path+query (see §3.5),
-  or 0 if it has none. MUST be 0 for POST.
+  or 0 if it has none. MUST be 0 for POST; a server ignores a nonzero etag
+  on POST rather than rejecting it.
 - `path+query`: absolute path starting `/`, optionally `?k=v&k2=v2`
   (URL-encoded). `path_len` counts these bytes. Max 120 bytes.
 - `body`: POST only — `application/x-www-form-urlencoded` pairs, uncompressed.
@@ -127,7 +134,12 @@ nearly free.
   if the same id arrives with a different method/etag/path/body (random u16
   ids do collide), render fresh and replace the entry. A duplicate of a
   request that is still being answered is dropped silently — it is most
-  likely a link-level retransmit, and BUSY would be wrong.
+  likely a link-level retransmit, and BUSY would be wrong. The cache SHOULD
+  be size-bounded with oldest-first eviction — `requester` is
+  unauthenticated, so spoofed sources must not grow it without limit.
+- A server MAY treat a transport-level NAK for a CHUNK it sent as "peer
+  unreachable" and abort the remaining chunks of that response (the cached
+  response still serves a later retry).
 - The server maintains at most **one in-flight response per requester**; a
   second concurrent REQUEST from the same node gets ERROR 5 BUSY. Distinct
   requesters MAY be served concurrently but the server SHOULD serialize radio
@@ -197,8 +209,13 @@ Line-oriented UTF-8. Every line is one of:
 
 - `GET /` MUST return the home page.
 - Static mapping: `/foo` → `foo.md` in the site directory; `/` → `index.md`.
-  Requests containing `..`, empty paths, or paths not starting `/` get
-  ERROR 3. Unknown paths get ERROR 1.
+  Requests containing `..` (checked **after** percent-decoding, so `%2e%2e`
+  is caught), empty paths, or paths not starting `/` get ERROR 3. Unknown
+  paths get ERROR 1.
+- An empty (0-byte) file is not a page — ERROR 1, same as absent.
+- A page that exists but is temporarily unreadable (e.g. a cloud-sync
+  placeholder on a phone-hosted server) gets ERROR 4 with a short message;
+  clients MAY retry later.
 - Dynamic handlers (e.g. a guestbook POST target) are server-local details;
   a handler answers with a normal Meshdown page or an ERROR.
 - If a page deflates to more than 16 chunks, respond ERROR 2 (preferred) or

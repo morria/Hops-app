@@ -256,6 +256,11 @@ struct SettingsView: View {
                 } label: {
                     Label("Nearby Sites", systemImage: "globe")
                 }
+                NavigationLink {
+                    MySiteView()
+                } label: {
+                    Label("My Site", systemImage: "house")
+                }
             }
         } header: {
             Text("Experimental")

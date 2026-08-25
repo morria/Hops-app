@@ -96,7 +96,7 @@ final class MeshsitesManager: ObservableObject {
 
     // MARK: - Receive (called from RadioManager for every port-421 packet)
 
-    func handle(from: Int64, payload: Data, hopStart: UInt32, hopLimit: UInt32) {
+    func handle(from: Int64, to: Int64, payload: Data, hopStart: UInt32, hopLimit: UInt32) {
         guard Self.enabled else { return }
         // Spec §1: oversize frames are malformed; relayed frames are discarded
         // — Meshsites is direct RF only.
@@ -106,6 +106,11 @@ final class MeshsitesManager: ObservableObject {
         guard let type = bytes.first else { return }
         switch type {
         case 0x01: handleBeacon(from: from, bytes: bytes)
+        case 0x02:
+            // Someone is requesting a page from OUR site (server side).
+            if to == RadioManager.shared.myNodeNum {
+                MeshsiteServer.shared.handleRequest(from: from, bytes: bytes)
+            }
         case 0x03: handleChunk(from: from, bytes: bytes)
         case 0x04: handleError(from: from, bytes: bytes)
         case 0x05: handleNotModified(from: from, bytes: bytes)
@@ -114,6 +119,7 @@ final class MeshsitesManager: ObservableObject {
     }
 
     private func handleBeacon(from: Int64, bytes: [UInt8]) {
+        guard from != RadioManager.shared.myNodeNum else { return }  // our own site
         guard bytes.count >= 3, bytes[1] >= 1 else { return }
         let nameBytes = bytes[2...]
         guard nameBytes.count <= 40,
