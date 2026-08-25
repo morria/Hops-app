@@ -23,6 +23,8 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
         [.authorizedWhenInUse, .authorizedAlways].contains(manager.authorizationStatus)
     }
 
+    var authorizationStatus: CLAuthorizationStatus { manager.authorizationStatus }
+
     /// Last known fix, read passively — never activates GPS or prompts.
     var cachedLocation: CLLocation? { manager.location }
 

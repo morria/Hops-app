@@ -1158,6 +1158,9 @@ final class RadioManager: ObservableObject {
 
     func appDidBecomeActive() {
         connectIfNeeded()
+        if LocationProvider.shared.isAuthorized {
+            Task { _ = await LocationProvider.shared.current() }
+        }
         guard let store else { return }
         Task {
             await store.sweepStaleSending()

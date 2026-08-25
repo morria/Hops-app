@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+111. [x] Coverage was waiting for location permission nothing ever requested:
+         entering the Coverage layer now prompts/warms a fix, app-activation
+         warms the cache when authorized, and the empty state says exactly
+         what's blocking (permission button; Battery Saver notice).
+
 110. [x] Battery pass. Free wins: SwiftData saves debounced to one per ~2 s on
          high-frequency paths (was a disk write per packet heard — the main
          background drain), reconnect scan-assist time-boxed to 45 s, map

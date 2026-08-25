@@ -264,6 +264,13 @@ struct MapTab: View {
             .onChange(of: selectedNodeNum) { _, num in
                 loadTrail(for: num)
             }
+            .onChange(of: modeRaw) { _, raw in
+                if raw == MapMode.coverage.rawValue {
+                    // Explicit intent: ask for location if never asked, and warm
+                    // a fix so passive sampling has something to pair with SNR.
+                    Task { _ = await LocationProvider.shared.current() }
+                }
+            }
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
@@ -290,15 +297,35 @@ struct MapTab: View {
                             .foregroundStyle(.secondary)
                         Text("No coverage data yet")
                             .font(.headline)
-                        Text("Carry your radio around — whenever it hears the mesh (even with your phone in your pocket), Hops records signal quality and paints it here. Green is strong, red is weak.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                        if PowerMode.saver {
+                            Text("Coverage sampling is paused by Battery Saver (or iOS Low Power Mode). Turn it off in Settings to resume.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        } else if !LocationProvider.shared.isAuthorized {
+                            Text("Hops needs your location to pair signal readings with where you were.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                            Button("Enable Location Access") {
+                                if LocationProvider.shared.authorizationStatus == .notDetermined {
+                                    Task { _ = await LocationProvider.shared.current() }
+                                } else if let url = URL(string: UIApplication.openSettingsURLString) {
+                                    UIApplication.shared.open(url)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .padding(.top, 4)
+                        } else {
+                            Text("Carry your radio around — whenever it hears the mesh (even with your phone in your pocket), Hops records signal quality and paints it here. Green is strong, red is weak.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                        }
                     }
                     .padding(24)
                     .frame(maxWidth: 300)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
-                    .allowsHitTesting(false)
                 }
                 if mode == .weather && weatherNodes.isEmpty {
                     VStack(spacing: 8) {
