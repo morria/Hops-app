@@ -160,7 +160,9 @@ final class MeshsiteServer: ObservableObject {
             if cached.request == bytes {
                 active[from] = bytes
                 Task {
-                    await sendFrames(cached.frames, to: from, wantAck: cached.wantAck)
+                    if await sendFrames(cached.frames, to: from, wantAck: cached.wantAck) {
+                        requestsServed += 1
+                    }
                     active[from] = nil
                 }
                 return
@@ -224,8 +226,9 @@ final class MeshsiteServer: ObservableObject {
             cache[key] = CachedResponse(request: requestBytes, frames: [frame],
                                         wantAck: true, at: Date())
             pruneCache()
-            await sendFrames([frame], to: from, wantAck: true)
-            requestsServed += 1
+            if await sendFrames([frame], to: from, wantAck: true) {
+                requestsServed += 1
+            }
             return
         }
 
@@ -251,20 +254,25 @@ final class MeshsiteServer: ObservableObject {
         cache[key] = CachedResponse(request: requestBytes, frames: frames,
                                     wantAck: true, at: Date())
         pruneCache()
-        await sendFrames(frames, to: from, wantAck: true)
-        requestsServed += 1
+        if await sendFrames(frames, to: from, wantAck: true) {
+            requestsServed += 1
+        }
     }
 
-    private func sendFrames(_ frames: [Data], to requester: Int64, wantAck: Bool) async {
+    /// Returns false when the transfer was aborted on a NAK — callers must
+    /// not count an aborted response as served.
+    @discardableResult
+    private func sendFrames(_ frames: [Data], to requester: Int64, wantAck: Bool) async -> Bool {
         for (index, frame) in frames.enumerated() {
             let packetId = RadioManager.shared.sendMeshsites(to: requester, payload: frame,
                                                              wantAck: wantAck)
             // Pace: chunk n+1 after n's ack or 8 s; nothing after the last.
             // A NAK means the peer is gone — stop wasting airtime.
             if wantAck, index < frames.count - 1 {
-                guard await awaitAck(packetId: packetId) else { return }
+                guard await awaitAck(packetId: packetId) else { return false }
             }
         }
+        return true
     }
 
     private func sendError(to requester: Int64, id: UInt16, code: UInt8, message: String = "") {

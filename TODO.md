@@ -4,6 +4,20 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+130. [x] Adversarial pass on delivery/read states — 10 findings, all fixed:
+         Live Activities now mirror the store verdict (no more false
+         "Delivered" on weaker evidence, channel sends can never claim it);
+         released/force-sent holds restart the timeout clock (was: insta-
+         failed "No response" within 60s); terminal success is sticky vs late
+         NAKs; the stale-sending sweep only fast-fails packets THIS device
+         transmitted (CloudKit bystanders get a 1h stray net); own-broadcasts
+         heard via a second radio no longer ring your own bell; dedupe keeps
+         the best status not the highest raw value; routing results must be
+         addressed to us; retries migrate reactions/replies and end the old
+         Live Activity; reads go through the shared store actor + manual
+         toggles refresh the badge; Meshsites served-counter only counts
+         completed transfers.
+
 129. [x] Reset Encryption Key action on the node card (Security section,
          confirmed destructive): clears the pinned pubkey + keyChanged so a
          legitimately re-keyed node (reflashed radio) can re-announce.

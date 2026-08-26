@@ -546,6 +546,10 @@ final class RadioManager: ObservableObject {
 
         case .routingApp:
             guard decoded.requestID != 0, let routing = try? Routing(serializedBytes: decoded.payload) else { return }
+            // Only routing results addressed to us correlate with our sends —
+            // overheard results for other nodes' packets could collide on the
+            // 32-bit id space and forge a delivery state.
+            guard Int64(packet.to) == myNodeNum else { return }
             let errorRaw = Int32(routing.errorReason.rawValue)
             #if MESHSITES
             // Chunk pacing: any routing result for a Meshsites packet id
@@ -554,24 +558,32 @@ final class RadioManager: ObservableObject {
             MeshsiteServer.shared.noteAck(requestId: decoded.requestID, ok: errorRaw == 0)
             #endif
             let requestId = Int64(decoded.requestID)
-            if errorRaw != 0 {
-                LiveActivityManager.shared.update(packetId: requestId,
-                                                  status: "Couldn't deliver", phase: 3, final: true)
-            } else if packet.from != packet.to && fromNum != myNodeNum {
-                LiveActivityManager.shared.update(packetId: requestId,
-                                                  status: "Delivered to their radio", phase: 2, final: true)
-            } else if LiveActivityManager.shared.isChannelSend(requestId) {
-                LiveActivityManager.shared.update(packetId: requestId,
-                                                  status: "Sent to mesh", phase: 2, final: true)
-            } else {
-                LiveActivityManager.shared.update(packetId: requestId,
-                                                  status: "Relayed by the mesh…", phase: 1, final: false)
-            }
             Task {
-                await store.applyRoutingResult(requestId: decoded.requestID,
-                                               errorRaw: errorRaw,
-                                               ackFrom: Int64(packet.from),
-                                               ackTo: Int64(packet.to))
+                // The Live Activity mirrors the store's verdict — it must
+                // never claim delivery on evidence the store would reject.
+                let outcome = await store.applyRoutingResult(requestId: decoded.requestID,
+                                                             errorRaw: errorRaw,
+                                                             ackFrom: Int64(packet.from),
+                                                             ackTo: Int64(packet.to))
+                guard let outcome else { return }
+                await MainActor.run {
+                    switch MessageStatus(rawValue: outcome.statusRaw) {
+                    case .failed:
+                        LiveActivityManager.shared.update(packetId: requestId,
+                                                          status: "Couldn't deliver", phase: 3, final: true)
+                    case .deliveredToRadio:
+                        LiveActivityManager.shared.update(packetId: requestId,
+                                                          status: "Delivered to their radio", phase: 2, final: true)
+                    case .sentToMesh:
+                        LiveActivityManager.shared.update(packetId: requestId,
+                                                          status: "Sent to mesh", phase: 2, final: true)
+                    case .relayed:
+                        LiveActivityManager.shared.update(packetId: requestId,
+                                                          status: "Relayed by the mesh…", phase: 1, final: false)
+                    default:
+                        break
+                    }
+                }
             }
 
         case .positionApp:
@@ -813,12 +825,37 @@ final class RadioManager: ObservableObject {
 
     func retry(packetId: Int64) {
         guard let store else { return }
+        // The old packet id's Live Activity can never resolve (the id is
+        // retired) — end it now instead of letting the safety net misreport.
+        LiveActivityManager.shared.update(packetId: packetId,
+                                          status: "Retrying…", phase: 1, final: true)
         let newId = newPacketId()
         let connected = state == .connected
         Task {
             if let record = await store.prepareRetry(packetId: packetId, newPacketId: Int64(newId), connected: connected) {
                 await MainActor.run { self.transmit(record) }
             }
+        }
+    }
+
+    /// Read-state changes route through the shared store actor (a second
+    /// actor on the same rows races ingest) and refresh the app badge.
+    func markConversationRead(key: String) {
+        guard let store else { return }
+        Task {
+            await store.markConversationRead(key: key)
+            let unread = await store.totalUnreadConversations()
+            await NotificationManager.shared.setBadge(unread)
+        }
+    }
+
+    func refreshBadge() {
+        guard let store else { return }
+        Task {
+            // Brief pause lets a main-context save land before the count.
+            try? await Task.sleep(for: .milliseconds(500))
+            let unread = await store.totalUnreadConversations()
+            await NotificationManager.shared.setBadge(unread)
         }
     }
 

@@ -606,6 +606,8 @@ struct ChatsListView: View {
         } else {
             convo.unreadCount = 1
         }
+        try? modelContext.save()
+        radio.refreshBadge()   // the app badge must track manual toggles too
     }
 
     private func relativeDate(_ date: Date) -> String {

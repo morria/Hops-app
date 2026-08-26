@@ -539,15 +539,11 @@ struct ConversationView: View {
     }
 
     private func markRead() {
-        conversation?.unreadCount = 0   // instant UI; the actor does the rows
+        conversation?.unreadCount = 0   // instant UI; the shared actor does the rows
         NotificationManager.shared.clearNotifications(for: conversationKey)
-        let key = conversationKey
-        Task {
-            let store = MessageStore(modelContainer: modelContext.container)
-            await store.markConversationRead(key: key)
-            let unread = await store.totalUnreadConversations()
-            await NotificationManager.shared.setBadge(unread)
-        }
+        // Through the radio's store actor — a second actor on the same rows
+        // races ingest and can resurrect a cleared unread count.
+        radio.markConversationRead(key: conversationKey)
     }
 }
 

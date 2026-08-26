@@ -58,6 +58,8 @@ actor MessageStore {
         var records: [OutgoingRecord] = []
         for message in held.sorted(by: { $0.timestamp < $1.timestamp }) {
             message.status = .sending
+            message.timestamp = Date()   // sweep clock starts at transmit, not at hold
+            locallyTransmitted.insert(message.packetId)
             records.append(OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
                                           channel: message.channel, text: message.text,
                                           isEmoji: message.isEmoji, replyId: message.replyId,
@@ -77,7 +79,16 @@ actor MessageStore {
         message.status = .waitingForPeer
         message.ackErrorRaw = 0
         message.timestamp = Date()
+        migrateReferences(from: packetId, to: newPacketId)
         try? modelContext.save()
+    }
+
+    /// Reactions and reply previews reference a message by packet id; a retry
+    /// renames the id, so references must follow or they orphan.
+    private func migrateReferences(from oldId: Int64, to newId: Int64) {
+        let refs = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.replyId == oldId }))) ?? []
+        for ref in refs { ref.replyId = newId }
     }
 
     /// Send Now while disconnected: demote the held message to the plain
@@ -96,6 +107,8 @@ actor MessageStore {
             predicate: #Predicate { $0.packetId == packetId })).first,
               message.status == .waitingForPeer else { return nil }
         message.status = .sending
+        message.timestamp = Date()   // sweep clock starts at transmit, not at hold
+        locallyTransmitted.insert(message.packetId)
         let peer = message.toNum
         let publicKey = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
             predicate: #Predicate { $0.num == peer })).first)?.publicKey ?? Data()
@@ -104,6 +117,15 @@ actor MessageStore {
                               channel: message.channel, text: message.text,
                               isEmoji: message.isEmoji, replyId: message.replyId,
                               peerPublicKey: publicKey)
+    }
+
+    /// True when this num has ever authored one of OUR outgoing rows — i.e.
+    /// it's another of the user's own radios (multi-device iCloud).
+    private func isOwnSender(_ num: Int64) -> Bool {
+        var descriptor = FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.outgoing == true && $0.fromNum == num })
+        descriptor.fetchLimit = 1
+        return ((try? modelContext.fetch(descriptor))?.isEmpty ?? true) == false
     }
 
     /// Mirrors firmware NodeDB.updateFrom: every packet bumps liveness.
@@ -383,6 +405,10 @@ actor MessageStore {
         let fromNum = Int64(packet.from)
         let toNum = Int64(packet.to)
         let outgoing = fromNum == myNum
+        // Heard over RF from one of OUR other radios (second device, same
+        // iCloud store): not incoming mail. The sending device's outgoing row
+        // arrives via CloudKit; ingesting here would ring the user's own bell.
+        if !outgoing, isOwnSender(fromNum) { return nil }
         let isBroadcast = packet.to == UInt32.max
         let isDM = !isBroadcast
 
@@ -455,16 +481,28 @@ actor MessageStore {
 
     // MARK: - Delivery state
 
-    /// Routing ack/nak handling: correlate on requestID.
-    func applyRoutingResult(requestId: UInt32, errorRaw: Int32, ackFrom: Int64, ackTo: Int64) {
+    struct RoutingOutcome: Sendable {
+        let statusRaw: Int
+        let isChannel: Bool
+    }
+
+    /// Routing ack/nak handling: correlate on requestID. Returns the resulting
+    /// state so UI surfaces (Live Activities) mirror the store's rules instead
+    /// of re-deriving weaker ones.
+    @discardableResult
+    func applyRoutingResult(requestId: UInt32, errorRaw: Int32, ackFrom: Int64, ackTo: Int64) -> RoutingOutcome? {
         let packetId = Int64(requestId)
         guard let message = try? modelContext.fetch(
             FetchDescriptor<MessageEntity>(predicate: #Predicate { $0.packetId == packetId })
-        ).first, message.outgoing else { return }
+        ).first, message.outgoing else { return nil }
 
         if errorRaw != 0 {
-            message.status = .failed
-            message.ackErrorRaw = errorRaw
+            // Terminal success is sticky: a late NAK arriving on a second
+            // path must not downgrade recorded proof of delivery.
+            if message.status != .deliveredToRadio && message.status != .sentToMesh {
+                message.status = .failed
+                message.ackErrorRaw = errorRaw
+            }
         } else if message.toNum == Int64(UInt32.max) {
             message.status = .sentToMesh
         } else if ackFrom == message.toNum && ackFrom != ackTo {
@@ -474,16 +512,28 @@ actor MessageStore {
             message.status = .relayed
         }
         try? modelContext.save()
+        return RoutingOutcome(statusRaw: message.statusRaw,
+                              isChannel: message.toNum == Int64(UInt32.max))
     }
+
+    /// Packet ids this device actually handed to its radio this session. The
+    /// fast timeout sweep touches only these — CloudKit replicas of another
+    /// device's in-flight sends must not be failed by a bystander.
+    private var locallyTransmitted: Set<Int64> = []
 
     /// Timeout fallback, evaluated on wake/foreground — never a live wall-clock promise.
     func sweepStaleSending(olderThan interval: TimeInterval = 300) {
         let cutoff = Date().addingTimeInterval(-interval)
+        let strayCutoff = Date().addingTimeInterval(-3600)
         let sendingRaw = MessageStatus.sending.rawValue
         let descriptor = FetchDescriptor<MessageEntity>(
             predicate: #Predicate { $0.statusRaw == sendingRaw && $0.timestamp < cutoff }
         )
         for message in (try? modelContext.fetch(descriptor)) ?? [] {
+            // Fast-fail our own transmissions; hour-old strays (a device that
+            // died mid-send and never swept its own) as the safety net.
+            guard locallyTransmitted.contains(message.packetId)
+                    || message.timestamp < strayCutoff else { continue }
             message.status = .failed
             message.ackErrorRaw = -1  // local timeout, not a firmware NAK
         }
@@ -538,6 +588,7 @@ actor MessageStore {
             replyId: replyId
         )
         modelContext.insert(message)
+        if !holdForPeer && connected { locallyTransmitted.insert(packetId) }
         // Stamp the conversation we hold directly — a re-fetch can miss a row
         // inserted in this same transaction, stranding a new thread off the list.
         if !isEmoji {
@@ -561,6 +612,7 @@ actor MessageStore {
         for message in waiting {
             message.status = .sending
             message.timestamp = Date()
+            locallyTransmitted.insert(message.packetId)
             var publicKey = Data()
             if message.toNum != Int64(UInt32.max) {
                 publicKey = upsertNode(num: message.toNum).publicKey
@@ -584,6 +636,8 @@ actor MessageStore {
         message.status = connected ? .sending : .waitingForRadio
         message.ackErrorRaw = 0
         message.timestamp = Date()
+        migrateReferences(from: packetId, to: newPacketId)
+        if connected { locallyTransmitted.insert(newPacketId) }
         var publicKey = Data()
         if message.toNum != Int64(UInt32.max) {
             publicKey = upsertNode(num: message.toNum).publicKey
@@ -682,8 +736,22 @@ actor MessageStore {
             for other in group where other !== keeper { modelContext.delete(other) }
         }
         let messages = (try? modelContext.fetch(FetchDescriptor<MessageEntity>())) ?? []
+        // Survivor rank: proof of delivery beats everything, failure is the
+        // weakest claim — raw values are lifecycle codes, not a quality order.
+        func statusRank(_ raw: Int) -> Int {
+            switch MessageStatus(rawValue: raw) {
+            case .deliveredToRadio: return 7
+            case .sentToMesh: return 6
+            case .relayed: return 5
+            case .sending: return 4
+            case .waitingForRadio: return 3
+            case .waitingForPeer: return 2
+            case .failed: return 1
+            default: return 0
+            }
+        }
         for (_, group) in Dictionary(grouping: messages, by: { $0.packetId }) where group.count > 1 {
-            let keeper = group.max(by: { $0.statusRaw < $1.statusRaw })!
+            let keeper = group.max(by: { statusRank($0.statusRaw) < statusRank($1.statusRaw) })!
             for other in group where other !== keeper { modelContext.delete(other) }
         }
         let waypoints = (try? modelContext.fetch(FetchDescriptor<WaypointEntity>())) ?? []
