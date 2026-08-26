@@ -7,8 +7,8 @@ options:
 packages:
   MeshtasticProtobufs:
     path: MeshtasticProtobufs
-# AppStore mirrors Release but omits the MESHSITES compilation flag; the
-# scheme archives with it, so public distributions carry no Meshsites code.
+# AppStore mirrors Release; as of TODO 140 it also carries MESHSITES, so
+# TestFlight/production builds include Meshsites (Settings toggle, default off).
 configs:
   Debug: debug
   Release: release
@@ -44,6 +44,8 @@ targets:
         Debug:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MESHSITES
         Release:
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: MESHSITES
+        AppStore:
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: MESHSITES
     info:
       path: Hops/Info.plist

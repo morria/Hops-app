@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+140. [x] Meshsites ships in production builds: the AppStore config now
+         carries the MESHSITES compilation flag (was dev/Release only), so
+         TestFlight and App Store builds include the Sites tab + serving —
+         still behind the Settings toggle, default off. Uploaded to
+         TestFlight and submitted for beta review.
+
 139. [x] Sites no longer vanish after time away: beacons come every 5 min
          and the expiry window is 20 (4x headroom), but the clock kept
          counting while we weren't listening — any 20-minute BLE drop or
