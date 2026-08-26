@@ -123,6 +123,7 @@ struct MySiteView: View {
         }
     }
 
+    @ViewBuilder
     private var extrasSection: some View {
         Section {
             NavigationLink {
@@ -138,6 +139,14 @@ struct MySiteView: View {
             }
         } footer: {
             Text("Preview uses the exact pages and forms readers get, minus the radio round trip.")
+        }
+
+        Section {
+            Link(destination: URL(string: "https://github.com/morria/Meshsite")!) {
+                Label("Meshsite Protocol & Server", systemImage: "chevron.left.forwardslash.chevron.right")
+            }
+        } footer: {
+            Text("The open spec, plus a Python server for hosting a site from any computer with a radio.")
         }
     }
 

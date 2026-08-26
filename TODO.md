@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+146. [x] My Site links out to github.com/morria/Meshsite — the open spec
+         and the Python server — so anyone can host a site off-phone.
+
 145. [x] The empty Sites tab calls out the Core-ports-only trap: when the
          radio's rebroadcast mode is CORE_PORTNUMS_ONLY (which silently
          drops port-421 traffic before it reaches the app — cost a tester
