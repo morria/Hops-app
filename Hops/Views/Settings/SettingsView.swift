@@ -21,15 +21,13 @@ struct SettingsView: View {
         NavigationStack {
             List {
                 radioSection
-                channelsSection
-                deviceConfigSection
+                onMeshSection
                 notificationsSection
-                unitsSection
-                batterySection
+                appSection
                 #if MESHSITES
                 meshsitesSection
                 #endif
-                nodeRetentionSection
+                dataSection
                 aboutSection
             }
             .navigationTitle("Settings")
@@ -50,7 +48,9 @@ struct SettingsView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(myNode?.displayName ?? "Meshtastic radio")
                         .font(.headline)
-                    Text(stateDescription)
+                    Text(radio.firmwareVersion.isEmpty
+                         ? stateDescription
+                         : "\(stateDescription) · v\(radio.firmwareVersion)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -64,12 +64,6 @@ struct SettingsView: View {
             .padding(.vertical, 4)
 
             NavigationLink {
-                IdentityView()
-            } label: {
-                LabeledContent("Your name", value: myNode.map { "\($0.longName) (\($0.shortName))" } ?? "Not set")
-            }
-
-            NavigationLink {
                 MeshSetupView(isFirstRun: false)
             } label: {
                 LabeledContent("Mesh setup") {
@@ -79,17 +73,14 @@ struct SettingsView: View {
                 }
             }
 
-            if !radio.firmwareVersion.isEmpty {
-                LabeledContent("Firmware", value: radio.firmwareVersion)
-            }
-
             NavigationLink {
-                MeshTrafficLogView()
+                DeviceConfigurationView()
             } label: {
-                LabeledContent("Mesh traffic") {
-                    Text(trafficDescription)
-                        .foregroundStyle(radio.meshPacketsHeard == 0 ? .orange : .secondary)
-                        .multilineTextAlignment(.trailing)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Device Configuration")
+                    Text("Bluetooth · Display · Position · Telemetry · Relay")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
 
@@ -197,27 +188,18 @@ struct SettingsView: View {
 
     // MARK: - Channels
 
-    private var channelsSection: some View {
-        Section("Channels") {
+    private var onMeshSection: some View {
+        Section("On the Mesh") {
+            NavigationLink {
+                IdentityView()
+            } label: {
+                LabeledContent("Your name", value: myNode.map { "\($0.longName) (\($0.shortName))" } ?? "Not set")
+            }
             NavigationLink {
                 ChannelsView()
             } label: {
                 Label("Channels & QR codes", systemImage: "qrcode")
             }
-        }
-    }
-
-    // MARK: - Device configuration
-
-    private var deviceConfigSection: some View {
-        Section {
-            NavigationLink {
-                DeviceConfigurationView()
-            } label: {
-                Label("Device Configuration", systemImage: "slider.horizontal.3")
-            }
-        } footer: {
-            Text("Bluetooth, display, position, and telemetry in one place.")
         }
     }
 
@@ -241,12 +223,17 @@ struct SettingsView: View {
 
     // MARK: - Units
 
-    private var unitsSection: some View {
-        Section("Units") {
+    private var appSection: some View {
+        Section {
             Picker("Temperature", selection: $useFahrenheit) {
                 Text("°F").tag(true)
                 Text("°C").tag(false)
             }
+            Toggle("Battery Saver", isOn: $batterySaver)
+        } header: {
+            Text("App")
+        } footer: {
+            Text("Battery Saver pauses coverage sampling and Live Activities, slows map refresh, and skips the reconnect scan boost (reconnects still happen, slightly slower). Messaging is unaffected. Engages automatically with iOS Low Power Mode.")
         }
     }
 
@@ -270,27 +257,26 @@ struct SettingsView: View {
         } header: {
             Text("Experimental")
         } footer: {
-            Text("Browse tiny pages served by nearby nodes over direct radio contact. Development builds only.")
+            Text("Browse tiny pages served by nearby nodes over direct radio contact.")
         }
     }
     #endif
-
-    private var batterySection: some View {
-        Section {
-            Toggle("Battery Saver", isOn: $batterySaver)
-        } header: {
-            Text("Battery")
-        } footer: {
-            Text("Pauses coverage sampling and Live Activities, slows map refresh, and skips the reconnect scan boost (reconnects still happen, slightly slower). Messaging is unaffected. Engages automatically with iOS Low Power Mode.")
-        }
-    }
 
     // MARK: - Node retention
 
     @AppStorage("nodeMaxAgeDays") private var nodeMaxAgeDays = 90
 
-    private var nodeRetentionSection: some View {
+    private var dataSection: some View {
         Section {
+            NavigationLink {
+                MeshTrafficLogView()
+            } label: {
+                LabeledContent("Mesh traffic") {
+                    Text(trafficDescription)
+                        .foregroundStyle(radio.meshPacketsHeard == 0 ? .orange : .secondary)
+                        .multilineTextAlignment(.trailing)
+                }
+            }
             Picker("Remove unheard nodes after", selection: $nodeMaxAgeDays) {
                 Text("7 days").tag(7)
                 Text("30 days").tag(30)
@@ -302,7 +288,7 @@ struct SettingsView: View {
                 radio.applyNodeRetention()
             }
         } header: {
-            Text("Node database")
+            Text("Data")
         } footer: {
             Text("Nodes you've renamed, given a photo, or messaged are always kept.")
         }

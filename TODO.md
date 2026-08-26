@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+141. [x] Settings reorganized into 7 sections (was 9): Radio keeps only the
+         hardware (status card absorbs the firmware row; Device Configuration
+         moves in with a contents subtitle; Forget stays last). New "On the
+         Mesh" (Your name, Channels & QR codes), "App" (units + Battery
+         Saver merged), "Data" (Mesh traffic — moved out of Radio as a
+         diagnostic — + node retention). Mesh setup untouched. Meshsites
+         footer no longer claims "Development builds only" (stale since
+         TODO 140).
+
 140. [x] Meshsites ships in production builds: the AppStore config now
          carries the MESHSITES compilation flag (was dev/Release only), so
          TestFlight and App Store builds include the Sites tab + serving —
