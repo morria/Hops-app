@@ -142,7 +142,7 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text(radio.deviceConfig == nil
                      ? "Reading current setting from the radio…"
-                     : "Careful: “Core ports only” makes the radio silently drop app traffic like Meshsites — it never even reaches Hops. For a phone-carried radio, “Never relay” saves the same airtime without going deaf.")
+                     : "“All packets” is the standard choice. Careful: “Core ports only” makes the radio silently drop app traffic like Meshsites before it reaches Hops — and some firmware fails to apply “Never relay” (radio doesn't come back until power-cycled, keeping the old value).")
             }
 
             Section {
