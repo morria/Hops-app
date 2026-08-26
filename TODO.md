@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+125. [x] Site rows wear the serving node·s avatar (short-name monogram or
+         custom icon) instead of a generic globe — own site and deprecated
+         rows included.
+
 124. [x] Sites tab (Meshsites builds, toggle on): Messages · Sites · Map ·
          Settings. Stable tab tags; toggling off bounces to Messages;
          redundant Settings link removed.

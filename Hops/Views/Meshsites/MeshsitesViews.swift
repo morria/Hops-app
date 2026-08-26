@@ -1,15 +1,40 @@
 #if MESHSITES
 import SwiftUI
+import SwiftData
 
 /// Nearby Meshsites, alphabetical. Sites appear passively as beacons are
-/// heard and expire 20 minutes after the last one.
+/// heard and expire 20 minutes after the last one. Rows wear the serving
+/// node's avatar (short name / icon), same as conversations.
 struct MeshsitesListView: View {
     @ObservedObject private var manager = MeshsitesManager.shared
     @AppStorage("meshsiteName") private var mySiteName = ""
     @AppStorage("meshsiteServing") private var serving = false
+    @Environment(\.modelContext) private var modelContext
     @State private var now = Date()
 
+    private struct NodeAvatar {
+        let monogram: String
+        let iconData: Data?
+    }
+    @State private var avatars: [Int64: NodeAvatar] = [:]
+
     private let ticker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
+
+    private func refreshAvatars() {
+        var ids = manager.sites.map(\.id)
+        ids.append(RadioManager.shared.myNodeNum)
+        let descriptor = FetchDescriptor<NodeEntity>(predicate: #Predicate { ids.contains($0.num) })
+        let nodes = (try? modelContext.fetch(descriptor)) ?? []
+        avatars = Dictionary(uniqueKeysWithValues: nodes.map {
+            ($0.num, NodeAvatar(monogram: $0.monogram, iconData: $0.iconData))
+        })
+    }
+
+    private func avatar(for num: Int64, fallback name: String) -> some View {
+        MonogramAvatar(text: avatars[num]?.monogram ?? String(name.prefix(4)),
+                       isChannel: false, size: 36,
+                       imageData: avatars[num]?.iconData)
+    }
 
     var body: some View {
         List {
@@ -22,8 +47,7 @@ struct MeshsitesListView: View {
                         MeshsitePreviewView(startPath: "/")
                     } label: {
                         HStack(spacing: 12) {
-                            Image(systemName: "house.fill")
-                                .foregroundStyle(Color.accentColor)
+                            avatar(for: RadioManager.shared.myNodeNum, fallback: mySiteName)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(mySiteName)
                                 Text("This phone — served by you")
@@ -46,8 +70,8 @@ struct MeshsitesListView: View {
                         // Spec §6: retired protocol versions surface as
                         // outdated, not broken — and aren't browsable.
                         HStack(spacing: 12) {
-                            Image(systemName: "globe")
-                                .foregroundStyle(.secondary)
+                            avatar(for: site.id, fallback: site.name)
+                                .opacity(0.45)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(site.name)
                                     .foregroundStyle(.secondary)
@@ -61,8 +85,7 @@ struct MeshsitesListView: View {
                             MeshsiteBrowserView(site: site)
                         } label: {
                             HStack(spacing: 12) {
-                                Image(systemName: "globe")
-                                    .foregroundStyle(Color.accentColor)
+                                avatar(for: site.id, fallback: site.name)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(site.name)
                                     Text("Heard \(site.lastHeard, style: .relative) ago")
@@ -76,7 +99,11 @@ struct MeshsitesListView: View {
             }
         }
         .navigationTitle("Sites")
-        .onAppear { manager.pruneExpired() }
+        .onAppear {
+            manager.pruneExpired()
+            refreshAvatars()
+        }
+        .onChange(of: manager.sites) { _, _ in refreshAvatars() }
         .onReceive(ticker) { date in
             now = date
             manager.pruneExpired()
