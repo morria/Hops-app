@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+129. [x] Reset Encryption Key action on the node card (Security section,
+         confirmed destructive): clears the pinned pubkey + keyChanged so a
+         legitimately re-keyed node (reflashed radio) can re-announce.
+         First-key-wins now has its escape hatch.
+
 128. [x] Device Configuration saves are transactional (beginEditSettings /
          commitEditSettings) — back-to-back setConfig writes were racing the
          firmware·s save+reboot and later sections were silently dropped.

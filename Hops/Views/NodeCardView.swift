@@ -15,6 +15,7 @@ struct NodeCardView: View {
     @Environment(\.modelContext) private var modelContext
 
     @State private var showRename = false
+    @State private var showKeyResetConfirm = false
     @State private var renameText = ""
     @State private var showPhotoPicker = false
     @State private var pickedPhoto: PhotosPickerItem?
@@ -82,6 +83,23 @@ struct NodeCardView: View {
                                 Text("Compare with the owner over another channel to verify.")
                                     .font(.caption2)
                                     .foregroundStyle(.tertiary)
+                            }
+                            Button(role: .destructive) {
+                                showKeyResetConfirm = true
+                            } label: {
+                                Label("Reset Encryption Key…", systemImage: "key.slash")
+                            }
+                            .confirmationDialog(
+                                "Reset this node's encryption key?",
+                                isPresented: $showKeyResetConfirm,
+                                titleVisibility: .visible
+                            ) {
+                                Button("Reset Key", role: .destructive) {
+                                    node.publicKey = Data()
+                                    node.keyChanged = false
+                                }
+                            } message: {
+                                Text("Forgets the pinned key so the next announcement from this node is trusted. Do this only when you know why the key changed — for example, the owner reflashed their radio. Until it re-announces, messages fall back to channel encryption.")
                             }
                         }
                     } header: {
