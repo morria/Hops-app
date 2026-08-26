@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+145. [x] The empty Sites tab calls out the Core-ports-only trap: when the
+         radio's rebroadcast mode is CORE_PORTNUMS_ONLY (which silently
+         drops port-421 traffic before it reaches the app — cost a tester
+         an afternoon), the "No sites nearby" description turns orange and
+         points at Device Configuration → Mesh Relay.
+
 144. [x] "Send My Node Info" drops a centered gray note in the channel
          transcript ("Sending your node info…" → "You shared your node
          info", red on failure). The note rides the real packet id, so the

@@ -7,6 +7,7 @@ import SwiftData
 /// node's avatar (short name / icon), same as conversations.
 struct MeshsitesListView: View {
     @ObservedObject private var manager = MeshsitesManager.shared
+    @EnvironmentObject private var radio: RadioManager
     @AppStorage("meshsiteName") private var mySiteName = ""
     @AppStorage("meshsiteServing") private var serving = false
     @Environment(\.modelContext) private var modelContext
@@ -62,7 +63,15 @@ struct MeshsitesListView: View {
                 ContentUnavailableView {
                     Label("No sites nearby", systemImage: "globe")
                 } description: {
-                    Text("Sites appear when a node within direct radio range broadcasts one.")
+                    // The firmware filter that silently eats port-421 traffic
+                    // (learned the hard way — a tester's radio was set to
+                    // Core ports only and nothing ever reached the app).
+                    if radio.deviceConfig?.rebroadcastMode == .corePortnumsOnly {
+                        Text("Your radio's Mesh Relay setting is “Core ports only”, which drops Meshsites traffic before it reaches Hops. Choose any other mode under Settings → Radio → Device Configuration → Mesh Relay.")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text("Sites appear when a node within direct radio range broadcasts one.")
+                    }
                 }
             } else {
                 ForEach(manager.sites) { site in
