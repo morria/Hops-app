@@ -239,7 +239,7 @@ struct ConversationView: View {
             ReactionDetailsSheet(tapbacks: tapbacks[target.packetId] ?? [])
                 .presentationDetents([.medium])
         }
-        .sheet(item: $senderCard) { num in
+        .sheet(item: $senderCard, onDismiss: { rebuildRows() }) { num in
             NodeCardView(nodeNum: num) {
                 senderCard = nil
                 appModel.openConversation(ConversationEntity.dmKey(num))
@@ -647,6 +647,9 @@ struct MessageBubble: View {
                 }
             }
             .controlGroupStyle(.palette)
+            // Palette controls keep a context menu open by default — force
+            // the menu to close once a tapback is picked.
+            .menuActionDismissBehavior(.enabled)
             Button {
                 onReactOther()
             } label: {

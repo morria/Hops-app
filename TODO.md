@@ -4,6 +4,20 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+136. [x] The tapback palette closes its menu again: palette-style controls
+         in a context menu don't auto-dismiss it — the reaction row now
+         forces dismissal on pick (menuActionDismissBehavior).
+
+135. [x] Channel transcripts show name/photo overrides immediately: row
+         snapshots only rebuilt on message changes, so an override set from
+         the sender's node card kept the stale monogram/name until the next
+         message arrived. Closing the card now rebuilds the window.
+
+134. [x] Node card keeps the mesh-reported identity visible while a local
+         override is active: "Mesh short name" / "Mesh long name" rows appear
+         whenever a custom name or photo is set — that's what everyone else
+         on the mesh still sees.
+
 133. [x] Notification taps navigate again after a cold launch: the tap
          handler could fire before the UI wired up the deep-link closure
          (openConversation was nil → silently dropped). The key is now

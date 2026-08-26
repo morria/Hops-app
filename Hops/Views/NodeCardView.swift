@@ -38,6 +38,12 @@ struct NodeCardView: View {
             if let node = nodes.first {
                 List {
                     Section {
+                        // With a local override active, keep the mesh-reported
+                        // identity visible — it's what everyone else sees.
+                        if !node.customName.isEmpty || node.iconData != nil {
+                            LabeledContent("Mesh short name", value: node.shortName)
+                            LabeledContent("Mesh long name", value: node.longName)
+                        }
                         LabeledContent("Last heard",
                                        value: node.lastHeard.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
 
