@@ -1095,6 +1095,21 @@ final class RadioManager: ObservableObject {
 
     /// Ask the radio for a module config section; the answer arrives as an
     /// adminApp packet handled in handleMeshPacket.
+    /// Multi-config saves must be transactional: each setConfig schedules a
+    /// firmware save+reboot, and writes racing that reboot are silently lost.
+    /// begin defers the reboot; commit applies everything at once.
+    func beginEditSettings() {
+        var admin = AdminMessage()
+        admin.beginEditSettings = true
+        sendAdmin(admin)
+    }
+
+    func commitEditSettings() {
+        var admin = AdminMessage()
+        admin.commitEditSettings = true
+        sendAdmin(admin)
+    }
+
     func requestConfig(_ type: AdminMessage.ConfigType) {
         var admin = AdminMessage()
         admin.getConfigRequest = type

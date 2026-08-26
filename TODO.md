@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+128. [x] Device Configuration saves are transactional (beginEditSettings /
+         commitEditSettings) — back-to-back setConfig writes were racing the
+         firmware·s save+reboot and later sections were silently dropped.
+
 127. [x] Mesh Relay setting in Device Configuration: rebroadcast_mode picker
          (All / skip-decoding / Local / Known / Never / Core ports only) with
          read-modify-write via the device-config mirror so the role is never

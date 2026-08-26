@@ -224,6 +224,11 @@ struct DeviceConfigurationView: View {
     // MARK: - Save
 
     private func save() {
+        // Transactional: without begin/commit, the radio's save+reboot from
+        // an early write races the later ones and drops them.
+        radio.beginEditSettings()
+        defer { radio.commitEditSettings() }
+
         var bluetooth = radio.bluetoothConfig ?? Config.BluetoothConfig()
         bluetooth.enabled = btEnabled
         bluetooth.mode = Config.BluetoothConfig.PairingMode(rawValue: btModeRaw) ?? .randomPin
