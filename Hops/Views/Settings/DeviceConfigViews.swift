@@ -28,6 +28,17 @@ struct DeviceConfigurationView: View {
     @State private var fixedPosition = false
     // Telemetry
     @State private var deviceInterval = 1800
+    // Device (rebroadcast)
+    @State private var rebroadcastRaw = 0
+
+    private static let rebroadcastChoices: [(String, Int)] = [
+        ("All packets", 0),
+        ("All — skip decoding", 1),
+        ("Local only", 2),
+        ("Known nodes only", 3),
+        ("Never relay", 4),
+        ("Core ports only", 5),
+    ]
 
     private static let screenChoices: [(String, Int)] = [
         ("15 seconds", 15), ("30 seconds", 30), ("1 minute", 60),
@@ -120,6 +131,21 @@ struct DeviceConfigurationView: View {
             }
 
             Section {
+                Picker("Relay for others", selection: $rebroadcastRaw) {
+                    ForEach(Self.rebroadcastChoices, id: \.1) { label, value in
+                        Text(label).tag(value)
+                    }
+                }
+                .disabled(radio.deviceConfig == nil)
+            } header: {
+                Text("Mesh Relay")
+            } footer: {
+                Text(radio.deviceConfig == nil
+                     ? "Reading current setting from the radio…"
+                     : "Careful: “Core ports only” makes the radio silently drop app traffic like Meshsites — it never even reaches Hops. For a phone-carried radio, “Never relay” saves the same airtime without going deaf.")
+            }
+
+            Section {
                 Button {
                     save()
                     dismiss()
@@ -139,8 +165,10 @@ struct DeviceConfigurationView: View {
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
             radio.requestModuleConfig(.telemetryConfig)
+            radio.requestConfig(.deviceConfig)
             syncAll()
         }
+        .onChange(of: radio.deviceConfig) { syncDevice() }
         .onChange(of: radio.bluetoothConfig) { syncBluetooth() }
         .onChange(of: radio.displayConfig) { syncDisplay() }
         .onChange(of: radio.positionConfig) { syncPosition() }
@@ -150,7 +178,12 @@ struct DeviceConfigurationView: View {
     // MARK: - Load
 
     private func syncAll() {
-        syncBluetooth(); syncDisplay(); syncPosition(); syncTelemetry()
+        syncBluetooth(); syncDisplay(); syncPosition(); syncTelemetry(); syncDevice()
+    }
+
+    private func syncDevice() {
+        guard let device = radio.deviceConfig else { return }
+        rebroadcastRaw = device.rebroadcastMode.rawValue
     }
 
     private func syncBluetooth() {
@@ -222,5 +255,13 @@ struct DeviceConfigurationView: View {
         telemetry.deviceUpdateInterval = UInt32(deviceInterval)
         var moduleConfig = ModuleConfig(); moduleConfig.telemetry = telemetry
         radio.applyModuleConfig(moduleConfig)
+
+        // Device config only ever writes on top of the radio's own values —
+        // a blank baseline would wipe the role and other fields.
+        if var device = radio.deviceConfig {
+            device.rebroadcastMode = Config.DeviceConfig.RebroadcastMode(rawValue: rebroadcastRaw) ?? .all
+            var deviceWrite = Config(); deviceWrite.device = device
+            radio.applyConfig(deviceWrite)
+        }
     }
 }

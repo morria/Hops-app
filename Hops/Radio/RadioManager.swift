@@ -53,6 +53,7 @@ final class RadioManager: ObservableObject {
 
     // Device configs mirrored from the connect-time dump; nil until received.
     @Published var bluetoothConfig: Config.BluetoothConfig?
+    @Published var deviceConfig: Config.DeviceConfig?
     @Published var displayConfig: Config.DisplayConfig?
     @Published var positionConfig: Config.PositionConfig?
     @Published var telemetryConfig: ModuleConfig.TelemetryConfig?
@@ -453,6 +454,7 @@ final class RadioManager: ObservableObject {
         case .config(let config):
             switch config.payloadVariant {
             case .bluetooth(let bluetooth): bluetoothConfig = bluetooth
+            case .device(let device): deviceConfig = device
             case .display(let display): displayConfig = display
             case .position(let position): positionConfig = position
             default: break
@@ -638,6 +640,7 @@ final class RadioManager: ObservableObject {
             case .getConfigResponse(let config):
                 switch config.payloadVariant {
                 case .bluetooth(let bluetooth): bluetoothConfig = bluetooth
+                case .device(let device): deviceConfig = device
                 case .display(let display): displayConfig = display
                 case .position(let position): positionConfig = position
                 case .lora(let lora):
@@ -1092,6 +1095,24 @@ final class RadioManager: ObservableObject {
 
     /// Ask the radio for a module config section; the answer arrives as an
     /// adminApp packet handled in handleMeshPacket.
+    func requestConfig(_ type: AdminMessage.ConfigType) {
+        var admin = AdminMessage()
+        admin.getConfigRequest = type
+        var decoded = DataMessage()
+        decoded.portnum = .adminApp
+        decoded.payload = (try? admin.serializedData()) ?? Data()
+        decoded.wantResponse = true
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.priority = .reliable
+        packet.decoded = decoded
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+    }
+
     func requestModuleConfig(_ type: AdminMessage.ModuleConfigType) {
         var admin = AdminMessage()
         admin.getModuleConfigRequest = type

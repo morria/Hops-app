@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+127. [x] Mesh Relay setting in Device Configuration: rebroadcast_mode picker
+         (All / skip-decoding / Local / Known / Never / Core ports only) with
+         read-modify-write via the device-config mirror so the role is never
+         clobbered; footer warns Core-ports-only silently drops app traffic
+         like Meshsites before it reaches Hops.
+
 126. [x] Mesh traffic row no longer wraps: compact counts (pkts/msgs) and
          short relative time (15s/3m/2h ago); trailing-aligned if it ever
          does wrap.
