@@ -4,6 +4,13 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+131. [x] Tapping search with an empty query browses the entire node database:
+         a scrollable "All Nodes" list (recently heard first, snapshotted on
+         entry — no standing query), reusing the search-result node row.
+         Search is now a sticky mode with a Cancel button, so scrolling the
+         list (which dismisses the keyboard) no longer kicks you back to
+         conversations.
+
 130. [x] Adversarial pass on delivery/read states — 10 findings, all fixed:
          Live Activities now mirror the store verdict (no more false
          "Delivered" on weaker evidence, channel sends can never claim it);

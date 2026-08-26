@@ -13,6 +13,10 @@ struct ChatsListView: View {
 
     @State private var searchText = ""
     @FocusState private var searchFocused: Bool
+    // Search stays "active" after focus is lost (scrolling dismisses the
+    // keyboard, which clears focus) — only Cancel leaves search.
+    @State private var searchActive = false
+    @State private var allNodes: [NodeEntity] = []
     @State private var showCompose = false
     @State private var path = NavigationPath()
     @State private var deleteTarget: ConversationEntity?
@@ -35,13 +39,15 @@ struct ChatsListView: View {
                 header
                 // Outside the List so each pin long-presses independently — as a
                 // List row, the context-menu preview lifted the whole grid at once.
-                if searchText.isEmpty && !pinned.isEmpty {
+                if !searchActive && searchText.isEmpty && !pinned.isEmpty {
                     pinnedGrid
                         .padding(.horizontal, 16)
                         .padding(.bottom, 4)
                 }
                 Group {
-                    if conversations.isEmpty && searchText.isEmpty {
+                    if searchActive && searchText.isEmpty {
+                        allNodesList
+                    } else if conversations.isEmpty && searchText.isEmpty {
                         emptyState
                     } else {
                         conversationList
@@ -53,6 +59,12 @@ struct ChatsListView: View {
                 .scrollDismissesKeyboard(.immediately)
             }
             .toolbar(.hidden, for: .navigationBar)
+            .onChange(of: searchFocused) { _, focused in
+                if focused && !searchActive {
+                    allNodes = fetchAllNodes()
+                    withAnimation { searchActive = true }
+                }
+            }
             .navigationDestination(for: String.self) { key in
                 ConversationView(conversationKey: key)
             }
@@ -157,15 +169,23 @@ struct ChatsListView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(Color(.secondarySystemBackground), in: Capsule())
-                Button {
-                    showCompose = true
-                } label: {
-                    Image(systemName: "square.and.pencil")
-                        .font(.system(size: 17, weight: .medium))
-                        .padding(9)
-                        .background(Color(.secondarySystemBackground), in: Circle())
+                if searchActive {
+                    Button("Cancel") {
+                        searchText = ""
+                        searchFocused = false
+                        withAnimation { searchActive = false }
+                    }
+                } else {
+                    Button {
+                        showCompose = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
+                            .font(.system(size: 17, weight: .medium))
+                            .padding(9)
+                            .background(Color(.secondarySystemBackground), in: Circle())
+                    }
+                    .accessibilityLabel("New Message")
                 }
-                .accessibilityLabel("New Message")
             }
         }
         .padding(.horizontal, 16)
@@ -511,29 +531,7 @@ struct ChatsListView: View {
             if !matchingNodes.isEmpty {
                 Section("Nodes") {
                     ForEach(matchingNodes) { node in
-                        Button {
-                            path.append(ConversationEntity.dmKey(node.num))
-                        } label: {
-                            HStack(spacing: 12) {
-                                MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
-                                               dimmed: !node.isOnline, imageData: node.iconData)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(node.displayName)
-                                    if let heard = node.lastHeard {
-                                        Text("Heard \(heard.formatted(.relative(presentation: .named)))")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Text("No messages yet")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                        nodeRow(node)
                     }
                 }
             }
@@ -563,6 +561,60 @@ struct ChatsListView: View {
 
     private func conversationTitle(for key: String) -> String {
         conversations.first(where: { $0.key == key })?.title ?? key
+    }
+
+    // MARK: - All nodes (empty-query search)
+
+    /// Tapping search with nothing typed browses the whole node database,
+    /// recently heard first. Snapshotted on entry — no standing query.
+    private var allNodesList: some View {
+        List {
+            if allNodes.isEmpty {
+                ContentUnavailableView("No nodes yet",
+                                       systemImage: "dot.radiowaves.left.and.right")
+            } else {
+                Section("All Nodes") {
+                    ForEach(allNodes) { node in
+                        nodeRow(node)
+                    }
+                }
+            }
+        }
+        .listStyle(.plain)
+    }
+
+    private func fetchAllNodes() -> [NodeEntity] {
+        let descriptor = FetchDescriptor<NodeEntity>(
+            sortBy: [SortDescriptor(\.lastHeard, order: .reverse)]
+        )
+        let nodes = (try? modelContext.fetch(descriptor)) ?? []
+        return nodes.filter { $0.num != radio.myNodeNum }
+    }
+
+    private func nodeRow(_ node: NodeEntity) -> some View {
+        Button {
+            path.append(ConversationEntity.dmKey(node.num))
+        } label: {
+            HStack(spacing: 12) {
+                MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
+                               dimmed: !node.isOnline, imageData: node.iconData)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(node.displayName)
+                    if let heard = node.lastHeard {
+                        Text("Heard \(heard.formatted(.relative(presentation: .named)))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text("No messages yet")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Empty state
