@@ -1,4 +1,4 @@
-# Meshsites — Protocol Specification v1 (draft 7)
+# Meshsites — Protocol Specification v1 (draft 8)
 
 Tiny sites served by Meshtastic nodes to directly-reachable clients. A server
 is any node (typically radio + attached computer) that answers requests with
@@ -30,9 +30,20 @@ Design goals, in order:
   8 seconds have passed. ERROR and BEACON frames MUST NOT set `want_ack`.
 - Maximum Meshsites frame payload: **200 bytes** (fits every modem preset).
   Received frames larger than this are malformed — ignore them.
-- All frames travel on the sending node's **primary channel** (index 0) with
-  that channel's encryption. PKI-encrypted unicast MUST NOT be used — pages
-  are public by nature and channel-key crypto keeps servers simple.
+- BEACON travels on the sending node's **primary channel** (index 0) with
+  that channel's encryption. Unicast frames (REQUEST, CHUNK, ERROR,
+  NOT_MODIFIED) SHOULD use channel encryption too, but modern Meshtastic
+  firmware auto-upgrades unicasts to PKI when it holds the peer's public
+  key, and senders cannot reliably opt out — so receivers MUST accept
+  unicast Meshsites frames under either channel or PKI encryption
+  (decryption is the radio's job; the app layer sees identical decoded
+  frames). Field note: a stale pinned key (e.g. after a server radio
+  reflash) makes PKI unicasts fail with pkiUnknownPubkey at the radio —
+  refresh the key, don't debug the protocol.
+- **Operational requirement**: radios on both sides MUST NOT run
+  `device.rebroadcast_mode = CORE_PORTNUMS_ONLY` — that mode silently
+  drops non-core ports (including this protocol's) on receive, before
+  the app layer ever sees them. `ALL` is the safe setting.
 - **Sender verification**: a client MUST accept CHUNK, ERROR, and
   NOT_MODIFIED frames only from the node its REQUEST was addressed to.
   Frames matching a pending id but arriving from any other node are ignored
