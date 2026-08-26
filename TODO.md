@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+124. [x] Sites tab (Meshsites builds, toggle on): Messages · Sites · Map ·
+         Settings. Stable tab tags; toggling off bounces to Messages;
+         redundant Settings link removed.
+
 123. [x] Nearby Sites shows your own site while serving ("This phone —
          served by you"), opening through the local serving engine.
 

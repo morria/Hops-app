@@ -252,11 +252,6 @@ struct SettingsView: View {
             Toggle("Meshsites", isOn: $meshsitesEnabled)
             if meshsitesEnabled {
                 NavigationLink {
-                    MeshsitesListView()
-                } label: {
-                    Label("Nearby Sites", systemImage: "globe")
-                }
-                NavigationLink {
                     MySiteView()
                 } label: {
                     Label("Mesh Site", systemImage: "house")

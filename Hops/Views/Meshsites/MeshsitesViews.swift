@@ -75,7 +75,7 @@ struct MeshsitesListView: View {
                 }
             }
         }
-        .navigationTitle("Nearby Sites")
+        .navigationTitle("Sites")
         .onAppear { manager.pruneExpired() }
         .onReceive(ticker) { date in
             now = date

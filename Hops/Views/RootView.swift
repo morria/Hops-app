@@ -5,12 +5,24 @@ struct RootView: View {
     @EnvironmentObject private var radio: RadioManager
     @EnvironmentObject private var appModel: AppModel
     @AppStorage("onboardingComplete") private var onboardingComplete = false
+    #if MESHSITES
+    @AppStorage("meshsitesEnabled") private var meshsitesEnabled = false
+    #endif
 
     var body: some View {
         TabView(selection: $appModel.selectedTab) {
             ChatsListView()
                 .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right.fill") }
                 .tag(0)
+            #if MESHSITES
+            if meshsitesEnabled {
+                NavigationStack {
+                    MeshsitesListView()
+                }
+                .tabItem { Label("Sites", systemImage: "globe") }
+                .tag(3)   // tags are stable ids, not positions — Map stays 1
+            }
+            #endif
             MapTab()
                 .tabItem { Label("Map", systemImage: "map.fill") }
                 .tag(1)
@@ -18,6 +30,11 @@ struct RootView: View {
                 .tabItem { Label("Settings", systemImage: "gearshape.fill") }
                 .tag(2)
         }
+        #if MESHSITES
+        .onChange(of: meshsitesEnabled) { _, enabled in
+            if !enabled, appModel.selectedTab == 3 { appModel.selectedTab = 0 }
+        }
+        #endif
         .fullScreenCover(isPresented: .constant(!onboardingComplete)) {
             PairingView()
         }
