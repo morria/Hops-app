@@ -4,6 +4,16 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+133. [x] Notification taps navigate again after a cold launch: the tap
+         handler could fire before the UI wired up the deep-link closure
+         (openConversation was nil → silently dropped). The key is now
+         buffered and flushed the moment the handler is set.
+
+132. [x] A meshsite no longer vanishes from Nearby Sites right after you
+         load it: page traffic (chunks / errors / NOT_MODIFIED) now counts
+         as liveness, so the 20-minute beacon prune can't remove a server
+         you just successfully fetched from.
+
 131. [x] Tapping search with an empty query browses the entire node database:
          a scrollable "All Nodes" list (recently heard first, snapshotted on
          entry — no standing query), reusing the search-result node row.

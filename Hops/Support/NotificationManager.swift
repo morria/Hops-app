@@ -13,8 +13,18 @@ final class NotificationManager: NSObject {
     static let replyAction = "com.w2asm.hops.message.reply"
     static let thumbsUpAction = "com.w2asm.hops.message.thumbsup"
 
-    /// Set by the app so notification taps can deep-link.
-    var openConversation: ((String) -> Void)?
+    /// Set by the app so notification taps can deep-link. A tap that cold-
+    /// launches the app can arrive before the UI wires this up — buffer the
+    /// key and flush it the moment the handler lands.
+    var openConversation: ((String) -> Void)? {
+        didSet {
+            if let key = pendingOpenKey, let open = openConversation {
+                pendingOpenKey = nil
+                open(key)
+            }
+        }
+    }
+    private var pendingOpenKey: String?
 
     func bootstrap() {
         let center = UNUserNotificationCenter.current()
@@ -158,7 +168,11 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
                     radio.connectIfNeeded()
                 }
             default:
-                NotificationManager.shared.openConversation?(key)
+                if let open = NotificationManager.shared.openConversation {
+                    open(key)
+                } else {
+                    NotificationManager.shared.pendingOpenKey = key
+                }
             }
         }
     }

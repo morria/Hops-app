@@ -179,8 +179,14 @@ final class MeshsitesManager: ObservableObject {
 
     /// Looks up the pending entry for a response frame, enforcing that the
     /// frame came from the node the request was addressed to (spec §3).
+    /// A match also refreshes the site's liveness — page traffic proves the
+    /// server is alive right now, so a stale beacon must not prune it out
+    /// from under a successful fetch.
     private func pendingEntry(id: UInt16, from: Int64) -> Pending? {
         guard let entry = pending[id], entry.server == from else { return nil }
+        if let index = sites.firstIndex(where: { $0.id == from }) {
+            sites[index].lastHeard = Date()
+        }
         return entry
     }
 
