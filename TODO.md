@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+147. [x] "Last heard 10 months ago" on a node being actively heard: every
+         packet's liveness was stamped from the packet's rx_time — the
+         radio's RTC, which is months stale on clockless nodes. Live
+         packets now stamp the phone's own clock; the connect-time NodeDB
+         import only moves lastHeard forward (clamped to now), so a stale
+         dump can't bury fresh evidence. Stale-looking SNR/hops readings
+         rode the same bug.
+
 146. [x] My Site links out to github.com/morria/Meshsite — the open spec
          and the Python server — so anyone can host a site off-phone.
 

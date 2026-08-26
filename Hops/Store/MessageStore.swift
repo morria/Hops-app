@@ -148,7 +148,10 @@ actor MessageStore {
     func heard(num: Int64, snr: Float, hopStart: UInt32, hopLimit: UInt32, rxTime: UInt32) {
         guard num > 0 else { return }
         let node = upsertNode(num: num)
-        node.lastHeard = rxTime > 0 ? Date(timeIntervalSince1970: TimeInterval(rxTime)) : Date()
+        // The packet arrived NOW — the phone's clock is the truth. rx_time
+        // rides the radio's RTC, which can be months stale on nodes without
+        // GPS/NTP (seen live: "10 months ago" while actively chatting).
+        node.lastHeard = Date()
         if snr != 0 { node.snr = snr }
         if hopStart > 0, hopStart >= hopLimit { node.hopsAway = Int(hopStart - hopLimit) }
         scheduleSave()
@@ -168,7 +171,13 @@ actor MessageStore {
             node.batteryLevel = Int(info.deviceMetrics.batteryLevel)
         }
         if info.lastHeard > 0 {
-            node.lastHeard = Date(timeIntervalSince1970: TimeInterval(info.lastHeard))
+            // NodeDB import moves liveness forward only, clamped to now — a
+            // connect-time dump must not bury fresher live evidence, and a
+            // radio with a wrong clock must not stamp the future.
+            let stamp = min(Date(timeIntervalSince1970: TimeInterval(info.lastHeard)), Date())
+            if node.lastHeard.map({ stamp > $0 }) ?? true {
+                node.lastHeard = stamp
+            }
         }
         if info.hasHopsAway { node.hopsAway = Int(info.hopsAway) }
         if info.snr != 0 { node.snr = info.snr }
