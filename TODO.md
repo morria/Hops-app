@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+122. [x] Messages search covers everything: conversations, message text, and
+         ALL known nodes (dropped the isMessageable filter that hid routers/
+         repeaters/sensors from discovery), plus hex node-id search
+         ("!073758f2" or any 4+ hex chars) for factory-named nodes.
+
 121. [x] Delivery Details: long-press any message → info sheet with the
          status in plain language (what it proves and does not), failure
          reason decoded from the routing error, timestamps, packet ID

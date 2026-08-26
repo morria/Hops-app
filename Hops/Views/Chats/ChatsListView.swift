@@ -462,7 +462,19 @@ struct ChatsListView: View {
                 || $0.customName.localizedStandardContains(query)
         })
         descriptor.fetchLimit = 50
-        return (try? modelContext.fetch(descriptor)) ?? []
+        var results = (try? modelContext.fetch(descriptor)) ?? []
+        // Hex node ids too ("!073758f2", or any ≥4 hex chars) — the only way
+        // to find nodes still wearing factory names.
+        let hexQuery = (query.hasPrefix("!") ? String(query.dropFirst()) : query).lowercased()
+        if hexQuery.count >= 4, hexQuery.allSatisfy({ $0.isHexDigit }) {
+            let all = (try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? []
+            let seen = Set(results.map { $0.num })
+            results += all.filter {
+                !seen.contains($0.num)
+                    && String(format: "%08x", UInt32(truncatingIfNeeded: $0.num)).contains(hexQuery)
+            }.prefix(20)
+        }
+        return results
     }
 
     private func searchMessages(_ query: String) -> [MessageEntity] {
@@ -481,9 +493,10 @@ struct ChatsListView: View {
         let lowered = query.lowercased()
         let matchingConvos = conversations.filter { $0.title.lowercased().contains(lowered) }
         let existingDMKeys = Set(matchingConvos.map { $0.key })
+        // Every known node is findable — routers, repeaters, and sensors
+        // included. isMessageable gates the compose picker, not discovery.
         let matchingNodes = searchNodes(query).filter { node in
             node.num != radio.myNodeNum
-                && node.isMessageable
                 && !existingDMKeys.contains(ConversationEntity.dmKey(node.num))
         }
         let matchingMessages = searchMessages(query)
