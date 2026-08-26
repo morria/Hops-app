@@ -522,12 +522,19 @@ struct MapTab: View {
             .navigationTitle("Map")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar(.hidden, for: .navigationBar)
-            .sheet(item: $selectedNodeNum) { num in
-                NodeCardView(nodeNum: num) {
-                    selectedNodeNum = nil
-                    appModel.openConversation(ConversationEntity.dmKey(num))
+            // Trailing pane on regular widths so the pin stays visible;
+            // presents as the familiar sheet on iPhone automatically.
+            .inspector(isPresented: Binding(
+                get: { selectedNodeNum != nil },
+                set: { if !$0 { selectedNodeNum = nil } }
+            )) {
+                if let num = selectedNodeNum {
+                    NodeCardView(nodeNum: num) {
+                        selectedNodeNum = nil
+                        appModel.openConversation(ConversationEntity.dmKey(num))
+                    }
+                    .presentationDetents([.medium])
                 }
-                .presentationDetents([.medium])
             }
             .sheet(item: $weatherNodeNum) { num in
                 WeatherNodeSheet(nodeNum: num)

@@ -18,7 +18,9 @@ struct ChatsListView: View {
     @State private var searchActive = false
     @State private var allNodes: [NodeEntity] = []
     @State private var showCompose = false
-    @State private var path = NavigationPath()
+    /// Drives the split-view detail column; on iPhone the split view
+    /// collapses and selection becomes the pushed conversation.
+    @State private var selection: String?
     @State private var deleteTarget: ConversationEntity?
     @State private var renameTarget: ConversationEntity?
     @State private var renameText = ""
@@ -33,8 +35,42 @@ struct ChatsListView: View {
         let target: ConversationEntity
     }
 
+    @Environment(\.horizontalSizeClass) private var hSize
+
     var body: some View {
-        NavigationStack(path: $path) {
+        // Two explicit navigation shapes: a collapsed NavigationSplitView only
+        // auto-pushes detail for List(selection:) rows, and our sidebar is a
+        // custom stack of buttons — so compact widths get a real
+        // NavigationStack driven by the same selection state.
+        if hSize == .regular {
+            NavigationSplitView {
+                sidebar
+                    .navigationSplitViewColumnWidth(min: 320, ideal: 360)
+            } detail: {
+                if let key = selection {
+                    NavigationStack {
+                        ConversationView(conversationKey: key)
+                    }
+                    .id(key)   // fresh per-conversation state on switch
+                } else {
+                    ContentUnavailableView(
+                        "No Conversation Selected",
+                        systemImage: "bubble.left.and.bubble.right",
+                        description: Text("Pick a conversation, or press ⌘N to start one.")
+                    )
+                }
+            }
+        } else {
+            NavigationStack {
+                sidebar
+                    .navigationDestination(item: $selection) { key in
+                        ConversationView(conversationKey: key)
+                    }
+            }
+        }
+    }
+
+    private var sidebar: some View {
             VStack(spacing: 0) {
                 header
                 // Outside the List so each pin long-presses independently — as a
@@ -65,19 +101,28 @@ struct ChatsListView: View {
                     withAnimation { searchActive = true }
                 }
             }
-            .navigationDestination(for: String.self) { key in
-                ConversationView(conversationKey: key)
+            // Hardware keyboard: ⌘F jumps to search; Esc leaves it.
+            .background {
+                Group {
+                    Button("Search") { searchFocused = true }
+                        .keyboardShortcut("f", modifiers: .command)
+                    if searchActive {
+                        Button("Cancel Search") { cancelSearch() }
+                            .keyboardShortcut(.escape, modifiers: [])
+                    }
+                }
+                .opacity(0)
             }
             .sheet(isPresented: $showCompose) {
                 ComposePickerView { key in
                     showCompose = false
-                    path.append(key)
+                    selection = key
                 }
             }
             .onChange(of: appModel.pendingConversationKey) { _, key in
                 guard let key else { return }
                 appModel.pendingConversationKey = nil
-                path.append(key)
+                selection = key
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
             .onChange(of: pickedPhoto) { _, item in
@@ -128,15 +173,20 @@ struct ChatsListView: View {
                 // (e.g. the map's Message button on first use).
                 if let key = appModel.pendingConversationKey {
                     appModel.pendingConversationKey = nil
-                    path.append(key)
+                    selection = key
                 }
                 #if DEBUG
-                if let key = ScreenshotMode.initialConversation, path.isEmpty {
-                    path.append(key)
+                if let key = ScreenshotMode.initialConversation, selection == nil {
+                    selection = key
                 }
                 #endif
             }
-        }
+    }
+
+    private func cancelSearch() {
+        searchText = ""
+        searchFocused = false
+        withAnimation { searchActive = false }
     }
 
     // MARK: - Header (top-aligned title; search and compose share a line)
@@ -170,11 +220,7 @@ struct ChatsListView: View {
                 .padding(.vertical, 8)
                 .background(Color(.secondarySystemBackground), in: Capsule())
                 if searchActive {
-                    Button("Cancel") {
-                        searchText = ""
-                        searchFocused = false
-                        withAnimation { searchActive = false }
-                    }
+                    Button("Cancel") { cancelSearch() }
                 } else {
                     Button {
                         showCompose = true
@@ -184,6 +230,7 @@ struct ChatsListView: View {
                             .padding(9)
                             .background(Color(.secondarySystemBackground), in: Circle())
                     }
+                    .keyboardShortcut("n", modifiers: .command)
                     .accessibilityLabel("New Message")
                 }
             }
@@ -225,7 +272,7 @@ struct ChatsListView: View {
                   alignment: .leading, spacing: 12) {
             ForEach(pinned) { convo in
                 Button {
-                    path.append(convo.key)
+                    selection = convo.key
                 } label: {
                     VStack(alignment: .leading, spacing: 6) {
                         MonogramAvatar(text: monogram(for: convo), isChannel: convo.kind == .channel, size: 64,
@@ -242,6 +289,7 @@ struct ChatsListView: View {
                     }
                 }
                 .buttonStyle(.plain)
+                .hoverEffect(.lift)
                 .contextMenu { swipeMenuItems(for: convo) }
             }
         }
@@ -250,7 +298,7 @@ struct ChatsListView: View {
 
     private func row(for convo: ConversationEntity) -> some View {
         Button {
-            path.append(convo.key)
+            selection = convo.key
         } label: {
             HStack(spacing: 12) {
                 MonogramAvatar(text: monogram(for: convo), isChannel: convo.kind == .channel,
@@ -539,7 +587,7 @@ struct ChatsListView: View {
                 Section("Messages") {
                     ForEach(Array(matchingMessages)) { message in
                         Button {
-                            path.append(message.conversationKey)
+                            selection = message.conversationKey
                         } label: {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(conversationTitle(for: message.conversationKey))
@@ -593,7 +641,7 @@ struct ChatsListView: View {
 
     private func nodeRow(_ node: NodeEntity) -> some View {
         Button {
-            path.append(ConversationEntity.dmKey(node.num))
+            selection = ConversationEntity.dmKey(node.num)
         } label: {
             HStack(spacing: 12) {
                 MonogramAvatar(text: node.monogram, isChannel: false, size: 36,

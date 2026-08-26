@@ -9,6 +9,14 @@ struct RootView: View {
     @AppStorage("meshsitesEnabled") private var meshsitesEnabled = false
     #endif
 
+    /// Tab tags in on-screen order — tags are stable ids, not positions.
+    private var orderedTabTags: [Int] {
+        #if MESHSITES
+        if meshsitesEnabled { return [0, 3, 1, 2] }
+        #endif
+        return [0, 1, 2]
+    }
+
     var body: some View {
         TabView(selection: $appModel.selectedTab) {
             ChatsListView()
@@ -35,6 +43,14 @@ struct RootView: View {
             if !enabled, appModel.selectedTab == 3 { appModel.selectedTab = 0 }
         }
         #endif
+        // Hardware keyboard (iPad/Mac): ⌘1…⌘n selects tabs by visual position.
+        .background {
+            ForEach(Array(orderedTabTags.enumerated()), id: \.offset) { index, tag in
+                Button("") { appModel.selectedTab = tag }
+                    .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")), modifiers: .command)
+            }
+            .opacity(0)
+        }
         .fullScreenCover(isPresented: .constant(!onboardingComplete)) {
             PairingView()
         }

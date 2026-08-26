@@ -424,6 +424,15 @@ struct ConversationView: View {
                 HStack(alignment: .bottom) {
                     TextField("Message", text: $draft, axis: .vertical)
                         .lineLimit(1...5)
+                        // Hardware keyboard: Return sends, Shift-Return makes
+                        // a newline. The on-screen keyboard is unaffected.
+                        .onKeyPress(.return, phases: .down) { press in
+                            guard !press.modifiers.contains(.shift) else { return .ignored }
+                            guard !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                            else { return .handled }
+                            send()
+                            return .handled
+                        }
                         .onChange(of: draft) { _, newValue in
                             // Hard stop at the LoRa payload limit — no surprise truncation.
                             while newValue.utf8.count > Self.byteLimit {
