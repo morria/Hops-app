@@ -5,12 +5,35 @@ import SwiftUI
 /// heard and expire 20 minutes after the last one.
 struct MeshsitesListView: View {
     @ObservedObject private var manager = MeshsitesManager.shared
+    @AppStorage("meshsiteName") private var mySiteName = ""
+    @AppStorage("meshsiteServing") private var serving = false
     @State private var now = Date()
 
     private let ticker = Timer.publish(every: 60, on: .main, in: .common).autoconnect()
 
     var body: some View {
         List {
+            // Your own site, when it's on the air. Opens through the real
+            // serving engine locally — an RF round trip to yourself isn't a
+            // thing, and this is the same content readers get.
+            if serving, !mySiteName.trimmingCharacters(in: .whitespaces).isEmpty {
+                Section {
+                    NavigationLink {
+                        MeshsitePreviewView(startPath: "/")
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "house.fill")
+                                .foregroundStyle(Color.accentColor)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(mySiteName)
+                                Text("This phone — served by you")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
             if manager.sites.isEmpty {
                 ContentUnavailableView {
                     Label("No sites nearby", systemImage: "globe")

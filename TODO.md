@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+123. [x] Nearby Sites shows your own site while serving ("This phone —
+         served by you"), opening through the local serving engine.
+
 122. [x] Messages search covers everything: conversations, message text, and
          ALL known nodes (dropped the isMessageable filter that hid routers/
          repeaters/sensors from discovery), plus hex node-id search
