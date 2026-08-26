@@ -201,6 +201,7 @@ struct MeshsiteBrowserView: View {
     @State private var errorText: String?
     @State private var resetToken = 0
     @State private var loadTask: Task<Void, Never>?
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
@@ -242,18 +243,23 @@ struct MeshsiteBrowserView: View {
         }
         .navigationTitle(site.name)
         .navigationBarTitleDisplayMode(.inline)
+        // One back button, browser-style: it walks the site history first and
+        // pops back to the app only from the site's root — never two chevrons.
+        .navigationBarBackButtonHidden(true)
         .toolbar {
-            if history.count > 1 {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        history.removeLast()
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    if history.count > 1 {
                         // Back nav is served straight from cache when possible
-                        // (spec §3.5) — instant, zero airtime.
+                        // (spec §3.5) — instant, zero airtime. An in-flight
+                        // load is cancelled by startLoad.
+                        history.removeLast()
                         startLoad(history.last ?? "/", policy: .cacheFirst)
-                    } label: {
-                        Image(systemName: "chevron.backward")
+                    } else {
+                        dismiss()
                     }
-                    .disabled(loading)
+                } label: {
+                    Image(systemName: "chevron.backward")
                 }
             }
             ToolbarItem(placement: .topBarTrailing) {
@@ -265,7 +271,7 @@ struct MeshsiteBrowserView: View {
                 .disabled(loading)
             }
         }
-        .task { startLoad(history.last ?? "/") }
+        .task { startLoad(history.last ?? "/", policy: .cacheFirst) }
         .onDisappear { loadTask?.cancel() }
     }
 
@@ -277,7 +283,11 @@ struct MeshsiteBrowserView: View {
 
     private func navigate(to path: String) {
         history.append(path)
-        startLoad(path)
+        // Browser semantics: any GET to a page we hold fresh serves from
+        // cache instantly — a revalidate round-trip costs seconds of
+        // airtime even when the answer is NOT_MODIFIED. Refresh is the
+        // explicit way to revalidate.
+        startLoad(path, policy: .cacheFirst)
     }
 
     private func startLoad(_ path: String, post: Bool = false, form: [(String, String)] = [],

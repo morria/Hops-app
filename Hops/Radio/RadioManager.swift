@@ -21,6 +21,10 @@ final class RadioManager: ObservableObject {
     }
 
     @Published private(set) var state: State = .noRadio
+    /// When the current connected session began — consumers that expire
+    /// things by "time without hearing X" must not count time we weren't
+    /// listening at all.
+    private(set) var connectedAt: Date?
     @Published private(set) var discovered: [BLETransport.Discovered] = []
     @Published private(set) var lastSyncedAt: Date?
     @Published var needsMeshSetup = false     // factory-fresh radio: region unset
@@ -371,6 +375,7 @@ final class RadioManager: ObservableObject {
         switch nonce {
         case 69420:
             state = .connected
+            connectedAt = Date()
             touchLastSynced()
             needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
             flushOutboxAndSweep()

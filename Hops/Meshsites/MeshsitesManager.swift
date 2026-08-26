@@ -173,7 +173,14 @@ final class MeshsitesManager: ObservableObject {
     }
 
     func pruneExpired() {
+        // The 20-minute expiry (spec: ~4 missed beacons) may only count time
+        // we could actually hear beacons. Disconnected — or connected less
+        // than a full window — nothing can expire; a reconnect grants every
+        // known site a fresh window to be heard again.
+        let radio = RadioManager.shared
+        guard radio.state == .connected else { return }
         let cutoff = Date().addingTimeInterval(-20 * 60)
+        guard let connectedAt = radio.connectedAt, connectedAt < cutoff else { return }
         sites.removeAll { $0.lastHeard < cutoff }
     }
 

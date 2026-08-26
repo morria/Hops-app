@@ -4,6 +4,27 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+139. [x] Sites no longer vanish after time away: beacons come every 5 min
+         and the expiry window is 20 (4x headroom), but the clock kept
+         counting while we weren't listening — any 20-minute BLE drop or
+         app close expired every site at the next glance. The prune now
+         runs only while connected, and only once the session is a full
+         window old, so reconnects grant known sites a fresh chance to be
+         heard. (Note: a phone-served site really does stop beaconing while
+         that phone is backgrounded — iOS suspends its timer.)
+
+138. [x] Meshsite pages load instantly from cache: only back-nav was
+         cache-first — following a link to an already-seen page (or re-
+         opening a site) always did an etag revalidate, a full mesh round
+         trip even when the answer was NOT_MODIFIED. All GET navigation now
+         serves a fresh cache hit (24 h) with zero airtime; the Refresh
+         button is the explicit revalidate. Cache is per-launch (in-memory).
+
+137. [x] Meshsite browser shows a single back button: the site's own
+         history chevron replaces the app back button (browser-style — walks
+         site pages first, pops back to the app from the root). Also usable
+         mid-load to escape a slow page: it cancels the in-flight fetch.
+
 136. [x] The tapback palette closes its menu again: palette-style controls
          in a context menu don't auto-dismiss it — the reaction row now
          forces dismissal on pick (menuActionDismissBehavior).
