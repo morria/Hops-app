@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+126. [x] Mesh traffic row no longer wraps: compact counts (pkts/msgs) and
+         short relative time (15s/3m/2h ago); trailing-aligned if it ever
+         does wrap.
+
 125. [x] Site rows wear the serving node·s avatar (short-name monogram or
          custom icon) instead of a generic globe — own site and deprecated
          rows included.

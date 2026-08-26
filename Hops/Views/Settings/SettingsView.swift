@@ -89,6 +89,7 @@ struct SettingsView: View {
                 LabeledContent("Mesh traffic") {
                     Text(trafficDescription)
                         .foregroundStyle(radio.meshPacketsHeard == 0 ? .orange : .secondary)
+                        .multilineTextAlignment(.trailing)
                 }
             }
 
@@ -155,11 +156,20 @@ struct SettingsView: View {
         if radio.meshPacketsHeard == 0 {
             return "None heard since launch"
         }
-        var text = "\(radio.meshPacketsHeard) packets · \(radio.textMessagesHeard) messages"
+        // Compact on purpose — "15 seconds ago" wraps the row.
+        var text = "\(radio.meshPacketsHeard) pkts · \(radio.textMessagesHeard) msgs"
         if let last = radio.lastMeshPacketAt {
-            text += " · \(last.formatted(.relative(presentation: .named)))"
+            text += " · \(Self.compactAgo(last))"
         }
         return text
+    }
+
+    private static func compactAgo(_ date: Date) -> String {
+        let seconds = max(0, Int(Date().timeIntervalSince(date)))
+        if seconds < 60 { return "\(seconds)s ago" }
+        if seconds < 3600 { return "\(seconds / 60)m ago" }
+        if seconds < 86400 { return "\(seconds / 3600)h ago" }
+        return "\(seconds / 86400)d ago"
     }
 
     /// The applied metro preset, when the radio's current LoRa config has drifted
