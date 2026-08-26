@@ -4,6 +4,28 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+144. [x] "Send My Node Info" drops a centered gray note in the channel
+         transcript ("Sending your node info…" → "You shared your node
+         info", red on failure). The note rides the real packet id, so the
+         ack/sweep machinery reports whether it actually transmitted.
+
+143. [x] Conversation rows show the last message's delivery state beside
+         the preview when it was outgoing: clock (waiting), up-arrow
+         (sending), antenna (relayed), check (sent to mesh), filled check
+         (delivered), red exclamation (failed). Status mirrors live on the
+         conversation entity (CloudKit-safe additive fields), updated at
+         every transition — including retries, which rename the packet id.
+
+142. [x] iPad/macOS UX pass: Messages is a sidebar+detail split view on
+         regular widths (compact keeps a real NavigationStack — a collapsed
+         split view only auto-pushes List selection, which briefly broke
+         iPhone tap navigation); hardware keyboard gets ⌘1-n tab switching,
+         ⌘N compose, ⌘F search, Esc cancel, Return-to-send (Shift-Return
+         newline); pointer hover on rows and pins; the map node card is a
+         trailing inspector on iPad/Mac. Mac runs as "Designed for iPad" —
+         verify the ASC availability box is checked before promising it to
+         testers.
+
 141. [x] Settings reorganized into 7 sections (was 9): Radio keeps only the
          hardware (status card absorbs the firmware row; Device Configuration
          moves in with a contents subtitle; Forget stays last). New "On the

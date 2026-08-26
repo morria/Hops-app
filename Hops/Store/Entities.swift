@@ -27,6 +27,10 @@ final class ConversationEntity {
     var title: String = ""
     var lastMessageAt: Date?
     var lastPreview: String = ""
+    /// Status mirror of the message backing lastPreview — only meaningful
+    /// when lastMessagePacketId != 0 (i.e. that message was outgoing).
+    var lastStatusRaw: Int = 0
+    var lastMessagePacketId: Int64 = 0
     var unreadCount: Int = 0
     var pinned: Bool = false
     var muted: Bool = false                    // legacy; kept in sync with notifyLevel

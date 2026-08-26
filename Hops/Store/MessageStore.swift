@@ -47,6 +47,18 @@ actor MessageStore {
         return (node.longName, node.shortName, node.publicKey, node.lastHeard)
     }
 
+    /// Mirror a status change onto the conversation row when the changed
+    /// message is the one backing its preview. previousPacketId covers
+    /// retries, which rename the id mid-flight.
+    private func syncLastStatus(_ message: MessageEntity, previousPacketId: Int64? = nil) {
+        guard message.outgoing,
+              let convo = fetchConversation(key: message.conversationKey) else { return }
+        guard convo.lastMessagePacketId == message.packetId
+                || convo.lastMessagePacketId == previousPacketId else { return }
+        convo.lastMessagePacketId = message.packetId
+        convo.lastStatusRaw = message.statusRaw
+    }
+
     /// Send-when-reachable: release messages held for a peer we just heard.
     func releaseWaitingForPeer(_ peerNum: Int64) -> [OutgoingRecord] {
         let waitingRaw = MessageStatus.waitingForPeer.rawValue
@@ -60,6 +72,7 @@ actor MessageStore {
             message.status = .sending
             message.timestamp = Date()   // sweep clock starts at transmit, not at hold
             locallyTransmitted.insert(message.packetId)
+            syncLastStatus(message)
             records.append(OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
                                           channel: message.channel, text: message.text,
                                           isEmoji: message.isEmoji, replyId: message.replyId,
@@ -80,6 +93,7 @@ actor MessageStore {
         message.ackErrorRaw = 0
         message.timestamp = Date()
         migrateReferences(from: packetId, to: newPacketId)
+        syncLastStatus(message, previousPacketId: packetId)
         try? modelContext.save()
     }
 
@@ -98,6 +112,7 @@ actor MessageStore {
             predicate: #Predicate { $0.packetId == packetId })).first,
               message.status == .waitingForPeer else { return }
         message.status = .waitingForRadio
+        syncLastStatus(message)
         try? modelContext.save()
     }
 
@@ -109,6 +124,7 @@ actor MessageStore {
         message.status = .sending
         message.timestamp = Date()   // sweep clock starts at transmit, not at hold
         locallyTransmitted.insert(message.packetId)
+        syncLastStatus(message)
         let peer = message.toNum
         let publicKey = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
             predicate: #Predicate { $0.num == peer })).first)?.publicKey ?? Data()
@@ -445,6 +461,8 @@ actor MessageStore {
         if !isTapback {
             convo.lastMessageAt = message.timestamp
             convo.lastPreview = text
+            convo.lastMessagePacketId = message.outgoing ? message.packetId : 0
+            convo.lastStatusRaw = message.statusRaw
         }
         if !outgoing && !isTapback {
             convo.unreadCount += 1
@@ -511,6 +529,7 @@ actor MessageStore {
         } else if message.status != .deliveredToRadio {
             message.status = .relayed
         }
+        syncLastStatus(message)
         try? modelContext.save()
         return RoutingOutcome(statusRaw: message.statusRaw,
                               isChannel: message.toNum == Int64(UInt32.max))
@@ -536,6 +555,7 @@ actor MessageStore {
                     || message.timestamp < strayCutoff else { continue }
             message.status = .failed
             message.ackErrorRaw = -1  // local timeout, not a firmware NAK
+            syncLastStatus(message)
         }
         try? modelContext.save()
     }
@@ -594,6 +614,8 @@ actor MessageStore {
         if !isEmoji {
             convo.lastMessageAt = message.timestamp
             convo.lastPreview = text
+            convo.lastMessagePacketId = message.packetId
+            convo.lastStatusRaw = message.statusRaw
         }
         try? modelContext.save()
         return OutgoingRecord(packetId: packetId, toNum: toNum, channel: channel,
@@ -638,6 +660,7 @@ actor MessageStore {
         message.timestamp = Date()
         migrateReferences(from: packetId, to: newPacketId)
         if connected { locallyTransmitted.insert(newPacketId) }
+        syncLastStatus(message, previousPacketId: packetId)
         var publicKey = Data()
         if message.toNum != Int64(UInt32.max) {
             publicKey = upsertNode(num: message.toNum).publicKey
@@ -647,6 +670,27 @@ actor MessageStore {
         return OutgoingRecord(packetId: newPacketId, toNum: message.toNum, channel: message.channel,
                               text: message.text, isEmoji: message.isEmoji, replyId: message.replyId,
                               peerPublicKey: publicKey)
+    }
+
+    /// A gray transcript note for non-text sends (e.g. "Send My Node Info").
+    /// Carries the real packet id, so routing results and the stale sweep
+    /// drive its status like any outgoing message.
+    func persistSystemNote(packetId: Int64, channelIndex: Int32, myNum: Int64, text: String) {
+        let key = ConversationEntity.channelKey(channelIndex)
+        let convo = ensureConversation(key: key, kind: .channel, channelIndex: channelIndex,
+                                       peerNum: 0, title: "Channel \(channelIndex)")
+        let message = MessageEntity(
+            packetId: packetId, conversationKey: key, fromNum: myNum,
+            toNum: Int64(UInt32.max), channel: channelIndex, text: text,
+            timestamp: Date(), outgoing: true, status: .sending,
+            portNum: 4)   // NODEINFO_APP — rendered as a centered gray note
+        modelContext.insert(message)
+        locallyTransmitted.insert(packetId)
+        convo.lastMessageAt = message.timestamp
+        convo.lastPreview = text
+        convo.lastMessagePacketId = packetId
+        convo.lastStatusRaw = message.statusRaw
+        try? modelContext.save()
     }
 
     // MARK: - Waypoints
@@ -700,6 +744,8 @@ actor MessageStore {
             if let latest = ((try? modelContext.fetch(messageDescriptor)) ?? []).first {
                 convo.lastMessageAt = latest.timestamp
                 convo.lastPreview = latest.text
+                convo.lastMessagePacketId = latest.outgoing ? latest.packetId : 0
+                convo.lastStatusRaw = latest.statusRaw
             }
         }
         try? modelContext.save()

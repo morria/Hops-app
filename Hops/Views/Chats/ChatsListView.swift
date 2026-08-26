@@ -328,6 +328,14 @@ struct ChatsListView: View {
                         }
                     }
                     HStack(alignment: .top) {
+                        if let status = lastStatusGlyph(for: convo) {
+                            Image(systemName: status.icon)
+                                .font(.caption)
+                                .foregroundStyle(status.failed ? AnyShapeStyle(.red)
+                                                              : AnyShapeStyle(.secondary))
+                                .padding(.top, 2)
+                                .accessibilityLabel(status.label)
+                        }
                         Text(convo.lastPreview.isEmpty ? "No messages yet" : convo.lastPreview)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
@@ -447,7 +455,7 @@ struct ChatsListView: View {
         .pickerStyle(.menu)
         if convo.kind == .channel {
             Button {
-                radio.announceNodeInfo(onChannel: convo.channelIndex)
+                radio.announceNodeInfo(onChannel: convo.channelIndex, noteInTranscript: true)
             } label: {
                 Label("Announce My Node Info", systemImage: "person.wave.2")
             }
@@ -708,6 +716,29 @@ struct ChatsListView: View {
         }
         try? modelContext.save()
         radio.refreshBadge()   // the app badge must track manual toggles too
+    }
+
+    /// Delivery-state glyph for the row's preview — only when the last
+    /// message was outgoing (lastMessagePacketId != 0).
+    private func lastStatusGlyph(for convo: ConversationEntity)
+        -> (icon: String, label: String, failed: Bool)? {
+        guard convo.lastMessagePacketId != 0 else { return nil }
+        switch MessageStatus(rawValue: convo.lastStatusRaw) {
+        case .waitingForRadio, .waitingForPeer:
+            return ("clock", "Waiting to send", false)
+        case .sending:
+            return ("arrow.up.circle", "Sending", false)
+        case .relayed:
+            return ("antenna.radiowaves.left.and.right", "Relayed", false)
+        case .deliveredToRadio:
+            return ("checkmark.circle.fill", "Delivered to their radio", false)
+        case .sentToMesh:
+            return ("checkmark.circle", "Sent to mesh", false)
+        case .failed:
+            return ("exclamationmark.circle.fill", "Couldn't deliver", true)
+        default:
+            return nil
+        }
     }
 
     private func relativeDate(_ date: Date) -> String {

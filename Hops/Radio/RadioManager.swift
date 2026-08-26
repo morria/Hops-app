@@ -1029,12 +1029,12 @@ final class RadioManager: ObservableObject {
     /// Broadcast our NodeInfo on a channel right now, instead of waiting for the
     /// periodic schedule. want_response invites others to answer with theirs,
     /// so it doubles as a roster refresh.
-    func announceNodeInfo(onChannel index: Int32) {
+    func announceNodeInfo(onChannel index: Int32, noteInTranscript: Bool = false) {
         guard let store, myNodeNum > 0 else { return }
         let myNum = myNodeNum
         Task {
             guard let snapshot = await store.nodeSnapshot(num: myNum) else { return }
-            await MainActor.run {
+            let sentPacketId: Int64 = await MainActor.run {
                 var user = User()
                 user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: myNum))
                 user.longName = snapshot.longName
@@ -1056,6 +1056,13 @@ final class RadioManager: ObservableObject {
                 var toRadio = ToRadio()
                 toRadio.packet = packet
                 self.write(toRadio)
+                return Int64(packet.id)
+            }
+            if noteInTranscript {
+                // Gray transcript note that rides the real packet id, so the
+                // ack/sweep machinery reports whether it actually went out.
+                await store.persistSystemNote(packetId: sentPacketId, channelIndex: index,
+                                              myNum: myNum, text: "You shared your node info")
             }
         }
     }

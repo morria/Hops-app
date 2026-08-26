@@ -369,9 +369,19 @@ struct ConversationView: View {
         .id(row.id)
     }
 
+    @ViewBuilder
     private func bubbleRow(for row: RowModel) -> some View {
         let message = row.message
-        return MessageBubble(
+        if message.portNum == 4 {
+            // System note (e.g. node-info share): centered, gray, status-aware.
+            Text(systemNoteText(message))
+                .font(.caption)
+                .foregroundStyle(message.status == .failed ? AnyShapeStyle(.red)
+                                                           : AnyShapeStyle(.secondary))
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 4)
+        } else {
+        MessageBubble(
             message: message,
             isDM: isDM,
             senderName: row.senderName,
@@ -391,6 +401,15 @@ struct ConversationView: View {
             onRetryWhenSeen: { radio.retryWhenPeerSeen(packetId: message.packetId) },
             onRetry: { radio.retry(packetId: message.packetId) }
         )
+        }
+    }
+
+    private func systemNoteText(_ message: MessageEntity) -> String {
+        switch message.status {
+        case .sending, .waitingForRadio: return "Sending your node info…"
+        case .failed: return "Couldn't send your node info"
+        default: return message.text   // "You shared your node info"
+        }
     }
 
     // MARK: - Input
@@ -495,7 +514,7 @@ struct ConversationView: View {
             }
             if case .channel(let index) = destination {
                 Button {
-                    radio.announceNodeInfo(onChannel: index)
+                    radio.announceNodeInfo(onChannel: index, noteInTranscript: true)
                 } label: {
                     Label("Send My Node Info", systemImage: "person.wave.2")
                 }
