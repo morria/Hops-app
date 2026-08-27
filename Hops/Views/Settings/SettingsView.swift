@@ -348,6 +348,25 @@ struct IdentityView: View {
             }
             .disabled(longName.trimmingCharacters(in: .whitespaces).isEmpty || shortName.trimmingCharacters(in: .whitespaces).isEmpty)
 
+            if radio.myNodeNum > 0 {
+                Section {
+                    LabeledContent("Node ID") {
+                        Text(String(format: "!%08x", UInt32(truncatingIfNeeded: radio.myNodeNum)))
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
+                    LabeledContent("Node number") {
+                        Text("\(UInt32(truncatingIfNeeded: radio.myNodeNum))")
+                            .font(.callout.monospaced())
+                            .textSelection(.enabled)
+                    }
+                } header: {
+                    Text("Your ID")
+                } footer: {
+                    Text("How the mesh addresses your radio. Searchable by other Hops users; useful when correlating server or firmware logs.")
+                }
+            }
+
             if let key = nodes.first(where: { $0.num == radio.myNodeNum })?.publicKey, !key.isEmpty {
                 Section {
                     Text(key.keyFingerprint)

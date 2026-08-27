@@ -561,6 +561,10 @@ final class RadioManager: ObservableObject {
             // releases the server's ack wait (no-op for other packet ids);
             // a NAK aborts the remaining chunks.
             MeshsiteServer.shared.noteAck(requestId: decoded.requestID, ok: errorRaw == 0)
+            // Client side: the same routing result tells the browser whether
+            // its request ever left the radio (powers the timeout diagnosis).
+            MeshsitesManager.shared.noteRequestRouting(packetId: decoded.requestID,
+                                                       errorRaw: errorRaw)
             #endif
             let requestId = Int64(decoded.requestID)
             Task {
@@ -1044,13 +1048,18 @@ final class RadioManager: ObservableObject {
                 var decoded = DataMessage()
                 decoded.portnum = .nodeinfoApp
                 decoded.payload = (try? user.serializedData()) ?? Data()
-                decoded.wantResponse = true
+                // No wantResponse: on a broadcast it asks every receiver to
+                // answer with their own info — noise, not an exchange.
 
                 var packet = MeshPacket()
                 packet.id = self.newPacketId()
                 packet.from = UInt32(truncatingIfNeeded: myNum)
                 packet.to = UInt32.max
                 packet.channel = UInt32(index)
+                // Same flags as channel texts: wantAck earns the implicit-ack
+                // routing result. Without it nothing ever came back, and the
+                // 5-min stale sweep failed EVERY node-info note.
+                packet.wantAck = true
                 packet.decoded = decoded
 
                 var toRadio = ToRadio()

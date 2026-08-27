@@ -44,6 +44,11 @@ struct NodeCardView: View {
                             LabeledContent("Mesh short name", value: node.shortName)
                             LabeledContent("Mesh long name", value: node.longName)
                         }
+                        LabeledContent("Node ID") {
+                            Text(String(format: "!%08x", UInt32(truncatingIfNeeded: node.num)))
+                                .font(.callout.monospaced())
+                                .textSelection(.enabled)
+                        }
                         LabeledContent("Last heard",
                                        value: node.lastHeard.map { $0.formatted(.relative(presentation: .named)) } ?? "Never")
 

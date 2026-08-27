@@ -163,6 +163,7 @@ actor MessageStore {
         let node = upsertNode(num: num)
         if info.hasUser {
             applyUser(info.user, to: node)
+            mergeRenumberedNodes(keeping: node)
         }
         if info.hasPosition {
             applyPosition(info.position, to: node)
@@ -187,6 +188,59 @@ actor MessageStore {
             convo.title = node.displayName
         }
         try? modelContext.save()
+    }
+
+    /// One radio, several node numbers: firmware renumbers on num conflict
+    /// (and a NodeDB reset renumbers too), but the device keypair survives.
+    /// Two node entries sharing a public key ARE the same physical radio —
+    /// fold older numbers into the current one so custom names, photos, and
+    /// threads follow the person, not the number.
+    func mergeRenumberedNodes(keeping keeper: NodeEntity) {
+        guard !keeper.publicKey.isEmpty else { return }
+        let key = keeper.publicKey
+        let num = keeper.num
+        let dupes = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
+            predicate: #Predicate { $0.publicKey == key && $0.num != num }))) ?? []
+        guard !dupes.isEmpty else { return }
+        for old in dupes { mergeNode(old, into: keeper) }
+        try? modelContext.save()
+    }
+
+    private func mergeNode(_ old: NodeEntity, into keeper: NodeEntity) {
+        // Custom identity follows the person.
+        if keeper.customName.isEmpty { keeper.customName = old.customName }
+        if keeper.iconData == nil { keeper.iconData = old.iconData }
+        let oldNum = old.num
+        let newNum = keeper.num
+        let oldKey = ConversationEntity.dmKey(oldNum)
+        let newKey = ConversationEntity.dmKey(newNum)
+        // Channel attribution + the DM thread move onto the surviving num.
+        let authored = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.fromNum == oldNum || $0.toNum == oldNum
+                                    || $0.conversationKey == oldKey }))) ?? []
+        for message in authored {
+            if message.fromNum == oldNum { message.fromNum = newNum }
+            if message.toNum == oldNum { message.toNum = newNum }
+            if message.conversationKey == oldKey { message.conversationKey = newKey }
+        }
+        if let oldConvo = fetchConversation(key: oldKey) {
+            if let newConvo = fetchConversation(key: newKey) {
+                newConvo.unreadCount += oldConvo.unreadCount
+                newConvo.pinned = newConvo.pinned || oldConvo.pinned
+                if (newConvo.lastMessageAt ?? .distantPast) < (oldConvo.lastMessageAt ?? .distantPast) {
+                    newConvo.lastMessageAt = oldConvo.lastMessageAt
+                    newConvo.lastPreview = oldConvo.lastPreview
+                    newConvo.lastMessagePacketId = oldConvo.lastMessagePacketId
+                    newConvo.lastStatusRaw = oldConvo.lastStatusRaw
+                }
+                modelContext.delete(oldConvo)
+            } else {
+                oldConvo.key = newKey
+                oldConvo.peerNum = newNum
+                oldConvo.title = keeper.displayName
+            }
+        }
+        modelContext.delete(old)
     }
 
     private func applyUser(_ user: User, to node: NodeEntity) {
@@ -733,6 +787,16 @@ actor MessageStore {
     /// send from before the direct-stamp fix). Cheap; run once per launch.
     func repairConversations() {
         dedupeAfterSync()
+        // Fold ghost identities left by firmware renumbering: for every set
+        // of nodes sharing a public key, the most recently heard number wins.
+        let keyed = ((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? [])
+            .filter { !$0.publicKey.isEmpty }
+        for (_, group) in Dictionary(grouping: keyed, by: { $0.publicKey }) where group.count > 1 {
+            let keeper = group.max(by: {
+                ($0.lastHeard ?? .distantPast) < ($1.lastHeard ?? .distantPast)
+            })!
+            for old in group where old !== keeper { mergeNode(old, into: keeper) }
+        }
         // Backfill legacy boolean mutes into the notify-level field.
         let mutedDescriptor = FetchDescriptor<ConversationEntity>(
             predicate: #Predicate { $0.muted == true && $0.notifyLevelRaw == 0 }

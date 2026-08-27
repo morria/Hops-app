@@ -4,6 +4,50 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+155. [x] Meshdown supports inline [label](target) links in paragraphs and
+         list items: site paths navigate in the browser, http(s) opens in
+         Safari, any other scheme stays literal text. Spec table updated.
+
+154. [x] Node cards show the node's ID ("!xxxxxxxx", monospaced,
+         selectable) above Last heard — pairs with hex node-id search and
+         log correlation.
+
+153. [x] Settings → Your name shows your own node ID ("!8ac3c723" form)
+         and decimal node number, selectable, alongside the key
+         fingerprint — the identity trio in one place.
+
+152. [x] Single back button in the local site preview too: the served-site
+         viewer (Preview Site, and Nearby Sites' "served by you" row) had
+         the same double-chevron problem fixed for remote sites in 137 —
+         same fix, one chevron that walks history then pops to the app.
+
+151. [x] "Send My Node Info" failed 100% of the time: the broadcast never
+         set want_ack (only want_response), so no routing result ever came
+         back and the 5-minute stale sweep marked every note failed. Now
+         sends with the same flags as channel texts (want_ack, no
+         want_response — which on a broadcast would ask every receiver to
+         reply with theirs).
+
+150. [x] Meshdown supports web hyperlinks: `=> https://… Label` renders as
+         an external link (distinct arrow-out icon) that opens in Safari.
+         Spec table updated; site-internal `=> /path` links unchanged.
+
+149. [x] Meshsite load failures say where the request died instead of a
+         generic timeout: the client tracks routing results for its own
+         request packets, so 45 s of silence now reports "never left your
+         radio" vs "radio couldn't deliver (routing error N)" vs
+         "transmitted but the site never answered — server offline or
+         re-keyed radio (Reset Encryption Key hint)".
+
+148. [x] One friend, four node entries: firmware renumbers a radio on node-
+         number conflicts (and NodeDB resets), but the device keypair
+         survives — and everything was keyed on the number. Nodes sharing a
+         public key now auto-merge into the current number (messages, DM
+         thread, channel attribution, custom name and photo follow the
+         person), both live when an announce arrives and as a launch repair
+         for existing ghosts. Ghosts without a pinned key can't be linked
+         automatically — a manual merge action is the follow-up if needed.
+
 147. [x] "Last heard 10 months ago" on a node being actively heard: every
          packet's liveness was stamped from the packet's rx_time — the
          radio's RTC, which is months stale on clockless nodes. Live

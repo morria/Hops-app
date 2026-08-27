@@ -374,6 +374,7 @@ struct MeshsitePreviewView: View {
     @State private var history: [String] = []
     @State private var document: MeshdownDocument?
     @State private var resetToken = 0
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         Group {
@@ -392,15 +393,20 @@ struct MeshsitePreviewView: View {
         }
         .navigationTitle("Preview")
         .navigationBarTitleDisplayMode(.inline)
+        // One back button, browser-style (matches MeshsiteBrowserView): walks
+        // the preview's history first, pops back to the app from the root.
+        .navigationBarBackButtonHidden(true)
         .toolbar {
-            if history.count > 1 {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
+            ToolbarItem(placement: .topBarLeading) {
+                Button {
+                    if history.count > 1 {
                         history.removeLast()
                         render(history.last ?? "/")
-                    } label: {
-                        Image(systemName: "chevron.backward")
+                    } else {
+                        dismiss()
                     }
+                } label: {
+                    Image(systemName: "chevron.backward")
                 }
             }
         }

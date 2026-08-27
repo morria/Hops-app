@@ -41,6 +41,7 @@ final class MeshsitesManager: ObservableObject {
     enum SiteError: LocalizedError {
         case notConnected
         case timeout
+        case deadAir(String)   // timeout + what we know about where it died
         case requestTooLarge
         case badResponse
         case requestInFlight
@@ -50,6 +51,7 @@ final class MeshsitesManager: ObservableObject {
             switch self {
             case .notConnected: return "Not connected to a radio."
             case .timeout: return "No response — the site's radio may be out of range."
+            case .deadAir(let diagnosis): return diagnosis
             case .requestTooLarge: return "Form input is too long to send over the mesh."
             case .badResponse: return "The site sent an unreadable response."
             case .requestInFlight: return "Still loading the previous page."
@@ -76,6 +78,21 @@ final class MeshsitesManager: ObservableObject {
         var cacheKey: CacheKey?
         var continuation: CheckedContinuation<Page, Error>
         var timeoutTask: Task<Void, Never>?
+        // Radio-level fate of the request packet (routing results by id).
+        var requestPacketId: UInt32 = 0
+        var transmitted = false
+        var nakError: Int32 = 0
+
+        /// What we can honestly say when the 45 s of silence runs out.
+        var silenceDiagnosis: String {
+            if nakError != 0 {
+                return "Your radio couldn't deliver the request (routing error \(nakError)). The site's radio may be off or out of direct range."
+            }
+            if !transmitted {
+                return "No confirmation the request ever left your radio. Check the connection to your radio and try again."
+            }
+            return "The request was transmitted, but the site never answered. Its server may be offline — or its radio can't decrypt requests from you (if its node card shows a key warning, use Reset Encryption Key)."
+        }
     }
     private var pending: [UInt16: Pending] = [:]
     private var inFlightServers: Set<Int64> = []
@@ -275,12 +292,25 @@ final class MeshsitesManager: ObservableObject {
         entry.continuation.resume(with: result)
     }
 
+    /// Routing results for OUR request packets — powers the timeout diagnosis
+    /// (never left the radio vs transmitted-but-unanswered vs NAK).
+    func noteRequestRouting(packetId: UInt32, errorRaw: Int32) {
+        for (id, entry) in pending where entry.requestPacketId == packetId {
+            if errorRaw == 0 {
+                pending[id]?.transmitted = true
+            } else {
+                pending[id]?.nakError = errorRaw
+            }
+        }
+    }
+
     private func restartTimeout(id: UInt16) {
         pending[id]?.timeoutTask?.cancel()
         pending[id]?.timeoutTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(45))
             guard !Task.isCancelled else { return }
-            self?.finish(id: id, with: .failure(SiteError.timeout))
+            guard let self, let entry = self.pending[id] else { return }
+            self.finish(id: id, with: .failure(SiteError.deadAir(entry.silenceDiagnosis)))
         }
     }
 
@@ -319,8 +349,11 @@ final class MeshsitesManager: ObservableObject {
             do {
                 return try await performRequest(frameBody: frameBody, etag: etag,
                                                 server: server, cacheKey: cacheKey, id: id)
-            } catch SiteError.timeout where attempt == 1 {
-                continue   // spec §3: one retry, same id
+            } catch let error as SiteError where attempt == 1 {
+                switch error {
+                case .timeout, .deadAir: continue   // spec §3: one retry, same id
+                default: throw error
+                }
             }
         }
     }
@@ -341,7 +374,8 @@ final class MeshsitesManager: ObservableObject {
                 pending[id] = Pending(server: server, cacheKey: cacheKey,
                                       continuation: continuation)
                 restartTimeout(id: id)
-                RadioManager.shared.sendMeshsites(to: server, payload: frame)
+                let packetId = RadioManager.shared.sendMeshsites(to: server, payload: frame)
+                pending[id]?.requestPacketId = packetId
             }
         } onCancel: {
             Task { @MainActor [weak self] in

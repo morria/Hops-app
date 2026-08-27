@@ -109,7 +109,10 @@ struct MeshdownDocument {
                 flushParagraph()
                 let rest = line.dropFirst(3).trimmingCharacters(in: .whitespaces)
                 let parts = rest.split(separator: " ", maxSplits: 1)
-                if let path = parts.first.map(String.init), path.hasPrefix("/") {
+                // Site paths, or absolute web URLs (rendered as external
+                // links that open in the system browser). http(s) only.
+                if let path = parts.first.map(String.init),
+                   path.hasPrefix("/") || path.hasPrefix("https://") || path.hasPrefix("http://") {
                     let label = parts.count > 1 ? String(parts[1]) : path
                     emit(.link(path: path, label: label))
                 } else {

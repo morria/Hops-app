@@ -216,6 +216,8 @@ Line-oriented UTF-8. Every line is one of:
 | `# T` / `## T` / `### T` | heading, levels 1–3 |
 | `* text` | list item |
 | `=> /path Label text` | link (path may carry `?query`) |
+| `[label](/path)` / `[label](https://…)` | inline link inside a paragraph or list item — site paths navigate in the browser, http(s) opens externally; other schemes render as literal text |
+| `=> https://… Label text` | web link — clients render as an external link opening in the system browser (`http://` also accepted); needs internet, so clients SHOULD mark it visually |
 | `---` | horizontal rule |
 | `[form get /path]` or `[form post /path]` | opens a form |
 | `[field name Label text]` | text input inside a form (name = `[a-z0-9_]+`) |

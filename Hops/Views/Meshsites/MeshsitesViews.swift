@@ -138,6 +138,52 @@ struct MeshdownRenderer: View {
                 blockView(item)
             }
         }
+        // Inline [label](target) links: web URLs go to Safari via the system
+        // action; site paths route through the browser's navigation.
+        .environment(\.openURL, OpenURLAction { url in
+            if url.scheme == Self.siteLinkScheme {
+                guard !disabled else { return .handled }
+                var path = url.path.isEmpty ? "/" : url.path
+                if let query = url.query { path += "?" + query }
+                onNavigate(path)
+                return .handled
+            }
+            return .systemAction
+        })
+    }
+
+    // MARK: - Inline links ([label](target), spec §4)
+
+    private static let siteLinkScheme = "hops-meshsite"
+
+    private static let inlinePattern =
+        /\[([^\]\n]+)\]\((\/[^)\s]*|https?:\/\/[^)\s]+)\)/
+
+    /// True when the text carries at least one [label](target) link whose
+    /// target is a site path or http(s) URL — anything else stays literal.
+    static func renderInline(_ raw: String) -> Text {
+        var result = AttributedString()
+        var rest = Substring(raw)
+        while let match = rest.firstMatch(of: inlinePattern) {
+            result += AttributedString(String(rest[rest.startIndex..<match.range.lowerBound]))
+            let label = String(match.1)
+            let target = String(match.2)
+            var linked = AttributedString(label)
+            if target.hasPrefix("/") {
+                linked.link = URL(string: "\(siteLinkScheme)://local\(target)")
+            } else {
+                linked.link = URL(string: target)
+            }
+            if linked.link != nil {
+                linked.underlineStyle = .single
+                result += linked
+            } else {
+                result += AttributedString(label)
+            }
+            rest = rest[match.range.upperBound...]
+        }
+        result += AttributedString(String(rest))
+        return Text(result)
     }
 
     @ViewBuilder
@@ -148,25 +194,38 @@ struct MeshdownRenderer: View {
                 .font(level == 1 ? .title.bold() : level == 2 ? .title2.bold() : .headline)
                 .padding(.top, item.id == 0 ? 0 : 4)
         case .paragraph(let text):
-            Text(text)
+            Self.renderInline(text)
         case .listItem(let text):
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text("•")
-                Text(text)
+                Self.renderInline(text)
             }
         case .rule:
             Divider()
         case .link(let path, let label):
-            Button {
-                onNavigate(path)
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "arrow.right.circle")
-                    Text(label)
-                        .multilineTextAlignment(.leading)
+            if path.hasPrefix("http://") || path.hasPrefix("https://") {
+                // Web link: leaves the mesh — needs internet, opens Safari.
+                if let url = URL(string: path) {
+                    Link(destination: url) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "arrow.up.right.square")
+                            Text(label)
+                                .multilineTextAlignment(.leading)
+                        }
+                    }
                 }
+            } else {
+                Button {
+                    onNavigate(path)
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "arrow.right.circle")
+                        Text(label)
+                            .multilineTextAlignment(.leading)
+                    }
+                }
+                .disabled(disabled)
             }
-            .disabled(disabled)
         case .form(let form):
             formView(form, itemId: item.id)
         }
