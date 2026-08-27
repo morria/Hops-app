@@ -320,11 +320,17 @@ struct ConversationView: View {
             // blank the pane entirely when the keyboard moves the safe area.
             .onAppear {
                 rebuildRows()
+                if consumeScrollTarget(proxy) { return }
                 scrollToBottom(proxy, animated: false)
                 // Second pass catches late layout (async map tiles, images).
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     scrollToBottom(proxy, animated: false)
                 }
+            }
+            // A notification tap while this conversation is already open.
+            .onChange(of: appModel.pendingScrollPacketId) { _, target in
+                guard target != nil else { return }
+                _ = consumeScrollTarget(proxy)
             }
             .onChange(of: messages.count) {
                 rebuildRows()
@@ -341,6 +347,29 @@ struct ConversationView: View {
                 }
             }
         }
+    }
+
+    @State private var highlightedId: Int64?
+
+    /// Jump to the message a notification referred to: grow the window until
+    /// it's loaded, center it, flash a highlight. Returns false if there is
+    /// no pending target (or it isn't in this conversation).
+    private func consumeScrollTarget(_ proxy: ScrollViewProxy) -> Bool {
+        guard let target = appModel.pendingScrollPacketId else { return false }
+        appModel.pendingScrollPacketId = nil
+        while !rows.contains(where: { $0.id == target }), rows.count < transcript.count {
+            visibleCount += 150
+            rebuildRows()
+        }
+        guard rows.contains(where: { $0.id == target }) else { return false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+            withAnimation { proxy.scrollTo(target, anchor: .center) }
+            highlightedId = target
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.8) {
+                withAnimation { highlightedId = nil }
+            }
+        }
+        return true
     }
 
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
@@ -366,6 +395,10 @@ struct ConversationView: View {
                 .opacity(timeReveal < -10 ? 1 : 0)
         }
         .animation(.spring(duration: 0.3), value: timeReveal)
+        .background(
+            highlightedId == row.id ? Color.accentColor.opacity(0.18) : .clear,
+            in: RoundedRectangle(cornerRadius: 14)
+        )
         .id(row.id)
     }
 

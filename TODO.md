@@ -4,6 +4,13 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+156. [x] Notification taps land on the exact message: the packet id rides
+         the deep link, the conversation grows its window until the message
+         is loaded, centers it, and flashes a highlight — including when
+         the conversation is already open. Compact-width deep links also
+         stopped inheriting stale conversation state (.id on the pushed
+         detail, matching the split-view path).
+
 155. [x] Meshdown supports inline [label](target) links in paragraphs and
          list items: site paths navigate in the browser, http(s) opens in
          Safari, any other scheme stays literal text. Spec table updated.

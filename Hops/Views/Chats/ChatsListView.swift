@@ -65,6 +65,7 @@ struct ChatsListView: View {
                 sidebar
                     .navigationDestination(item: $selection) { key in
                         ConversationView(conversationKey: key)
+                            .id(key)   // deep-link swaps must not inherit stale state
                     }
             }
         }

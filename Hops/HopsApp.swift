@@ -43,6 +43,8 @@ struct HopsApp: App {
         }
         #if DEBUG
         if ScreenshotMode.isActive {
+            // Fresh simulators must land in the app, not the pairing cover.
+            UserDefaults.standard.set(true, forKey: "onboardingComplete")
             ScreenshotMode.seedIfNeeded(container: container)
         } else {
             NotificationManager.shared.bootstrap()
@@ -59,8 +61,8 @@ struct HopsApp: App {
                 .environmentObject(radio)
                 .environmentObject(appModel)
                 .onAppear {
-                    NotificationManager.shared.openConversation = { key in
-                        appModel.openConversation(key)
+                    NotificationManager.shared.openConversation = { key, packetId in
+                        appModel.openConversation(key, scrollTo: packetId)
                     }
                     #if DEBUG
                     if ScreenshotMode.isActive {
@@ -111,9 +113,13 @@ final class AppModel: ObservableObject {
     /// Deep-link target set by notification taps and the map's Message button;
     /// consumed by ChatsListView. Setting it also flips to the Chats tab.
     @Published var pendingConversationKey: String?
+    /// The specific message a notification tap refers to — the conversation
+    /// scrolls to it and briefly highlights it. Consumed by ConversationView.
+    @Published var pendingScrollPacketId: Int64?
     @Published var selectedTab: Int = 0
 
-    func openConversation(_ key: String) {
+    func openConversation(_ key: String, scrollTo packetId: Int64 = 0) {
+        pendingScrollPacketId = packetId != 0 ? packetId : nil
         pendingConversationKey = key
         selectedTab = 0
     }

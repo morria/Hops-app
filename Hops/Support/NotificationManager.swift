@@ -16,15 +16,15 @@ final class NotificationManager: NSObject {
     /// Set by the app so notification taps can deep-link. A tap that cold-
     /// launches the app can arrive before the UI wires this up — buffer the
     /// key and flush it the moment the handler lands.
-    var openConversation: ((String) -> Void)? {
+    var openConversation: ((String, Int64) -> Void)? {
         didSet {
-            if let key = pendingOpenKey, let open = openConversation {
-                pendingOpenKey = nil
-                open(key)
+            if let pending = pendingOpen, let open = openConversation {
+                pendingOpen = nil
+                open(pending.key, pending.packetId)
             }
         }
     }
-    private var pendingOpenKey: String?
+    private var pendingOpen: (key: String, packetId: Int64)?
 
     func bootstrap() {
         let center = UNUserNotificationCenter.current()
@@ -169,9 +169,9 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
                 }
             default:
                 if let open = NotificationManager.shared.openConversation {
-                    open(key)
+                    open(key, packetId)
                 } else {
-                    NotificationManager.shared.pendingOpenKey = key
+                    NotificationManager.shared.pendingOpen = (key, packetId)
                 }
             }
         }
