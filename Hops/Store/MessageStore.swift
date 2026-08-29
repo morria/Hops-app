@@ -105,6 +105,38 @@ actor MessageStore {
         for ref in refs { ref.replyId = newId }
     }
 
+    /// Delete a message that is still queued (held for a peer, or in the
+    /// outbox) BEFORE it has ever been handed to a radio. Anything past
+    /// that point has left the phone and cannot be unsent. Fixes up the
+    /// conversation preview if the deleted row was backing it.
+    func deleteQueuedMessage(packetId: Int64) {
+        guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.packetId == packetId })).first,
+              message.outgoing,
+              message.status == .waitingForPeer || message.status == .waitingForRadio
+        else { return }
+        let key = message.conversationKey
+        modelContext.delete(message)
+        if let convo = fetchConversation(key: key), convo.lastMessagePacketId == packetId {
+            var latestDescriptor = FetchDescriptor<MessageEntity>(
+                predicate: #Predicate { $0.conversationKey == key && $0.isEmoji == false })
+            latestDescriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]
+            latestDescriptor.fetchLimit = 1
+            if let latest = ((try? modelContext.fetch(latestDescriptor)) ?? []).first {
+                convo.lastMessageAt = latest.timestamp
+                convo.lastPreview = latest.text
+                convo.lastMessagePacketId = latest.outgoing ? latest.packetId : 0
+                convo.lastStatusRaw = latest.statusRaw
+            } else {
+                convo.lastMessageAt = nil
+                convo.lastPreview = ""
+                convo.lastMessagePacketId = 0
+                convo.lastStatusRaw = 0
+            }
+        }
+        try? modelContext.save()
+    }
+
     /// Send Now while disconnected: demote the held message to the plain
     /// outbox so the next connection (any device) transmits it.
     func demoteHeldToOutbox(packetId: Int64) {

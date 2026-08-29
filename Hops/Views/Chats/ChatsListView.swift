@@ -65,7 +65,6 @@ struct ChatsListView: View {
                 sidebar
                     .navigationDestination(item: $selection) { key in
                         ConversationView(conversationKey: key)
-                            .id(key)   // deep-link swaps must not inherit stale state
                     }
             }
         }
@@ -123,7 +122,7 @@ struct ChatsListView: View {
             .onChange(of: appModel.pendingConversationKey) { _, key in
                 guard let key else { return }
                 appModel.pendingConversationKey = nil
-                selection = key
+                openFromDeepLink(key)
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
             .onChange(of: pickedPhoto) { _, item in
@@ -182,6 +181,19 @@ struct ChatsListView: View {
                 }
                 #endif
             }
+    }
+
+    /// Deep link while another conversation is pushed (compact widths):
+    /// popping and pushing in the same frame — or swapping the pushed
+    /// view's identity in place — is crash-prone in SwiftUI navigation.
+    /// Pop first, push on the next runloop; fresh push = fresh state.
+    private func openFromDeepLink(_ key: String) {
+        if hSize != .regular, selection != nil, selection != key {
+            selection = nil
+            DispatchQueue.main.async { selection = key }
+        } else {
+            selection = key
+        }
     }
 
     private func cancelSearch() {

@@ -4,6 +4,28 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+159. [x] Presence announce: on app-open and on radio connect, Hops
+         broadcasts a nodeinfo (rate-limited to one per 30 min) so peers
+         holding "send when their radio is heard" messages for us hear us
+         and release them — coming online now actively triggers held mail
+         instead of waiting for organic traffic.
+
+158. [x] Notification deep-link hardening (reported as possible crash):
+         a tap for conversation B while A was pushed popped-and-pushed in
+         the same frame with an in-place identity swap — the classic
+         SwiftUI navigation crash shape. Compact widths now pop first and
+         push on the next runloop (fresh push = fresh state; the .id
+         workaround is gone). Scroll targets are keyed to their
+         conversation, so an open thread can no longer consume a target
+         meant for the one being opened; target consumption runs outside
+         the view-update transaction.
+
+157. [x] Queued messages can be deleted before they send: long-press a
+         message that's "Waiting for their radio" or in the outbox →
+         "Delete — Don't Send" (destructive). Only statuses that have never
+         touched a radio qualify; the conversation preview re-derives from
+         the remaining messages.
+
 156. [x] Notification taps land on the exact message: the packet id rides
          the deep link, the conversation grows its window until the message
          is loaded, centers it, and flashes a highlight — including when

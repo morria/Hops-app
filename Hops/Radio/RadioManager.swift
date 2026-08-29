@@ -381,6 +381,7 @@ final class RadioManager: ObservableObject {
             flushOutboxAndSweep()
             startOutboxSweep()
             requestStoreForwardHistoryIfUseful()
+            announcePresenceIfDue()
             // Friendly default name for a blank primary channel: the applied
             // metro's name ("NYC Mesh"), handled store-side only when unnamed.
             if let id = MetroPresetStore.shared.appliedPresetId,
@@ -1033,6 +1034,25 @@ final class RadioManager: ObservableObject {
     /// Broadcast our NodeInfo on a channel right now, instead of waiting for the
     /// periodic schedule. want_response invites others to answer with theirs,
     /// so it doubles as a roster refresh.
+    /// Presence announce: peers holding "send when their radio is heard"
+    /// messages for us release them on hearing ANY packet from us — so on
+    /// app-open and on connect, broadcast a nodeinfo. Rate-limited to be a
+    /// polite mesh citizen (LoRa airtime is shared).
+    private static let presenceAnnounceInterval: TimeInterval = 30 * 60
+    func announcePresenceIfDue() {
+        guard state == .connected, myNodeNum > 0 else { return }
+        let last = UserDefaults.standard.double(forKey: "lastPresenceAnnounceAt")
+        guard Date().timeIntervalSince1970 - last >= Self.presenceAnnounceInterval else { return }
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "lastPresenceAnnounceAt")
+        announceNodeInfo(onChannel: 0)
+    }
+
+    /// Delete a still-queued (never transmitted) message.
+    func deleteQueued(packetId: Int64) {
+        guard let store else { return }
+        Task { await store.deleteQueuedMessage(packetId: packetId) }
+    }
+
     func announceNodeInfo(onChannel index: Int32, noteInTranscript: Bool = false) {
         guard let store, myNodeNum > 0 else { return }
         let myNum = myNodeNum
@@ -1293,6 +1313,7 @@ final class RadioManager: ObservableObject {
 
     func appDidBecomeActive() {
         connectIfNeeded()
+        announcePresenceIfDue()
         if LocationProvider.shared.isAuthorized {
             Task { _ = await LocationProvider.shared.current() }
         }

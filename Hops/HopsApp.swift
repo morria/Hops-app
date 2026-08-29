@@ -114,12 +114,15 @@ final class AppModel: ObservableObject {
     /// consumed by ChatsListView. Setting it also flips to the Chats tab.
     @Published var pendingConversationKey: String?
     /// The specific message a notification tap refers to — the conversation
-    /// scrolls to it and briefly highlights it. Consumed by ConversationView.
+    /// scrolls to it and briefly highlights it. Keyed to its conversation so
+    /// an already-open thread can't consume another thread's target.
     @Published var pendingScrollPacketId: Int64?
+    @Published var pendingScrollConversationKey: String?
     @Published var selectedTab: Int = 0
 
     func openConversation(_ key: String, scrollTo packetId: Int64 = 0) {
         pendingScrollPacketId = packetId != 0 ? packetId : nil
+        pendingScrollConversationKey = packetId != 0 ? key : nil
         pendingConversationKey = key
         selectedTab = 0
     }

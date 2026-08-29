@@ -328,9 +328,11 @@ struct ConversationView: View {
                 }
             }
             // A notification tap while this conversation is already open.
+            // Async: the window-growing rebuild must not run inside the
+            // view-update transaction that delivered the change.
             .onChange(of: appModel.pendingScrollPacketId) { _, target in
                 guard target != nil else { return }
-                _ = consumeScrollTarget(proxy)
+                DispatchQueue.main.async { _ = consumeScrollTarget(proxy) }
             }
             .onChange(of: messages.count) {
                 rebuildRows()
@@ -355,8 +357,10 @@ struct ConversationView: View {
     /// it's loaded, center it, flash a highlight. Returns false if there is
     /// no pending target (or it isn't in this conversation).
     private func consumeScrollTarget(_ proxy: ScrollViewProxy) -> Bool {
-        guard let target = appModel.pendingScrollPacketId else { return false }
+        guard let target = appModel.pendingScrollPacketId,
+              appModel.pendingScrollConversationKey == conversationKey else { return false }
         appModel.pendingScrollPacketId = nil
+        appModel.pendingScrollConversationKey = nil
         while !rows.contains(where: { $0.id == target }), rows.count < transcript.count {
             visibleCount += 150
             rebuildRows()
@@ -431,6 +435,7 @@ struct ConversationView: View {
             onShowSender: { senderCard = message.fromNum },
             onShowDetails: { deliveryDetails = message },
             onSendNow: { radio.forceSendNow(packetId: message.packetId) },
+            onDeleteQueued: { radio.deleteQueued(packetId: message.packetId) },
             onRetryWhenSeen: { radio.retryWhenPeerSeen(packetId: message.packetId) },
             onRetry: { radio.retry(packetId: message.packetId) }
         )
@@ -627,6 +632,7 @@ struct MessageBubble: View {
     var onShowSender: () -> Void
     var onShowDetails: () -> Void = {}
     var onSendNow: () -> Void = {}
+    var onDeleteQueued: () -> Void = {}
     var onRetryWhenSeen: () -> Void = {}
     var onRetry: () -> Void
 
@@ -751,6 +757,15 @@ struct MessageBubble: View {
                     onSendNow()
                 } label: {
                     Label("Send Now", systemImage: "paperplane")
+                }
+            }
+            // Anything still queued on this phone can be unsent — once it
+            // reaches a radio it's out in the world.
+            if message.status == .waitingForPeer || message.status == .waitingForRadio {
+                Button(role: .destructive) {
+                    onDeleteQueued()
+                } label: {
+                    Label("Delete — Don't Send", systemImage: "trash")
                 }
             }
         }
