@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+173. [x] Location-aware presets (manifest v5): each metro preset carries a
+         service area (center + radius); when location is already
+         authorized (never prompts), Mesh Setup sorts the local
+         community's preset to the top with a "Near you" badge.
+
 172. [x] Coverage map is prediction-only and less pixelated: the measured-
          signal dots (and 169's tap chips) are gone from the display —
          samples still feed the model as evidence, but the overlay IS the

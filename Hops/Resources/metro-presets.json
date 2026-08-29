@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "presets": [
     {
       "id": "standard",
@@ -19,7 +19,10 @@
       "frequencySlot": 45,
       "hopLimit": 6,
       "source": "https://bayme.sh/docs/getting-started/recommended-settings/",
-      "updated": "2025-10-20"
+      "updated": "2025-10-20",
+      "latitude": 37.77,
+      "longitude": -122.42,
+      "radiusKm": 120
     },
     {
       "id": "nyc",
@@ -31,7 +34,10 @@
       "hopLimit": 7,
       "source": "https://nyme.sh/getting-started/",
       "updated": "2026-02-18",
-      "channelIconAsset": "nyme-logo"
+      "channelIconAsset": "nyme-logo",
+      "latitude": 40.73,
+      "longitude": -73.99,
+      "radiusKm": 90
     },
     {
       "id": "nyc-legacy",
@@ -43,7 +49,10 @@
       "hopLimit": 3,
       "source": "https://nyme.sh/getting-started/",
       "updated": "2026-02-18",
-      "channelIconAsset": "nyme-logo"
+      "channelIconAsset": "nyme-logo",
+      "latitude": 40.73,
+      "longitude": -73.99,
+      "radiusKm": 90
     },
     {
       "id": "puget",
@@ -54,7 +63,10 @@
       "frequencySlot": 20,
       "hopLimit": 3,
       "source": "https://pugetmesh.org/meshtastic/config/",
-      "updated": "2025-11-27"
+      "updated": "2025-11-27",
+      "latitude": 47.61,
+      "longitude": -122.33,
+      "radiusKm": 120
     },
     {
       "id": "boston",
@@ -65,7 +77,10 @@
       "frequencySlot": 20,
       "hopLimit": 3,
       "source": "https://bostonme.sh/meshtastic/",
-      "updated": "2026-08-29"
+      "updated": "2026-08-29",
+      "latitude": 42.36,
+      "longitude": -71.06,
+      "radiusKm": 100
     },
     {
       "id": "mtnmesh",
@@ -76,7 +91,10 @@
       "frequencySlot": 45,
       "hopLimit": 5,
       "source": "https://mtnme.sh/mediumfast/",
-      "updated": "2025-10-01"
+      "updated": "2025-10-01",
+      "latitude": 34.9,
+      "longitude": -84.35,
+      "radiusKm": 180
     },
     {
       "id": "freq51",
@@ -87,7 +105,10 @@
       "frequencySlot": 51,
       "hopLimit": 7,
       "source": "https://freq51.net/config",
-      "updated": "2025-10-05"
+      "updated": "2025-10-05",
+      "latitude": 40.76,
+      "longitude": -111.89,
+      "radiusKm": 180
     }
   ]
 }

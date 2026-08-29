@@ -400,6 +400,23 @@ struct MeshSetupView: View {
     @State private var confirming: MetroPreset?
     @State private var showSaveCustom = false
     @State private var customName = ""
+    // Passive only — never prompts. If location is already authorized, the
+    // local metro's preset sorts to the top with a "Near you" badge.
+    @State private var here: (lat: Double, lon: Double)?
+
+    private var orderedPresets: [MetroPreset] {
+        guard let here else { return presets.allPresets }
+        return presets.allPresets.sorted {
+            let a = $0.covers(latitude: here.lat, longitude: here.lon)
+            let b = $1.covers(latitude: here.lat, longitude: here.lon)
+            return a && !b
+        }
+    }
+
+    private func isNearby(_ preset: MetroPreset) -> Bool {
+        guard let here else { return false }
+        return preset.covers(latitude: here.lat, longitude: here.lon)
+    }
 
     var body: some View {
         List {
@@ -415,7 +432,7 @@ struct MeshSetupView: View {
                 }
             }
             Section {
-                ForEach(presets.allPresets) { preset in
+                ForEach(orderedPresets) { preset in
                     Button {
                         confirming = preset
                     } label: {
@@ -424,6 +441,14 @@ struct MeshSetupView: View {
                                 Text(preset.name)
                                     .font(.body.weight(.medium))
                                     .foregroundStyle(.primary)
+                                if isNearby(preset) {
+                                    Text("Near you")
+                                        .font(.caption2.weight(.semibold))
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(Color.accentColor.opacity(0.15), in: Capsule())
+                                        .foregroundStyle(Color.accentColor)
+                                }
                                 Spacer()
                                 if isCurrent(preset) {
                                     Image(systemName: "checkmark")
@@ -480,6 +505,13 @@ struct MeshSetupView: View {
         .navigationTitle("Mesh Setup")
         .navigationBarTitleDisplayMode(.inline)
         .task { await presets.refresh() }
+        .task {
+            // Passive: only when already authorized — Mesh Setup must never
+            // be the thing that triggers a location prompt.
+            guard LocationProvider.shared.isAuthorized,
+                  let fix = await LocationProvider.shared.current() else { return }
+            here = (fix.coordinate.latitude, fix.coordinate.longitude)
+        }
         .alert("Save Current as Preset", isPresented: $showSaveCustom) {
             TextField("Name (e.g. Cabin mesh)", text: $customName)
             Button("Save") {

@@ -18,6 +18,18 @@ struct MetroPreset: Codable, Identifiable, Equatable {
     /// Optional bundled image shown as the primary channel's avatar while this
     /// metro's configuration is applied (e.g. the NYME.SH logo).
     var channelIconAsset: String?
+    /// Optional service area — lets the app surface "near you" presets.
+    var latitude: Double?
+    var longitude: Double?
+    var radiusKm: Double?
+
+    /// Rough great-circle containment test against the service area.
+    func covers(latitude lat: Double, longitude lon: Double) -> Bool {
+        guard let clat = latitude, let clon = longitude, let radius = radiusKm else { return false }
+        let dLat = (lat - clat) * 111.0
+        let dLon = (lon - clon) * 111.0 * cos(clat * .pi / 180)
+        return dLat * dLat + dLon * dLon <= radius * radius
+    }
 
     var regionName: String {
         let region = Config.LoRaConfig.RegionCode(rawValue: regionRaw) ?? .unset
@@ -64,7 +76,8 @@ final class MetroPresetStore: ObservableObject {
         var preset = MetroPreset(id: "custom-\(UUID().uuidString)", name: name,
                                  summary: "", regionRaw: regionRaw, presetRaw: presetRaw,
                                  frequencySlot: frequencySlot, hopLimit: hopLimit,
-                                 source: nil, updated: nil, channelIconAsset: nil)
+                                 source: nil, updated: nil, channelIconAsset: nil,
+                                 latitude: nil, longitude: nil, radiusKm: nil)
         preset.summary = "\(preset.presetName), slot \(frequencySlot), hop limit \(hopLimit) — your saved configuration."
         customPresets.append(preset)
         persistCustom()
