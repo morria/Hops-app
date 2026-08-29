@@ -86,8 +86,10 @@ struct NodeCardView: View {
     private func headerSection(_ node: NodeEntity) -> some View {
         Section {
             VStack(spacing: 8) {
+                // Never dimmed here: the presence line below is the explicit
+                // liveness signal, and a faded photo reads as a broken image.
                 MonogramAvatar(text: node.monogram, isChannel: false, size: 76,
-                               dimmed: !node.isOnline, imageData: node.iconData)
+                               imageData: node.iconData)
                 Text(node.displayName)
                     .font(.title2.bold())
                     .multilineTextAlignment(.center)

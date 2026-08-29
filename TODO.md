@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+168. [x] The node card photo no longer renders translucent: the header
+         avatar was inheriting the 2-hour "offline" dimming used in lists,
+         which read as a broken image next to the explicit presence line.
+         Full opacity on the card; lists keep the ambient cue.
+
 167. [x] Key fingerprints render large for visual comparison: two rows of
          four groups, title-sized monospaced digits, alternating emphasis
          so two people can read them to each other without losing their
