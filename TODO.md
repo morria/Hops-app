@@ -4,6 +4,25 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+172. [x] Coverage map is prediction-only and less pixelated: the measured-
+         signal dots (and 169's tap chips) are gone from the display —
+         samples still feed the model as evidence, but the overlay IS the
+         story. The field is now sampled at grid corners, smoothed one
+         pass (kills single-cell islands), computed on a finer grid, and
+         cells straddling a color bin split into triangles along the
+         diagonal, so band boundaries run at angles instead of staircases.
+         Legend copy rewritten to match.
+
+171. [x] Metro preset research (manifest v4): added Puget Sound/Seattle
+         (LongFast 20/3, pugetmesh.org), Greater Boston (LongFast
+         defaults, bostonme.sh), Mountain Mesh N.GA/E.TN (MediumFast 45/5,
+         mtnme.sh Oct 2025 migration), Freq51 Utah (MediumFast 51/7,
+         freq51.net). Verified Bay Area is still MediumFast slot 45 per
+         live bayme.sh docs (the meshtastic.org blog's MediumSlow mention
+         was their earlier experiment). Colorado Mesh runs MediumFast but
+         their site blocks fetches and the slot couldn't be confirmed —
+         excluded rather than guessed.
+
 170. [x] Coverage legend redesigned and relocated: bottom-leading (mapping
          convention; the old top-left floated oddly on iPad), width-capped,
          with a dedicated line — and matching glyph — explaining the

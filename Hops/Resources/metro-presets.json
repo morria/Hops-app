@@ -1,10 +1,10 @@
 {
-  "version": 3,
+  "version": 4,
   "presets": [
     {
       "id": "standard",
       "name": "Standard (Meshtastic default)",
-      "summary": "LongFast — the worldwide default. Works everywhere; best choice when your area has no organized mesh.",
+      "summary": "LongFast \u2014 the worldwide default. Works everywhere; best choice when your area has no organized mesh.",
       "regionRaw": 1,
       "presetRaw": 0,
       "frequencySlot": 0,
@@ -13,7 +13,7 @@
     {
       "id": "bayarea",
       "name": "Bay Area Mesh",
-      "summary": "MediumFast, slot 45, hop limit 6 (personal node) — bayme.sh recommended settings (updated Oct 2025). Suggested role: Client, or Client Mute in a vehicle.",
+      "summary": "MediumFast, slot 45, hop limit 6 (personal node) \u2014 bayme.sh recommended settings (updated Oct 2025). Suggested role: Client, or Client Mute in a vehicle.",
       "regionRaw": 1,
       "presetRaw": 4,
       "frequencySlot": 45,
@@ -24,7 +24,7 @@
     {
       "id": "nyc",
       "name": "NYC Mesh (NYME.SH)",
-      "summary": "MediumSlow, slot 48, hop limit 7 (personal node) — nyme.sh recommended settings. Suggested role: Client Mute for handhelds, Client if stationary.",
+      "summary": "MediumSlow, slot 48, hop limit 7 (personal node) \u2014 nyme.sh recommended settings. Suggested role: Client Mute for handhelds, Client if stationary.",
       "regionRaw": 1,
       "presetRaw": 3,
       "frequencySlot": 48,
@@ -35,8 +35,8 @@
     },
     {
       "id": "nyc-legacy",
-      "name": "NYC Mesh — Legacy (LongFast)",
-      "summary": "LongFast, slot 20 — nyme.sh legacy network. Often busier until the MediumSlow migration completes; use it to compare traffic.",
+      "name": "NYC Mesh \u2014 Legacy (LongFast)",
+      "summary": "LongFast, slot 20 \u2014 nyme.sh legacy network. Often busier until the MediumSlow migration completes; use it to compare traffic.",
       "regionRaw": 1,
       "presetRaw": 0,
       "frequencySlot": 20,
@@ -44,6 +44,50 @@
       "source": "https://nyme.sh/getting-started/",
       "updated": "2026-02-18",
       "channelIconAsset": "nyme-logo"
+    },
+    {
+      "id": "puget",
+      "name": "Puget Sound (Seattle)",
+      "summary": "LongFast, slot 20, hop limit 3 \u2014 pugetmesh.org standard settings (they trial others seasonally; LongFast is the year-round baseline). Suggested role: Client Mute for portables.",
+      "regionRaw": 1,
+      "presetRaw": 0,
+      "frequencySlot": 20,
+      "hopLimit": 3,
+      "source": "https://pugetmesh.org/meshtastic/config/",
+      "updated": "2025-11-27"
+    },
+    {
+      "id": "boston",
+      "name": "Greater Boston Mesh",
+      "summary": "LongFast defaults \u2014 bostonme.sh runs the standard preset with no custom channel.",
+      "regionRaw": 1,
+      "presetRaw": 0,
+      "frequencySlot": 20,
+      "hopLimit": 3,
+      "source": "https://bostonme.sh/meshtastic/",
+      "updated": "2026-08-29"
+    },
+    {
+      "id": "mtnmesh",
+      "name": "Mountain Mesh (N. Georgia / E. Tennessee)",
+      "summary": "MediumFast, slot 45, hop limit 5 \u2014 mtnme.sh settings since their Oct 2025 migration off LongFast.",
+      "regionRaw": 1,
+      "presetRaw": 4,
+      "frequencySlot": 45,
+      "hopLimit": 5,
+      "source": "https://mtnme.sh/mediumfast/",
+      "updated": "2025-10-01"
+    },
+    {
+      "id": "freq51",
+      "name": "Freq51 (Utah)",
+      "summary": "MediumFast, slot 51, hop limit 7 \u2014 freq51.net community settings (Salt Lake area). Suggested role: Client Mute for mobile nodes.",
+      "regionRaw": 1,
+      "presetRaw": 4,
+      "frequencySlot": 51,
+      "hopLimit": 7,
+      "source": "https://freq51.net/config",
+      "updated": "2025-10-05"
     }
   ]
 }

@@ -179,8 +179,9 @@ struct MapTab: View {
         let snr: Float
         let timestamp: Date
     }
+    // Samples feed the prediction as evidence but are no longer drawn —
+    // the overlay IS the story (TODO 172).
     @State private var coverageSnapshot: [CoveragePoint] = []
-    @State private var selectedSample: CoveragePoint?
 
     /// Citywide reach: each recently-heard positioned node, with its hop
     /// distance from us — being near that node ≈ that many hops to reach you.
@@ -265,22 +266,27 @@ struct MapTab: View {
         }
         guard !points.isEmpty else { heatGrid = []; return }
 
-        let cols = 18
-        let rows = min(32, max(12, Int(Double(cols) * region.span.latitudeDelta / region.span.longitudeDelta)))
+        // The field is sampled at grid CORNERS, smoothed once, and each cell
+        // whose corners straddle a color bin is split into triangles along
+        // the diagonal — band boundaries run at angles instead of the old
+        // staircase, so regions read as coverage, not pixels (TODO 172).
+        let cols = 26
+        let rows = min(44, max(16, Int(Double(cols) * region.span.latitudeDelta / region.span.longitudeDelta)))
         let influence = 0.015   // ~1.5 km in degrees latitude
         let cellLat = region.span.latitudeDelta / Double(rows)
         let cellLon = region.span.longitudeDelta / Double(cols)
         // World-anchored origin (snapped to cell multiples): panning slides
-        // over a fixed grid instead of reflowing every cell.
+        // over a fixed field instead of reflowing every vertex.
         let originLat = floor((region.center.latitude - region.span.latitudeDelta / 2) / cellLat) * cellLat
         let originLon = floor((region.center.longitude - region.span.longitudeDelta / 2) / cellLon) * cellLon
-        var cells: [HeatCell] = []
-        cells.reserveCapacity((rows + 1) * (cols + 1))
-        var cellId = 0
-        for row in 0...rows {
-            for col in 0...cols {
-                let lat = originLat + (Double(row) + 0.5) * cellLat
-                let lon = originLon + (Double(col) + 0.5) * cellLon
+
+        // Corner field: expected hops + confidence at every grid vertex.
+        var value = [[Double?]](repeating: [Double?](repeating: nil, count: cols + 2), count: rows + 2)
+        var weight = [[Double]](repeating: [Double](repeating: 0, count: cols + 2), count: rows + 2)
+        for row in 0...(rows + 1) {
+            for col in 0...(cols + 1) {
+                let lat = originLat + Double(row) * cellLat
+                let lon = originLon + Double(col) * cellLon
                 var weightSum = 0.0
                 var valueSum = 0.0
                 for (plat, plon, hops) in points {
@@ -292,26 +298,67 @@ struct MapTab: View {
                     weightSum += w
                     valueSum += w * hops
                 }
-                guard weightSum > 0 else { cellId += 1; continue }
-                let expectedHops = valueSum / weightSum
-                // Same four bins as the node reach palette — one legend.
-                let color: Color = expectedHops < 0.75 ? .green
-                    : expectedHops < 2.5 ? .mint
-                    : expectedHops < 4.5 ? .yellow
-                    : .orange
-                // Two opacity levels, not a continuum — neighboring cells at
-                // slightly different confidence otherwise checkerboard.
-                let confidence = min(1.0, weightSum / 20_000)
-                cells.append(HeatCell(
-                    id: cellId,
-                    corners: [
-                        CLLocationCoordinate2D(latitude: originLat + Double(row) * cellLat, longitude: originLon + Double(col) * cellLon),
-                        CLLocationCoordinate2D(latitude: originLat + Double(row) * cellLat, longitude: originLon + Double(col + 1) * cellLon),
-                        CLLocationCoordinate2D(latitude: originLat + Double(row + 1) * cellLat, longitude: originLon + Double(col + 1) * cellLon),
-                        CLLocationCoordinate2D(latitude: originLat + Double(row + 1) * cellLat, longitude: originLon + Double(col) * cellLon),
-                    ],
-                    color: color,
-                    opacity: confidence >= 0.3 ? 0.26 : 0.15))
+                if weightSum > 0 {
+                    value[row][col] = valueSum / weightSum
+                    weight[row][col] = weightSum
+                }
+            }
+        }
+        // One neighbor-smoothing pass kills single-vertex islands (the old
+        // checkerboard) without inventing coverage where there's none.
+        var smoothed = value
+        for row in 1...rows {
+            for col in 1...cols {
+                guard let center = value[row][col] else { continue }
+                var sum = center * 2, n = 2.0
+                for (dr, dc) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+                    if let v = value[row + dr][col + dc] { sum += v; n += 1 }
+                }
+                smoothed[row][col] = sum / n
+            }
+        }
+
+        func bin(_ hops: Double) -> Int {
+            hops < 0.75 ? 0 : hops < 2.5 ? 1 : hops < 4.5 ? 2 : 3
+        }
+        let palette: [Color] = [.green, .mint, .yellow, .orange]
+        func corner(_ row: Int, _ col: Int) -> CLLocationCoordinate2D {
+            CLLocationCoordinate2D(latitude: originLat + Double(row) * cellLat,
+                                   longitude: originLon + Double(col) * cellLon)
+        }
+
+        var cells: [HeatCell] = []
+        cells.reserveCapacity(rows * cols)
+        var cellId = 0
+        for row in 0..<rows {
+            for col in 0..<cols {
+                let vs = [smoothed[row][col], smoothed[row][col + 1],
+                          smoothed[row + 1][col + 1], smoothed[row + 1][col]]
+                let present = vs.compactMap { $0 }
+                guard present.count >= 3 else { cellId += 1; continue }
+                let fallback = present.reduce(0, +) / Double(present.count)
+                let v = vs.map { $0 ?? fallback }
+                let conf = min(1.0, max(weight[row][col], weight[row][col + 1],
+                                        weight[row + 1][col + 1], weight[row + 1][col]) / 20_000)
+                let opacity = conf >= 0.3 ? 0.26 : 0.15
+                let quad = [corner(row, col), corner(row, col + 1),
+                            corner(row + 1, col + 1), corner(row + 1, col)]
+                let bins = v.map(bin)
+                if Set(bins).count == 1 {
+                    cells.append(HeatCell(id: cellId, corners: quad,
+                                          color: palette[bins[0]], opacity: opacity))
+                } else {
+                    // Split along the diagonal so the bin boundary runs at an
+                    // angle; each triangle takes the bin of its own average.
+                    let triA = [quad[0], quad[1], quad[2]]
+                    let triB = [quad[0], quad[2], quad[3]]
+                    let binA = bin((v[0] + v[1] + v[2]) / 3)
+                    let binB = bin((v[0] + v[2] + v[3]) / 3)
+                    cells.append(HeatCell(id: cellId, corners: triA,
+                                          color: palette[binA], opacity: opacity))
+                    cells.append(HeatCell(id: cellId + 100_000, corners: triB,
+                                          color: palette[binB], opacity: opacity))
+                }
                 cellId += 1
             }
         }
@@ -476,16 +523,8 @@ struct MapTab: View {
                             legendKey(.yellow, "3–4")
                             legendKey(.orange, "5+")
                         }
-                        Text("Predicted hops from there to you")
+                        Text("Expected hops from a spot to you — built from every node and signal your radio has heard")
                             .foregroundStyle(.secondary)
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(.green.opacity(0.8))
-                                .frame(width: 8, height: 8)
-                                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1))
-                            Text("Spots where this phone measured real signal — tap one")
-                                .foregroundStyle(.secondary)
-                        }
                     }
                     .font(.caption2)
                     .frame(maxWidth: 250, alignment: .leading)
@@ -496,34 +535,7 @@ struct MapTab: View {
                     .padding(.bottom, 34)   // clear of the Maps attribution
                 }
             }
-            // Detail chip for a tapped measurement dot.
-            .overlay(alignment: .bottom) {
-                if mode == .coverage, let sample = selectedSample {
-                    HStack(spacing: 8) {
-                        Circle()
-                            .fill(coverageColor(sample.snr).opacity(0.9))
-                            .frame(width: 10, height: 10)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(String(format: "Measured signal: %.1f dB SNR", sample.snr))
-                                .font(.caption.weight(.medium))
-                            Text("Sampled by this phone \(sample.timestamp.formatted(.relative(presentation: .named))) — the ground truth under the prediction")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        Button {
-                            selectedSample = nil
-                        } label: {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                    .frame(maxWidth: 340)
-                    .padding(.bottom, 76)
-                }
-            }
+
             .mapScope(mapScope)
             .onChange(of: filterMaxHops) { _, _ in refreshSnapshots() }
             .onChange(of: filterMaxAgeHours) { _, _ in refreshSnapshots() }
@@ -691,25 +703,6 @@ struct MapTab: View {
         ForEach(heatGrid) { cell in
             MapPolygon(coordinates: cell.corners)
                 .foregroundStyle(cell.color.opacity(cell.opacity))
-        }
-        ForEach(coverageSnapshot) { point in
-            Annotation("", coordinate: point.coordinate) {
-                Circle()
-                    .fill(coverageColor(point.snr).opacity(0.8))
-                    .frame(width: 11, height: 11)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.7), lineWidth: 1))
-                    .overlay {
-                        if selectedSample?.id == point.id {
-                            Circle().strokeBorder(.white, lineWidth: 2).frame(width: 17, height: 17)
-                        }
-                    }
-                    // The dot is 11 px; the finger isn't.
-                    .frame(width: 30, height: 30)
-                    .contentShape(Circle())
-                    .onTapGesture {
-                        selectedSample = selectedSample?.id == point.id ? nil : point
-                    }
-            }
         }
         UserAnnotation()
     }
