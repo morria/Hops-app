@@ -4,6 +4,12 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+167. [x] Key fingerprints render large for visual comparison: two rows of
+         four groups, title-sized monospaced digits, alternating emphasis
+         so two people can read them to each other without losing their
+         place. Shared view used on node cards and your own identity
+         screen.
+
 166. [x] Node card redesigned as a contact card: big avatar + display name
          header with the mesh identity (SHRT · Long Name) and a live
          presence line always visible; Message/Directions right below;

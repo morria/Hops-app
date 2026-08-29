@@ -15,3 +15,34 @@ extension Data {
         }.joined(separator: " ")
     }
 }
+
+import SwiftUI
+
+/// Large-format fingerprint for visual comparison: two rows of four groups,
+/// big monospaced digits, alternating emphasis so the eye can track groups
+/// while two people read them to each other.
+struct KeyFingerprintView: View {
+    let key: Data
+
+    var body: some View {
+        let groups = key.keyFingerprint.split(separator: " ").map(String.init)
+        VStack(spacing: 6) {
+            ForEach(0..<2, id: \.self) { row in
+                HStack(spacing: 14) {
+                    ForEach(0..<4, id: \.self) { col in
+                        let index = row * 4 + col
+                        if index < groups.count {
+                            Text(groups[index])
+                                .foregroundStyle(index % 2 == 0 ? AnyShapeStyle(.primary)
+                                                                : AnyShapeStyle(.secondary))
+                        }
+                    }
+                }
+            }
+        }
+        .font(.system(.title3, design: .monospaced).weight(.medium))
+        .textSelection(.enabled)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 4)
+    }
+}

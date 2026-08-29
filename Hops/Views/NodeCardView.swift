@@ -234,13 +234,10 @@ struct NodeCardView: View {
                     .textSelection(.enabled)
             }
             if !node.publicKey.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
+                VStack(alignment: .leading, spacing: 6) {
                     Text("Key fingerprint")
                         .font(.subheadline)
-                    Text(node.publicKey.keyFingerprint)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    KeyFingerprintView(key: node.publicKey)
                     Text("Compare with the owner over another channel to verify.")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)

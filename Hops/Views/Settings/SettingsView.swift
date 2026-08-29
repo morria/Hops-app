@@ -369,10 +369,7 @@ struct IdentityView: View {
 
             if let key = nodes.first(where: { $0.num == radio.myNodeNum })?.publicKey, !key.isEmpty {
                 Section {
-                    Text(key.keyFingerprint)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
+                    KeyFingerprintView(key: key)
                 } header: {
                     Text("Your key fingerprint")
                 } footer: {
