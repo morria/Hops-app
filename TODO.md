@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+163. [x] Node card gains a Reachability section: last probe time, whether
+         it was answered, round-trip seconds, and reply hop count — plus a
+         "Probe Now" button that bypasses the rate limit (disabled while
+         one is in flight).
+
 162. [x] Failed sends can be deleted from the long-press menu ("Delete",
          destructive) — local tidying alongside Retry; a failed message may
          still have been transmitted, so this is not an unsend. Same

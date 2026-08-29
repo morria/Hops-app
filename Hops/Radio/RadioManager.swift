@@ -536,7 +536,7 @@ final class RadioManager: ObservableObject {
         if decoded.portnum == .textMessageApp, fromNum != myNodeNum {
             textMessagesHeard += 1
         }
-        notePresenceHeard(fromNum)
+        notePresenceHeard(fromNum, hops: hops)
         logTraffic(from: fromNum, port: portLabel(decoded.portnum), summary: trafficSummary(decoded),
                    snr: packet.rxSnr, hopsAway: hops)
 
@@ -1113,16 +1113,30 @@ final class RadioManager: ObservableObject {
     @Published private(set) var presence: [Int64: PresenceState] = [:]
     private var lastProbeAt: [Int64: Date] = [:]
 
+    /// Forensics for the node card: when the last probe went out and what
+    /// came back. respondedAt is the first packet heard from the peer after
+    /// the probe — round trip in the honest, any-packet sense.
+    struct ProbeRecord {
+        var sentAt: Date
+        var respondedAt: Date?
+        var replyHops: Int?   // nil = unknown (packet carried no hop info)
+    }
+    @Published private(set) var lastProbe: [Int64: ProbeRecord] = [:]
+
     /// Unicast NodeInfo with want_response — the peer's FIRMWARE answers, no
     /// app required on their end. Proves the round trip that predicts whether
     /// a message would ack. Rate-limited: probes are cheap for us, congestion
     /// for the mesh.
-    func probePresence(_ num: Int64) {
+    func probePresence(_ num: Int64, force: Bool = false) {
         guard state == .connected, num > 0, num != myNodeNum else { return }
-        if case .reachable(let at)? = presence[num],
-           Date().timeIntervalSince(at) < 120 { return }
-        if let last = lastProbeAt[num], Date().timeIntervalSince(last) < 300 { return }
+        if !force {
+            if case .reachable(let at)? = presence[num],
+               Date().timeIntervalSince(at) < 120 { return }
+            if let last = lastProbeAt[num], Date().timeIntervalSince(last) < 300 { return }
+        }
+        if case .checking = presence[num] { return }   // one in flight at a time
         lastProbeAt[num] = Date()
+        lastProbe[num] = ProbeRecord(sentAt: Date())
         presence[num] = .checking(Date())
         sendTargetedNodeInfo(to: num)
         Task { [weak self] in
@@ -1133,9 +1147,14 @@ final class RadioManager: ObservableObject {
     }
 
     /// Any packet from a tracked peer proves the round trip.
-    private func notePresenceHeard(_ num: Int64) {
+    private func notePresenceHeard(_ num: Int64, hops: Int) {
         guard presence[num] != nil else { return }
         presence[num] = .reachable(Date())
+        if var record = lastProbe[num], record.respondedAt == nil {
+            record.respondedAt = Date()
+            record.replyHops = hops >= 0 ? hops : nil
+            lastProbe[num] = record
+        }
     }
 
     private func sendTargetedNodeInfo(to num: Int64) {

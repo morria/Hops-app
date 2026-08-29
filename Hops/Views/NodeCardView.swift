@@ -17,6 +17,7 @@ struct NodeCardView: View {
     @State private var showRename = false
     @State private var showKeyResetConfirm = false
     @State private var renameText = ""
+    @EnvironmentObject private var radio: RadioManager
     @State private var showPhotoPicker = false
     @State private var pickedPhoto: PhotosPickerItem?
     @State private var cropImage: CropImageBox?
@@ -115,6 +116,39 @@ struct NodeCardView: View {
                         }
                     } header: {
                         Text("Security")
+                    }
+
+                    Section {
+                        if let probe = radio.lastProbe[node.num] {
+                            LabeledContent("Last probe",
+                                           value: probe.sentAt.formatted(.relative(presentation: .named)))
+                            if let replied = probe.respondedAt {
+                                LabeledContent("Replied",
+                                               value: String(format: "in %.0f s", replied.timeIntervalSince(probe.sentAt)))
+                                if let hops = probe.replyHops {
+                                    LabeledContent("Reply hops", value: hops == 0 ? "Direct" : "\(hops)")
+                                }
+                            } else if case .checking = radio.presence[node.num] {
+                                LabeledContent("Reply") {
+                                    HStack(spacing: 6) {
+                                        ProgressView().controlSize(.mini)
+                                        Text("Waiting…")
+                                    }
+                                }
+                            } else {
+                                LabeledContent("Reply", value: "None (45 s)")
+                            }
+                        }
+                        Button {
+                            radio.probePresence(node.num, force: true)
+                        } label: {
+                            Label("Probe Now", systemImage: "dot.radiowaves.left.and.right")
+                        }
+                        .disabled({ if case .checking = radio.presence[node.num] { return true }; return false }())
+                    } header: {
+                        Text("Reachability")
+                    } footer: {
+                        Text("A probe asks their radio directly — it replies even without an app running. Any packet from them counts as the reply.")
                     }
 
                     Section("Customize") {
