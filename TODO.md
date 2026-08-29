@@ -4,6 +4,22 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+166. [x] Node card redesigned as a contact card: big avatar + display name
+         header with the mesh identity (SHRT · Long Name) and a live
+         presence line always visible; Message/Directions right below;
+         then Reachability (last heard, hops, probe forensics, Probe Now),
+         Security (encryption, node ID, key fingerprint, reset), inline
+         Custom Name editor (commits on return/Done) + photo, and a
+         Details tail (mesh names, node number, battery, SNR).
+
+165. [x] The DM (i) button is now a single glyph that says two things: a
+         lock (encryption state — filled/open/orange shield) inside a ring
+         whose color is their presence (green reachable / gray checking /
+         orange not responding / faint unknown). Tapping opens the node
+         card; the separate title-bar dot and shield are gone.
+
+164. [x] Tapping the name in a DM title bar opens the node info panel.
+
 163. [x] Node card gains a Reachability section: last probe time, whether
          it was answered, round-trip seconds, and reply hop count — plus a
          "Probe Now" button that bypasses the rate limit (disabled while

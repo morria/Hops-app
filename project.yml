@@ -34,7 +34,7 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.hops
         MARKETING_VERSION: "1.0"
-        CURRENT_PROJECT_VERSION: 7
+        CURRENT_PROJECT_VERSION: 8
         TARGETED_DEVICE_FAMILY: "1,2"
         CODE_SIGN_ENTITLEMENTS: Hops/Hops.entitlements
         INFOPLIST_KEY_UIUserInterfaceStyle: Automatic

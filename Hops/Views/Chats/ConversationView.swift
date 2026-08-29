@@ -191,37 +191,40 @@ struct ConversationView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .principal) {
-                HStack(spacing: 8) {
-                    MonogramAvatar(text: peerMonogram, isChannel: !isDM, size: 28,
-                                   assetImage: isDM ? nil : MetroPresetStore.shared.channelIconAsset(forChannelIndex: conversation?.channelIndex ?? -1),
-                                   imageData: peerIconData)
-                    Text(title)
-                        .font(.headline)
-                        .lineLimit(1)
-                    if isDM, case .node(let num) = destination {
-                        presenceDot(for: num)
-                    }
-                    // PKI state at a glance: locked = end-to-end encrypted DM.
-                    if isDM, let security = peerSecurity {
-                        if security.keyChanged {
-                            Image(systemName: "exclamationmark.shield.fill")
-                                .font(.caption)
-                                .foregroundStyle(.orange)
-                        } else if security.hasKey {
-                            Image(systemName: "lock.fill")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+                // The name IS the button — tapping opens the node card (DMs).
+                Button {
+                    if isDM { showPeerCard = true }
+                } label: {
+                    HStack(spacing: 8) {
+                        MonogramAvatar(text: peerMonogram, isChannel: !isDM, size: 28,
+                                       assetImage: isDM ? nil : MetroPresetStore.shared.channelIconAsset(forChannelIndex: conversation?.channelIndex ?? -1),
+                                       imageData: peerIconData)
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                            .foregroundStyle(.primary)
                     }
                 }
+                .buttonStyle(.plain)
+                .disabled(!isDM)
             }
             if isDM {
+                // Security + presence in one glyph: the lock is the
+                // encryption state, the ring around it is their presence.
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         showPeerCard = true
                     } label: {
-                        Image(systemName: "info.circle")
+                        ZStack {
+                            Circle()
+                                .strokeBorder(presenceRingColor, lineWidth: 2)
+                            Image(systemName: securityGlyph.name)
+                                .font(.system(size: 10, weight: .semibold))
+                                .foregroundStyle(securityGlyph.color)
+                        }
+                        .frame(width: 27, height: 27)
                     }
+                    .accessibilityLabel("Node info")
                 }
             }
         }
@@ -562,30 +565,26 @@ struct ConversationView: View {
 
     @State private var showUnreachableFork = false
 
-    /// Round-trip presence in the title bar: green = probe answered, pulsing
-    /// gray = checking, hollow = not responding ("offline" would overclaim —
+    /// Ring color = round-trip presence: green reachable, gray checking,
+    /// orange not-responding, faint unknown ("offline" would overclaim —
     /// RF is asymmetric).
-    @ViewBuilder
-    private func presenceDot(for num: Int64) -> some View {
+    private var presenceRingColor: Color {
+        guard case .node(let num) = destination else { return Color(.quaternaryLabel) }
         switch radio.presence[num] {
-        case .reachable:
-            Image(systemName: "circle.fill")
-                .font(.system(size: 8))
-                .foregroundStyle(.green)
-                .accessibilityLabel("Reachable")
-        case .checking:
-            Image(systemName: "circle.dotted")
-                .font(.system(size: 9))
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Checking if reachable")
-        case .noResponse:
-            Image(systemName: "circle")
-                .font(.system(size: 8))
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("Not responding")
-        case nil:
-            EmptyView()
+        case .reachable: return .green
+        case .checking: return Color(.systemGray3)
+        case .noResponse: return .orange
+        case nil: return Color(.quaternaryLabel)
         }
+    }
+
+    /// Lock inside the ring = encryption state of this DM.
+    private var securityGlyph: (name: String, color: Color) {
+        if let security = peerSecurity {
+            if security.keyChanged { return ("exclamationmark.shield.fill", .orange) }
+            if security.hasKey { return ("lock.fill", .primary) }
+        }
+        return ("lock.open", .secondary)
     }
 
     private var peerNotResponding: Bool {
