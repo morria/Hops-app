@@ -853,12 +853,19 @@ struct MessageBubble: View {
                 }
             }
             // Anything still queued on this phone can be unsent — once it
-            // reaches a radio it's out in the world.
+            // reaches a radio it's out in the world. Failed sends can be
+            // deleted too: that's local tidying, not an unsend.
             if message.status == .waitingForPeer || message.status == .waitingForRadio {
                 Button(role: .destructive) {
                     onDeleteQueued()
                 } label: {
                     Label("Delete — Don't Send", systemImage: "trash")
+                }
+            } else if message.status == .failed {
+                Button(role: .destructive) {
+                    onDeleteQueued()
+                } label: {
+                    Label("Delete", systemImage: "trash")
                 }
             }
         }

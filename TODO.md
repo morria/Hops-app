@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+162. [x] Failed sends can be deleted from the long-press menu ("Delete",
+         destructive) — local tidying alongside Retry; a failed message may
+         still have been transmitted, so this is not an unsend. Same
+         preview fix-up as delete-before-send.
+
 161. [x] Reliability layer draft 1 (docs/RELIABILITY.md): outgoing texts
          carry a per-conversation sequence number in the undefined high bits
          of Data.bitfield (invisible to other clients, encrypted end-to-end);

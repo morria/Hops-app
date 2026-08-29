@@ -105,15 +105,17 @@ actor MessageStore {
         for ref in refs { ref.replyId = newId }
     }
 
-    /// Delete a message that is still queued (held for a peer, or in the
-    /// outbox) BEFORE it has ever been handed to a radio. Anything past
-    /// that point has left the phone and cannot be unsent. Fixes up the
-    /// conversation preview if the deleted row was backing it.
+    /// Delete a message that is still queued (held for a peer, in the
+    /// outbox) or that failed. Queued rows were never handed to a radio;
+    /// a failed row may have been transmitted, so its deletion is local
+    /// tidying, not an unsend. Fixes up the conversation preview if the
+    /// deleted row was backing it.
     func deleteQueuedMessage(packetId: Int64) {
         guard let message = try? modelContext.fetch(FetchDescriptor<MessageEntity>(
             predicate: #Predicate { $0.packetId == packetId })).first,
               message.outgoing,
               message.status == .waitingForPeer || message.status == .waitingForRadio
+                || message.status == .failed
         else { return }
         let key = message.conversationKey
         modelContext.delete(message)
