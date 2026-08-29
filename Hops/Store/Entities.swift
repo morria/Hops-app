@@ -30,6 +30,9 @@ final class ConversationEntity {
     /// Status mirror of the message backing lastPreview — only meaningful
     /// when lastMessagePacketId != 0 (i.e. that message was outgoing).
     var lastStatusRaw: Int = 0
+    /// Reliability: our last sent sequence number in this conversation
+    /// (mod 256; -1 = none sent yet). See docs/RELIABILITY.md.
+    var seqCounter: Int = -1
     var lastMessagePacketId: Int64 = 0
     var unreadCount: Int = 0
     var pinned: Bool = false
@@ -88,6 +91,9 @@ final class MessageEntity {
     var replyId: Int64 = 0     // packet id this replies/reacts to (0 = none)
     var read: Bool = false
     var portNum: Int32 = 1
+    /// Reliability sequence number (mod 256; -1 = none). Outgoing: assigned
+    /// per conversation. Incoming: parsed from the Data bitfield.
+    var seqNum: Int = -1
 
     var status: MessageStatus {
         get { MessageStatus(rawValue: statusRaw) ?? .received }
@@ -110,6 +116,7 @@ final class MessageEntity {
         self.replyId = replyId
         self.read = outgoing
         self.portNum = portNum
+        // seqNum stays -1 unless the reliability layer assigns/parses one.
     }
 }
 
@@ -206,6 +213,18 @@ final class ChannelEntity {
     static let reservedNames: Set<String> = ["admin", "gpio", "serial", "mqtt"]
     var isReserved: Bool { Self.reservedNames.contains(name.lowercased()) }
     var isActive: Bool { roleRaw != 0 && !isReserved }
+}
+
+// MARK: - Reliability sequence tracking
+
+/// Receiver-side: the last sequence number seen per (conversation, sender).
+/// CloudKit-safe: inline defaults, no unique constraints.
+@Model
+final class SeqTrackEntity {
+    /// "<conversationKey>|<senderNum>"
+    var key: String = ""
+    var lastSeen: Int = -1
+    init(key: String) { self.key = key }
 }
 
 // MARK: - Position samples (trails)

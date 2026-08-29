@@ -198,6 +198,9 @@ struct ConversationView: View {
                     Text(title)
                         .font(.headline)
                         .lineLimit(1)
+                    if isDM, case .node(let num) = destination {
+                        presenceDot(for: num)
+                    }
                     // PKI state at a glance: locked = end-to-end encrypted DM.
                     if isDM, let security = peerSecurity {
                         if security.keyChanged {
@@ -253,6 +256,14 @@ struct ConversationView: View {
         .onAppear {
             radio.activeConversationKey = conversationKey
             markRead()
+            // Stale peer? Ask their radio directly instead of guessing.
+            if case .node(let num) = destination {
+                let heard = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
+                    predicate: #Predicate { $0.num == num })).first)?.lastHeard
+                if heard == nil || Date().timeIntervalSince(heard!) > 10 * 60 {
+                    radio.probePresence(num)
+                }
+            }
         }
         .onDisappear {
             if radio.activeConversationKey == conversationKey {
@@ -409,7 +420,9 @@ struct ConversationView: View {
     @ViewBuilder
     private func bubbleRow(for row: RowModel) -> some View {
         let message = row.message
-        if message.portNum == 4 {
+        if message.portNum == MessageStore.gapPortNum {
+            gapPill(message)
+        } else if message.portNum == 4 {
             // System note (e.g. node-info share): centered, gray, status-aware.
             Text(systemNoteText(message))
                 .font(.caption)
@@ -440,6 +453,39 @@ struct ConversationView: View {
             onRetry: { radio.retry(packetId: message.packetId) }
         )
         }
+    }
+
+    /// A detected sequence gap: messages from this sender didn't arrive.
+    /// Tap asks their app to resend (port 423); "x" prefix = sender no
+    /// longer has them.
+    @ViewBuilder
+    private func gapPill(_ gap: MessageEntity) -> some View {
+        let unrecoverable = gap.text.hasPrefix("x")
+        let count = gap.text.split(separator: ",").count
+        let sender = gap.fromNum
+        VStack(spacing: 4) {
+            Label(
+                count == 1 ? "A message didn't arrive" : "\(count) messages didn't arrive",
+                systemImage: "questionmark.bubble"
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            if unrecoverable {
+                Text("They can't be recovered — the sender no longer has them.")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                Button("Ask to Resend") {
+                    let seqs = gap.text.split(separator: ",").compactMap { Int($0) }
+                    radio.requestResend(from: sender, conversationKey: conversationKey, seqs: seqs)
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .center)
+        .padding(.vertical, 6)
     }
 
     private func systemNoteText(_ message: MessageEntity) -> String {
@@ -514,6 +560,40 @@ struct ConversationView: View {
         .background(.bar)
     }
 
+    @State private var showUnreachableFork = false
+
+    /// Round-trip presence in the title bar: green = probe answered, pulsing
+    /// gray = checking, hollow = not responding ("offline" would overclaim —
+    /// RF is asymmetric).
+    @ViewBuilder
+    private func presenceDot(for num: Int64) -> some View {
+        switch radio.presence[num] {
+        case .reachable:
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(.green)
+                .accessibilityLabel("Reachable")
+        case .checking:
+            Image(systemName: "circle.dotted")
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Checking if reachable")
+        case .noResponse:
+            Image(systemName: "circle")
+                .font(.system(size: 8))
+                .foregroundStyle(.secondary)
+                .accessibilityLabel("Not responding")
+        case nil:
+            EmptyView()
+        }
+    }
+
+    private var peerNotResponding: Bool {
+        guard case .node(let num) = destination,
+              case .noResponse = radio.presence[num] else { return false }
+        return true
+    }
+
     private var sendButton: some View {
         Group {
             if isDM {
@@ -528,7 +608,20 @@ struct ConversationView: View {
                     Image(systemName: "arrow.up.circle.fill")
                         .font(.system(size: 30))
                 } primaryAction: {
-                    send()
+                    if peerNotResponding {
+                        showUnreachableFork = true
+                    } else {
+                        send()
+                    }
+                }
+                .confirmationDialog("Their radio isn't responding",
+                                    isPresented: $showUnreachableFork,
+                                    titleVisibility: .visible) {
+                    Button("Send When They're Heard") { send(holdForPeer: true) }
+                    Button("Send Anyway") { send() }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("A probe went unanswered. Held messages send automatically the moment their radio is heard.")
                 }
             } else {
                 Button {

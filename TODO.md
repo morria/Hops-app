@@ -4,6 +4,23 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+161. [x] Reliability layer draft 1 (docs/RELIABILITY.md): outgoing texts
+         carry a per-conversation sequence number in the undefined high bits
+         of Data.bitfield (invisible to other clients, encrypted end-to-end);
+         receivers detect gaps (mod-256 window, reset-tolerant) and render
+         an inline "N messages didn't arrive · Ask to Resend" pill; a tiny
+         port-423 protocol (NACK/RESEND/TOO_OLD) recovers the originals with
+         their true timestamps, deduped by seq. Manual-tap NACKs only —
+         airtime stays consented.
+
+160. [x] Presence probe: opening a stale DM sends a unicast NodeInfo with
+         want_response — the peer's FIRMWARE answers, no app needed. Title
+         bar shows a presence dot (green reachable / dotted checking /
+         hollow not-responding — never "offline"; RF is asymmetric). If the
+         probe went unanswered, Send forks: "Send When They're Heard" /
+         "Send Anyway". Any packet from the peer resolves the probe; 45 s
+         timeout, one probe per peer per 5 min.
+
 159. [x] Presence announce: on app-open and on radio connect, Hops
          broadcasts a nodeinfo (rate-limited to one per 30 min) so peers
          holding "send when their radio is heard" messages for us hear us

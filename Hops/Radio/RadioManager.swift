@@ -536,6 +536,7 @@ final class RadioManager: ObservableObject {
         if decoded.portnum == .textMessageApp, fromNum != myNodeNum {
             textMessagesHeard += 1
         }
+        notePresenceHeard(fromNum)
         logTraffic(from: fromNum, port: portLabel(decoded.portnum), summary: trafficSummary(decoded),
                    snr: packet.rxSnr, hopsAway: hops)
 
@@ -679,6 +680,11 @@ final class RadioManager: ObservableObject {
             }
 
         default:
+            if case .UNRECOGNIZED(Self.reliabilityPort) = decoded.portnum,
+               Int64(packet.to) == myNodeNum {
+                handleReliabilityFrame(from: fromNum, payload: decoded.payload)
+                break
+            }
             #if MESHSITES
             if case .UNRECOGNIZED(MeshsitesManager.port) = decoded.portnum {
                 MeshsitesManager.shared.handle(from: fromNum, to: Int64(packet.to),
@@ -876,6 +882,12 @@ final class RadioManager: ObservableObject {
         if record.isEmoji {
             decoded.emoji = 1
         }
+        // Reliability trailer (docs/RELIABILITY.md): sequence number in the
+        // undefined high bits of Data.bitfield — invisible to other clients,
+        // rides end-to-end inside the encrypted payload.
+        if record.seqNum >= 0, !record.isEmoji {
+            decoded.bitfield = decoded.bitfield | 0x0080_0000 | (UInt32(record.seqNum & 0xFF) << 24)
+        }
         if record.replyId > 0 {
             decoded.replyID = UInt32(truncatingIfNeeded: record.replyId)
         }
@@ -1034,6 +1046,125 @@ final class RadioManager: ObservableObject {
     /// Broadcast our NodeInfo on a channel right now, instead of waiting for the
     /// periodic schedule. want_response invites others to answer with theirs,
     /// so it doubles as a roster refresh.
+    // MARK: - Reliability resend protocol (docs/RELIABILITY.md, port 423)
+
+    static let reliabilityPort = 423
+
+    /// "Ask to resend": NACK the sender for the missing sequence numbers.
+    func requestResend(from sender: Int64, conversationKey: String, seqs: [Int]) {
+        guard state == .connected, !seqs.isEmpty else { return }
+        var frame = Data([0x01])
+        if conversationKey.hasPrefix("ch-"), let index = UInt8(conversationKey.dropFirst(3)) {
+            frame.append(contentsOf: [1, index])
+        } else {
+            frame.append(contentsOf: [0, 0])
+        }
+        let batch = seqs.prefix(8)
+        frame.append(UInt8(batch.count))
+        frame.append(contentsOf: batch.map { UInt8($0 & 0xFF) })
+        sendReliability(to: sender, payload: frame)
+    }
+
+    private func handleReliabilityFrame(from: Int64, payload: Data) {
+        guard let store, let first = payload.first else { return }
+        let bytes = [UInt8](payload)
+        let myNum = myNodeNum
+        switch first {
+        case 0x01:   // NACK: we are the original sender — answer with RESENDs
+            Task {
+                let frames = await store.handleResendRequest(from: from, bytes: bytes)
+                await MainActor.run {
+                    for frame in frames { self.sendReliability(to: from, payload: frame) }
+                }
+            }
+        case 0x02:   // RESEND: recovered message
+            Task { await store.ingestResend(from: from, bytes: bytes, myNum: myNum) }
+        case 0x03:   // TOO_OLD
+            Task { await store.markGapUnrecoverable(from: from, bytes: bytes) }
+        default:
+            break
+        }
+    }
+
+    private func sendReliability(to num: Int64, payload: Data) {
+        var decoded = DataMessage()
+        decoded.portnum = PortNum.UNRECOGNIZED(Self.reliabilityPort)
+        decoded.payload = payload
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: num)
+        packet.wantAck = true
+        packet.decoded = decoded
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+    }
+
+    // MARK: - Presence probes (round-trip liveness)
+
+    enum PresenceState: Equatable {
+        case checking(Date)
+        case reachable(Date)
+        case noResponse(Date)
+    }
+    /// Per-peer round-trip reachability, driven by probes and resolved by ANY
+    /// packet from the peer. Only peers that were probed are tracked.
+    @Published private(set) var presence: [Int64: PresenceState] = [:]
+    private var lastProbeAt: [Int64: Date] = [:]
+
+    /// Unicast NodeInfo with want_response — the peer's FIRMWARE answers, no
+    /// app required on their end. Proves the round trip that predicts whether
+    /// a message would ack. Rate-limited: probes are cheap for us, congestion
+    /// for the mesh.
+    func probePresence(_ num: Int64) {
+        guard state == .connected, num > 0, num != myNodeNum else { return }
+        if case .reachable(let at)? = presence[num],
+           Date().timeIntervalSince(at) < 120 { return }
+        if let last = lastProbeAt[num], Date().timeIntervalSince(last) < 300 { return }
+        lastProbeAt[num] = Date()
+        presence[num] = .checking(Date())
+        sendTargetedNodeInfo(to: num)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(45))
+            guard let self, case .checking = self.presence[num] else { return }
+            self.presence[num] = .noResponse(Date())
+        }
+    }
+
+    /// Any packet from a tracked peer proves the round trip.
+    private func notePresenceHeard(_ num: Int64) {
+        guard presence[num] != nil else { return }
+        presence[num] = .reachable(Date())
+    }
+
+    private func sendTargetedNodeInfo(to num: Int64) {
+        guard let store, myNodeNum > 0 else { return }
+        let myNum = myNodeNum
+        Task {
+            guard let snapshot = await store.nodeSnapshot(num: myNum) else { return }
+            await MainActor.run {
+                var user = User()
+                user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: myNum))
+                user.longName = snapshot.longName
+                user.shortName = snapshot.shortName
+                if !snapshot.publicKey.isEmpty { user.publicKey = snapshot.publicKey }
+                var decoded = DataMessage()
+                decoded.portnum = .nodeinfoApp
+                decoded.payload = (try? user.serializedData()) ?? Data()
+                decoded.wantResponse = true   // unicast: asks THEIR radio to reply
+                var packet = MeshPacket()
+                packet.id = self.newPacketId()
+                packet.from = UInt32(truncatingIfNeeded: myNum)
+                packet.to = UInt32(truncatingIfNeeded: num)
+                packet.decoded = decoded
+                var toRadio = ToRadio()
+                toRadio.packet = packet
+                self.write(toRadio)
+            }
+        }
+    }
+
     /// Presence announce: peers holding "send when their radio is heard"
     /// messages for us release them on hearing ANY packet from us — so on
     /// app-open and on connect, broadcast a nodeinfo. Rate-limited to be a

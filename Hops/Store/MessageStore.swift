@@ -76,7 +76,7 @@ actor MessageStore {
             records.append(OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
                                           channel: message.channel, text: message.text,
                                           isEmoji: message.isEmoji, replyId: message.replyId,
-                                          peerPublicKey: publicKey))
+                                          peerPublicKey: publicKey, seqNum: message.seqNum))
         }
         try? modelContext.save()
         return records
@@ -164,7 +164,7 @@ actor MessageStore {
         return OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
                               channel: message.channel, text: message.text,
                               isEmoji: message.isEmoji, replyId: message.replyId,
-                              peerPublicKey: publicKey)
+                              peerPublicKey: publicKey, seqNum: message.seqNum)
     }
 
     /// True when this num has ever authored one of OUR outgoing rows — i.e.
@@ -537,6 +537,10 @@ actor MessageStore {
         }
 
         let isTapback = packet.decoded.emoji != 0
+        // Reliability trailer (docs/RELIABILITY.md): bit 23 marks presence,
+        // bits 24-31 carry the per-conversation sequence number.
+        let bf = packet.decoded.bitfield
+        let inboundSeq: Int = (bf & 0x0080_0000) != 0 ? Int((bf >> 24) & 0xFF) : -1
         let message = MessageEntity(
             packetId: packetId,
             conversationKey: key,
@@ -551,7 +555,11 @@ actor MessageStore {
             replyId: Int64(packet.decoded.replyID),
             portNum: Int32(packet.decoded.portnum.rawValue)
         )
+        message.seqNum = inboundSeq
         modelContext.insert(message)
+        if !outgoing, !isTapback, inboundSeq >= 0 {
+            trackSequence(sender: fromNum, convoKey: key, seq: inboundSeq, near: message.timestamp)
+        }
 
         if !isTapback {
             convo.lastMessageAt = message.timestamp
@@ -665,6 +673,7 @@ actor MessageStore {
         var isEmoji: Bool
         var replyId: Int64
         var peerPublicKey: Data
+        var seqNum: Int = -1
     }
 
     func persistOutgoing(packetId: Int64, myNum: Int64, destination: MessageDestinationRef,
@@ -702,6 +711,10 @@ actor MessageStore {
             isEmoji: isEmoji,
             replyId: replyId
         )
+        if !isEmoji {
+            convo.seqCounter = (convo.seqCounter + 1) & 0xFF
+            message.seqNum = convo.seqCounter
+        }
         modelContext.insert(message)
         if !holdForPeer && connected { locallyTransmitted.insert(packetId) }
         // Stamp the conversation we hold directly — a re-fetch can miss a row
@@ -714,7 +727,8 @@ actor MessageStore {
         }
         try? modelContext.save()
         return OutgoingRecord(packetId: packetId, toNum: toNum, channel: channel,
-                              text: text, isEmoji: isEmoji, replyId: replyId, peerPublicKey: publicKey)
+                              text: text, isEmoji: isEmoji, replyId: replyId,
+                              peerPublicKey: publicKey, seqNum: message.seqNum)
     }
 
     /// Everything waiting in the outbox, oldest first; marks them .sending.
@@ -737,7 +751,7 @@ actor MessageStore {
             records.append(OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
                                           channel: message.channel, text: message.text,
                                           isEmoji: message.isEmoji, replyId: message.replyId,
-                                          peerPublicKey: publicKey))
+                                          peerPublicKey: publicKey, seqNum: message.seqNum))
         }
         try? modelContext.save()
         return records
@@ -764,7 +778,140 @@ actor MessageStore {
         guard connected else { return nil }
         return OutgoingRecord(packetId: newPacketId, toNum: message.toNum, channel: message.channel,
                               text: message.text, isEmoji: message.isEmoji, replyId: message.replyId,
-                              peerPublicKey: publicKey)
+                              peerPublicKey: publicKey, seqNum: message.seqNum)
+    }
+
+    // MARK: - Reliability (sequence gaps + resend) — docs/RELIABILITY.md
+
+    static let gapPortNum: Int32 = 424   // synthetic transcript rows, never on the wire
+
+    private func seqTracker(convoKey: String, sender: Int64) -> SeqTrackEntity {
+        let tkey = "\(convoKey)|\(sender)"
+        if let found = try? modelContext.fetch(FetchDescriptor<SeqTrackEntity>(
+            predicate: #Predicate { $0.key == tkey })).first { return found }
+        let made = SeqTrackEntity(key: tkey)
+        modelContext.insert(made)
+        return made
+    }
+
+    /// Mod-256 window: forward jumps of 2-8 are gaps; anything else
+    /// (duplicate, backward, huge jump) is a counter reset — resync silently
+    /// so a reinstall can't paint "247 messages missing".
+    private func trackSequence(sender: Int64, convoKey: String, seq: Int, near date: Date) {
+        resolveGap(convoKey: convoKey, sender: sender, seq: seq)
+        let tracker = seqTracker(convoKey: convoKey, sender: sender)
+        defer { tracker.lastSeen = seq }
+        guard tracker.lastSeen >= 0 else { return }
+        let delta = (seq - tracker.lastSeen + 256) % 256
+        guard delta >= 2, delta <= 8 else { return }
+        let missing = (1..<delta).map { (tracker.lastSeen + $0) % 256 }
+        let gap = MessageEntity(
+            packetId: Int64.random(in: (1 << 40)..<(1 << 62)),
+            conversationKey: convoKey, fromNum: sender, toNum: 0, channel: 0,
+            text: missing.map(String.init).joined(separator: ","),
+            timestamp: date.addingTimeInterval(-0.001), outgoing: false,
+            status: .received, portNum: Self.gapPortNum)
+        modelContext.insert(gap)
+    }
+
+    /// A message with this seq arrived (organically or via RESEND) — remove
+    /// it from any gap row; delete the row once empty.
+    private func resolveGap(convoKey: String, sender: Int64, seq: Int) {
+        let port = Self.gapPortNum
+        let gaps = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.conversationKey == convoKey
+                                    && $0.fromNum == sender && $0.portNum == port }))) ?? []
+        for gap in gaps {
+            var seqs = gap.text.split(separator: ",").compactMap { Int($0.hasPrefix("x") ? $0.dropFirst() : $0[...]) }
+            guard seqs.contains(seq) else { continue }
+            seqs.removeAll { $0 == seq }
+            if seqs.isEmpty { modelContext.delete(gap) }
+            else { gap.text = (gap.text.hasPrefix("x") ? "x" : "") + seqs.map(String.init).joined(separator: ",") }
+        }
+    }
+
+    /// Sender side: answer a NACK with RESEND frames (or TOO_OLD) — wire
+    /// frames for RadioManager to transmit back to the requester.
+    func handleResendRequest(from requester: Int64, bytes: [UInt8]) -> [Data] {
+        guard bytes.count >= 4, bytes[0] == 0x01 else { return [] }
+        let kind = bytes[1], chIndex = Int32(bytes[2]), count = Int(bytes[3])
+        guard bytes.count >= 4 + count, count <= 8, kind <= 1 else { return [] }
+        let convoKey = kind == 0 ? ConversationEntity.dmKey(requester)
+                                 : ConversationEntity.channelKey(chIndex)
+        var frames: [Data] = []
+        for seq in bytes[4..<(4 + count)].map(Int.init) {
+            let found = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+                predicate: #Predicate { $0.conversationKey == convoKey
+                                        && $0.outgoing == true && $0.seqNum == seq }))) ?? []
+            if let message = found.max(by: { $0.timestamp < $1.timestamp }) {
+                var frame = Data([0x02, kind, UInt8(truncatingIfNeeded: chIndex), UInt8(seq)])
+                let time = UInt32(clamping: Int(message.timestamp.timeIntervalSince1970))
+                frame.append(contentsOf: [UInt8(time >> 24 & 0xFF), UInt8(time >> 16 & 0xFF),
+                                          UInt8(time >> 8 & 0xFF), UInt8(time & 0xFF)])
+                frame.append(Data(message.text.utf8))
+                frames.append(frame)
+            } else {
+                frames.append(Data([0x03, kind, UInt8(truncatingIfNeeded: chIndex), UInt8(seq)]))
+            }
+        }
+        return frames
+    }
+
+    /// Receiver side: a RESEND arrived — slot the recovered message into its
+    /// true place in the transcript (original timestamp), dedupe by seq.
+    func ingestResend(from sender: Int64, bytes: [UInt8], myNum: Int64) {
+        guard bytes.count >= 9, sender != myNum else { return }
+        let kind = bytes[1], chIndex = Int32(bytes[2]), seq = Int(bytes[3])
+        guard kind <= 1 else { return }
+        let time = UInt32(bytes[4]) << 24 | UInt32(bytes[5]) << 16
+                 | UInt32(bytes[6]) << 8 | UInt32(bytes[7])
+        guard let text = String(bytes: bytes[8...], encoding: .utf8), !text.isEmpty else { return }
+        let convoKey = kind == 0 ? ConversationEntity.dmKey(sender)
+                                 : ConversationEntity.channelKey(chIndex)
+        let port = Self.gapPortNum
+        let dupes = ((try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.conversationKey == convoKey
+                                    && $0.fromNum == sender && $0.seqNum == seq
+                                    && $0.outgoing == false && $0.portNum != port }))) ?? [])
+        guard dupes.isEmpty else {
+            resolveGap(convoKey: convoKey, sender: sender, seq: seq)
+            try? modelContext.save()
+            return
+        }
+        let message = MessageEntity(
+            packetId: Int64.random(in: (1 << 40)..<(1 << 62)),
+            conversationKey: convoKey, fromNum: sender,
+            toNum: kind == 0 ? myNum : Int64(UInt32.max), channel: chIndex,
+            text: Self.sanitizeInbound(text), timestamp: Date(timeIntervalSince1970: TimeInterval(time)),
+            outgoing: false, status: .received)
+        message.seqNum = seq
+        modelContext.insert(message)
+        if let convo = fetchConversation(key: convoKey) { convo.unreadCount += 1 }
+        resolveGap(convoKey: convoKey, sender: sender, seq: seq)
+        try? modelContext.save()
+    }
+
+    private static func sanitizeInbound(_ text: String) -> String {
+        String(text.prefix(300))
+    }
+
+    /// TOO_OLD: the sender no longer has it — the gap hardens into a
+    /// permanent-loss marker ("x" prefix, rendered without the ask button).
+    func markGapUnrecoverable(from sender: Int64, bytes: [UInt8]) {
+        guard bytes.count >= 4 else { return }
+        let kind = bytes[1], chIndex = Int32(bytes[2]), seq = Int(bytes[3])
+        guard kind <= 1 else { return }
+        let convoKey = kind == 0 ? ConversationEntity.dmKey(sender)
+                                 : ConversationEntity.channelKey(chIndex)
+        let port = Self.gapPortNum
+        let gaps = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.conversationKey == convoKey
+                                    && $0.fromNum == sender && $0.portNum == port }))) ?? []
+        for gap in gaps
+        where gap.text.split(separator: ",").compactMap({ Int($0.hasPrefix("x") ? $0.dropFirst() : $0[...]) }).contains(seq) {
+            if !gap.text.hasPrefix("x") { gap.text = "x" + gap.text }
+        }
+        try? modelContext.save()
     }
 
     /// A gray transcript note for non-text sends (e.g. "Send My Node Info").
