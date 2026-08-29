@@ -177,8 +177,10 @@ struct MapTab: View {
         let id: Int
         let coordinate: CLLocationCoordinate2D
         let snr: Float
+        let timestamp: Date
     }
     @State private var coverageSnapshot: [CoveragePoint] = []
+    @State private var selectedSample: CoveragePoint?
 
     /// Citywide reach: each recently-heard positioned node, with its hop
     /// distance from us — being near that node ≈ that many hops to reach you.
@@ -336,7 +338,8 @@ struct MapTab: View {
                 CoveragePoint(id: index,
                               coordinate: CLLocationCoordinate2D(latitude: sample.latitude,
                                                                  longitude: sample.longitude),
-                              snr: sample.snr)
+                              snr: sample.snr,
+                              timestamp: sample.timestamp)
             }
         }
     }
@@ -461,25 +464,64 @@ struct MapTab: View {
                 .padding(.trailing, 16)
                 .padding(.bottom, 16)
             }
-            // The coverage layer needs a key — four colors, two dot palettes.
-            .overlay(alignment: .topLeading) {
+            // Coverage key: bottom-leading, the mapping-app convention — on
+            // iPad the old top-left placement floated in empty space far from
+            // everything the eye pairs it with.
+            .overlay(alignment: .bottomLeading) {
                 if mode == .coverage {
-                    VStack(alignment: .leading, spacing: 5) {
+                    VStack(alignment: .leading, spacing: 6) {
                         HStack(spacing: 10) {
                             legendKey(.green, "Direct")
                             legendKey(.mint, "1–2 hops")
                             legendKey(.yellow, "3–4")
                             legendKey(.orange, "5+")
                         }
-                        Text("Predicted hops from there to you · dots are your measured signal")
+                        Text("Predicted hops from there to you")
                             .foregroundStyle(.secondary)
+                        HStack(spacing: 5) {
+                            Circle()
+                                .fill(.green.opacity(0.8))
+                                .frame(width: 8, height: 8)
+                                .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 1))
+                            Text("Spots where this phone measured real signal — tap one")
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     .font(.caption2)
+                    .frame(maxWidth: 250, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
                     .padding(.leading, 16)
-                    .padding(.top, 8)
+                    .padding(.bottom, 34)   // clear of the Maps attribution
+                }
+            }
+            // Detail chip for a tapped measurement dot.
+            .overlay(alignment: .bottom) {
+                if mode == .coverage, let sample = selectedSample {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(coverageColor(sample.snr).opacity(0.9))
+                            .frame(width: 10, height: 10)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(String(format: "Measured signal: %.1f dB SNR", sample.snr))
+                                .font(.caption.weight(.medium))
+                            Text("Sampled by this phone \(sample.timestamp.formatted(.relative(presentation: .named))) — the ground truth under the prediction")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        Button {
+                            selectedSample = nil
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+                    .frame(maxWidth: 340)
+                    .padding(.bottom, 76)
                 }
             }
             .mapScope(mapScope)
@@ -656,6 +698,17 @@ struct MapTab: View {
                     .fill(coverageColor(point.snr).opacity(0.8))
                     .frame(width: 11, height: 11)
                     .overlay(Circle().strokeBorder(.white.opacity(0.7), lineWidth: 1))
+                    .overlay {
+                        if selectedSample?.id == point.id {
+                            Circle().strokeBorder(.white, lineWidth: 2).frame(width: 17, height: 17)
+                        }
+                    }
+                    // The dot is 11 px; the finger isn't.
+                    .frame(width: 30, height: 30)
+                    .contentShape(Circle())
+                    .onTapGesture {
+                        selectedSample = selectedSample?.id == point.id ? nil : point
+                    }
             }
         }
         UserAnnotation()

@@ -4,6 +4,17 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+170. [x] Coverage legend redesigned and relocated: bottom-leading (mapping
+         convention; the old top-left floated oddly on iPad), width-capped,
+         with a dedicated line — and matching glyph — explaining the
+         measurement dots.
+
+169. [x] The coverage dots explain themselves: they're spots where THIS
+         phone paired its position with real measured SNR (the ground truth
+         under the prediction). They're now tappable — 30 pt target, ring
+         highlight, and a detail chip showing the dB and when it was
+         sampled.
+
 168. [x] The node card photo no longer renders translucent: the header
          avatar was inheriting the 2-hour "offline" dimming used in lists,
          which read as a broken image next to the explicit presence line.
