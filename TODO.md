@@ -4,6 +4,9 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+175. [x] Presence probes rate-limited to one per peer per 15 minutes (was
+         5) — Probe Now on the node card still bypasses.
+
 174. [x] Austin Mesh preset (manifest v6): LongFast defaults per
          austinmesh.org's own setup page (their custom energy went to
          MeshCore; Meshtastic runs stock), geo-tagged for the Near You

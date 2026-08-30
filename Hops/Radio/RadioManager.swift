@@ -1132,7 +1132,7 @@ final class RadioManager: ObservableObject {
         if !force {
             if case .reachable(let at)? = presence[num],
                Date().timeIntervalSince(at) < 120 { return }
-            if let last = lastProbeAt[num], Date().timeIntervalSince(last) < 300 { return }
+            if let last = lastProbeAt[num], Date().timeIntervalSince(last) < 900 { return }   // 15 min max
         }
         if case .checking = presence[num] { return }   // one in flight at a time
         lastProbeAt[num] = Date()
