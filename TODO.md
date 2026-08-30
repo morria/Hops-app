@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+174. [x] Austin Mesh preset (manifest v6): LongFast defaults per
+         austinmesh.org's own setup page (their custom energy went to
+         MeshCore; Meshtastic runs stock), geo-tagged for the Near You
+         badge. Also fixed OTA preset refresh: the remote manifest URL
+         pointed at a repo that never existed — it now points at the app
+         repo's own manifest, so committing a preset update to main ships
+         it to every future install without an app update.
+
 173. [x] Location-aware presets (manifest v5): each metro preset carries a
          service area (center + radius); when location is already
          authorized (never prompts), Mesh Setup sorts the local

@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "presets": [
     {
       "id": "standard",
@@ -109,6 +109,20 @@
       "latitude": 40.76,
       "longitude": -111.89,
       "radiusKm": 180
+    },
+    {
+      "id": "austin",
+      "name": "Austin Mesh",
+      "summary": "LongFast defaults, slot untouched \u2014 austinmesh.org's Meshtastic settings (their custom work went into MeshCore; Meshtastic runs stock).",
+      "regionRaw": 1,
+      "presetRaw": 0,
+      "frequencySlot": 20,
+      "hopLimit": 3,
+      "source": "https://www.austinmesh.org/join/meshtastic-setup/",
+      "updated": "2026-08-29",
+      "latitude": 30.27,
+      "longitude": -97.74,
+      "radiusKm": 120
     }
   ]
 }

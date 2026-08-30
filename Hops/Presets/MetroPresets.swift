@@ -121,7 +121,9 @@ final class MetroPresetStore: ObservableObject {
     private static let appliedKey = "appliedMetroPresetId"
     /// Point this at a maintained raw-JSON URL (e.g. the Hops repo) to ship preset
     /// updates without an app release. Fails silently; the bundled copy always works.
-    private static let remoteURL = URL(string: "https://raw.githubusercontent.com/hops-mesh/presets/main/metro-presets.json")
+    // The manifest in the app repo IS the maintained source — committing a
+    // preset update to main ships it OTA to every install.
+    private static let remoteURL = URL(string: "https://raw.githubusercontent.com/morria/Hops-app/main/Hops/Resources/metro-presets.json")
 
     private init() {
         if let cached = UserDefaults.standard.data(forKey: Self.cacheKey),
