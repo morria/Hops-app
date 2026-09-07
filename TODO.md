@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+176. [x] Released holds re-hold on timeout instead of failing (reported by
+         Max): one heard packet proves the peer WAS transmitting, not that
+         they're still in range — so a send-when-heard message whose
+         release times out (no explicit NAK) quietly returns to waiting
+         with a fresh packet id, up to 3 cycles, and the status line shows
+         "tried Nx". Explicit NAKs and Send Now still fail honestly; only
+         the device that released the hold re-holds it.
+
 175. [x] Presence probes rate-limited to one per peer per 15 minutes (was
          5) — Probe Now on the node card still bypasses.
 

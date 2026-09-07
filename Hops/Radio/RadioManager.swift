@@ -432,7 +432,11 @@ final class RadioManager: ObservableObject {
             for record in queued {
                 await MainActor.run { self.transmit(record) }
             }
-            await store.sweepStaleSending()
+            let reholds = await store.sweepStaleSending()
+            for packetId in reholds {
+                await store.prepareRetryHold(packetId: packetId,
+                                             newPacketId: Int64(self.newPacketId()))
+            }
         }
     }
 
@@ -1469,7 +1473,11 @@ final class RadioManager: ObservableObject {
         }
         guard let store else { return }
         Task {
-            await store.sweepStaleSending()
+            let reholds = await store.sweepStaleSending()
+            for packetId in reholds {
+                await store.prepareRetryHold(packetId: packetId,
+                                             newPacketId: Int64(self.newPacketId()))
+            }
             let unread = await store.totalUnreadConversations()
             await NotificationManager.shared.setBadge(unread)
         }

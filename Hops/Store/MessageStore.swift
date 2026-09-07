@@ -72,6 +72,7 @@ actor MessageStore {
             message.status = .sending
             message.timestamp = Date()   // sweep clock starts at transmit, not at hold
             locallyTransmitted.insert(message.packetId)
+            releasedHolds.insert(message.packetId)
             syncLastStatus(message)
             records.append(OutgoingRecord(packetId: message.packetId, toNum: message.toNum,
                                           channel: message.channel, text: message.text,
@@ -92,6 +93,7 @@ actor MessageStore {
         message.status = .waitingForPeer
         message.ackErrorRaw = 0
         message.timestamp = Date()
+        message.heldRetryCount += 1
         migrateReferences(from: packetId, to: newPacketId)
         syncLastStatus(message, previousPacketId: packetId)
         try? modelContext.save()
@@ -634,6 +636,7 @@ actor MessageStore {
         } else if message.status != .deliveredToRadio {
             message.status = .relayed
         }
+        releasedHolds.remove(packetId)
         syncLastStatus(message)
         try? modelContext.save()
         return RoutingOutcome(statusRaw: message.statusRaw,
@@ -644,25 +647,39 @@ actor MessageStore {
     /// fast timeout sweep touches only these — CloudKit replicas of another
     /// device's in-flight sends must not be failed by a bystander.
     private var locallyTransmitted: Set<Int64> = []
+    /// Held messages this device released on hearing the peer. One heard
+    /// packet proves they WERE transmitting, not that they still are — if
+    /// the released send times out, it re-holds instead of failing.
+    private var releasedHolds: Set<Int64> = []
 
-    /// Timeout fallback, evaluated on wake/foreground — never a live wall-clock promise.
-    func sweepStaleSending(olderThan interval: TimeInterval = 300) {
+    /// Timeout fallback, evaluated on wake/foreground — never a live wall-clock
+    /// promise. Returns packet ids of released holds whose transmit timed out:
+    /// the caller re-holds them (fresh packet id) rather than failing — one
+    /// heard packet promised nothing about the peer still listening.
+    @discardableResult
+    func sweepStaleSending(olderThan interval: TimeInterval = 300) -> [Int64] {
         let cutoff = Date().addingTimeInterval(-interval)
         let strayCutoff = Date().addingTimeInterval(-3600)
         let sendingRaw = MessageStatus.sending.rawValue
         let descriptor = FetchDescriptor<MessageEntity>(
             predicate: #Predicate { $0.statusRaw == sendingRaw && $0.timestamp < cutoff }
         )
+        var reholds: [Int64] = []
         for message in (try? modelContext.fetch(descriptor)) ?? [] {
             // Fast-fail our own transmissions; hour-old strays (a device that
             // died mid-send and never swept its own) as the safety net.
             guard locallyTransmitted.contains(message.packetId)
                     || message.timestamp < strayCutoff else { continue }
+            if releasedHolds.remove(message.packetId) != nil, message.heldRetryCount < 3 {
+                reholds.append(message.packetId)
+                continue
+            }
             message.status = .failed
             message.ackErrorRaw = -1  // local timeout, not a firmware NAK
             syncLastStatus(message)
         }
         try? modelContext.save()
+        return reholds
     }
 
     // MARK: - Outgoing

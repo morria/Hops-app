@@ -94,6 +94,9 @@ final class MessageEntity {
     /// Reliability sequence number (mod 256; -1 = none). Outgoing: assigned
     /// per conversation. Incoming: parsed from the Data bitfield.
     var seqNum: Int = -1
+    /// Send-when-heard cycles this message has been through — a released
+    /// hold that times out re-holds itself (capped) instead of failing.
+    var heldRetryCount: Int = 0
 
     var status: MessageStatus {
         get { MessageStatus(rawValue: statusRaw) ?? .received }

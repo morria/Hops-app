@@ -877,7 +877,9 @@ struct MessageBubble: View {
             case .waitingForRadio:
                 statusText("Waiting for radio…", color: .secondary)
             case .waitingForPeer:
-                statusText("Waiting for their radio — sends when it's heard", color: .secondary)
+                statusText(message.heldRetryCount > 0
+                           ? "Waiting for their radio — tried \(message.heldRetryCount)×, sends when it's heard again"
+                           : "Waiting for their radio — sends when it's heard", color: .secondary)
             case .sending:
                 statusText(stale ? "Still sending — mesh delivery can take a few minutes" : "Sending…",
                            color: .secondary)
