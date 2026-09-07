@@ -331,22 +331,29 @@ struct IdentityView: View {
         Form {
             Section {
                 TextField("Long name", text: $longName)
+                    .onChange(of: longName) { _, newValue in
+                        longName = MeshName.clampLong(newValue)
+                    }
                 TextField("Short name (4 characters)", text: $shortName)
                     .onChange(of: shortName) { _, newValue in
-                        shortName = String(newValue.prefix(4))
+                        shortName = MeshName.clampShort(newValue)
                     }
             } footer: {
-                Text("How you appear to everyone on the mesh. The short name is your map marker and channel tag.")
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("How you appear to everyone on the mesh. The short name is your map marker and channel tag: up to 4 letters, or one plain emoji.")
+                    if let note = MeshName.budgetNote(long: longName, short: shortName) {
+                        Text(note)
+                    }
+                }
             }
             Button("Save") {
+                // RadioManager mirrors the names locally (and reverts on NAK).
                 radio.setOwner(longName: longName, shortName: shortName)
-                if let node = nodes.first(where: { $0.num == radio.myNodeNum }) {
-                    node.longName = longName
-                    node.shortName = shortName
-                }
                 dismiss()
             }
-            .disabled(longName.trimmingCharacters(in: .whitespaces).isEmpty || shortName.trimmingCharacters(in: .whitespaces).isEmpty)
+            .disabled(longName.trimmingCharacters(in: .whitespaces).isEmpty
+                      || shortName.trimmingCharacters(in: .whitespaces).isEmpty
+                      || !MeshName.fitsLong(longName) || !MeshName.fitsShort(shortName))
 
             if radio.myNodeNum > 0 {
                 Section {

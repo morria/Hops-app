@@ -454,6 +454,15 @@ actor MessageStore {
     /// Give the (blank-named) primary channel a friendly local name from the
     /// applied metro preset — e.g. "NYC Mesh". Never overrides a mesh-set name
     /// or one the user chose.
+    /// Local mirror of a set_owner: what the user just asked the radio to
+    /// call them (RadioManager reverts on NAK; the next NodeInfo confirms).
+    func renameNode(num: Int64, longName: String, shortName: String) {
+        let node = upsertNode(num: num)
+        node.longName = longName
+        node.shortName = shortName
+        try? modelContext.save()
+    }
+
     func setPrimaryChannelName(ifUnnamed name: String) {
         let zero: Int32 = 0
         guard let entity = try? modelContext.fetch(
@@ -506,7 +515,48 @@ actor MessageStore {
     }
 
     /// Returns a summary for notification purposes, or nil if deduplicated/self-echo.
-    func ingestTextMessage(packet: MeshPacket, myNum: Int64) -> InboundMessage? {
+    /// One-time cleanup for stores written before TODO 179: messages stamped
+    /// in the future by a radio whose clock ran ahead sat above everything
+    /// sent later. Pull them back to now, keeping their relative order.
+    private func repairFutureTimestamps() {
+        let now = Date()
+        var descriptor = FetchDescriptor<MessageEntity>(predicate: #Predicate { $0.timestamp > now })
+        descriptor.sortBy = [SortDescriptor(\.timestamp)]
+        let future = (try? modelContext.fetch(descriptor)) ?? []
+        guard !future.isEmpty else { return }
+        for (i, message) in future.enumerated() {
+            message.timestamp = now.addingTimeInterval(-0.001 * Double(future.count - i))
+        }
+        let convos = (try? modelContext.fetch(FetchDescriptor<ConversationEntity>(
+            predicate: #Predicate { $0.lastMessageAt != nil && $0.lastMessageAt! > now }))) ?? []
+        for convo in convos { convo.lastMessageAt = now }
+        try? modelContext.save()
+    }
+
+    /// Last arrival-time stamp handed out, so a burst of fallbacks (a replayed
+    /// queue after reconnect) keeps its order instead of sharing one instant.
+    private var lastArrivalStamp = Date.distantPast
+
+    /// When an inbound message happened (TODO 179). A packet's rx_time is the
+    /// *radio's* clock, which Hops never used to set: without GPS it starts
+    /// at the firmware build date and drifts, so trusting it dated live
+    /// messages weeks back and sorted fresh sends above older mail. Rule:
+    /// rx_time is believed only inside `trustedRxWindow` — heard after the
+    /// previous session and before this one began, i.e. queued on the radio
+    /// while we were away, the one case where the phone has no better clock.
+    /// Everything else is stamped on arrival, strictly increasing.
+    func inboundTimestamp(rxTime: UInt32, trustedRxWindow: ClosedRange<Date>?) -> Date {
+        if rxTime > 0, let window = trustedRxWindow {
+            let stamp = Date(timeIntervalSince1970: TimeInterval(rxTime))
+            if window.contains(stamp) { return stamp }
+        }
+        let stamp = max(Date(), lastArrivalStamp.addingTimeInterval(0.001))
+        lastArrivalStamp = stamp
+        return stamp
+    }
+
+    func ingestTextMessage(packet: MeshPacket, myNum: Int64,
+                           trustedRxWindow: ClosedRange<Date>? = nil) -> InboundMessage? {
         let packetId = Int64(packet.id)
         // Dedupe: the radio echoes our own sends back, and reconnect drains can overlap.
         if let existing = try? modelContext.fetch(
@@ -552,7 +602,8 @@ actor MessageStore {
             toNum: toNum,
             channel: Int32(packet.channel),
             text: text,
-            timestamp: packet.rxTime > 0 ? Date(timeIntervalSince1970: TimeInterval(packet.rxTime)) : Date(),
+            timestamp: outgoing ? Date()
+                                : inboundTimestamp(rxTime: packet.rxTime, trustedRxWindow: trustedRxWindow),
             outgoing: outgoing,
             status: outgoing ? .sending : .received,
             isEmoji: isTapback,
@@ -901,7 +952,9 @@ actor MessageStore {
             packetId: Int64.random(in: (1 << 40)..<(1 << 62)),
             conversationKey: convoKey, fromNum: sender,
             toNum: kind == 0 ? myNum : Int64(UInt32.max), channel: chIndex,
-            text: Self.sanitizeInbound(text), timestamp: Date(timeIntervalSince1970: TimeInterval(time)),
+            // The peer's clock, so never later than now (TODO 179).
+            text: Self.sanitizeInbound(text),
+            timestamp: min(Date(timeIntervalSince1970: TimeInterval(time)), Date()),
             outgoing: false, status: .received)
         message.seqNum = seq
         modelContext.insert(message)
@@ -985,6 +1038,7 @@ actor MessageStore {
     /// send from before the direct-stamp fix). Cheap; run once per launch.
     func repairConversations() {
         dedupeAfterSync()
+        repairFutureTimestamps()
         // Fold ghost identities left by firmware renumbering: for every set
         // of nodes sharing a public key, the most recently heard number wins.
         let keyed = ((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? [])

@@ -179,6 +179,21 @@ final class RadioManager: ObservableObject {
     private var pairingInProgress = false
     private var nodeDBRequested = false
 
+    /// The set_owner in flight: its packet id and the names to restore if the
+    /// radio NAKs it (the local mirror is applied optimistically).
+    private struct PendingOwner {
+        let packetId: UInt32
+        let previousLong: String
+        let previousShort: String
+    }
+    private var pendingOwner: PendingOwner?
+
+    /// Window in which a packet's rx_time (the radio's clock) is believed:
+    /// heard after the previous session ended and before this one began —
+    /// i.e. queued on the radio while we were away. Anything else is
+    /// stamped on arrival; see `MessageStore.inboundTimestamp` (TODO 179).
+    private var trustedRxWindow: ClosedRange<Date>?
+
     private let defaults = UserDefaults.standard
     private enum Keys {
         static let peripheralId = "pairedPeripheralId"
@@ -213,6 +228,10 @@ final class RadioManager: ObservableObject {
         )
         state = pairedPeripheralId == nil ? .noRadio : .offline
         transport.onEvent = { [weak self] event in self?.handle(event) }
+        // Bluetooth comes up at launch only for an already-paired radio (the
+        // central must exist early for iOS state restoration). A fresh
+        // install first sees the Bluetooth prompt when it starts pairing.
+        if pairedPeripheralId != nil { transport.activate() }
     }
 
     func configure(container: ModelContainer) {
@@ -238,7 +257,8 @@ final class RadioManager: ObservableObject {
     func beginPairingScan() {
         discovered = []
         pairingInProgress = true
-        transport.startScan()
+        transport.activate()   // first Bluetooth prompt on a fresh install lands here
+        transport.startScan()  // no-op until powered on; the state event re-issues it
     }
 
     func endPairingScan() {
@@ -375,8 +395,17 @@ final class RadioManager: ObservableObject {
         switch nonce {
         case 69420:
             state = .connected
-            connectedAt = Date()
+            let now = Date()
+            connectedAt = now
+            // Previous sync → now: the span the radio spent without us. A
+            // first-ever connect trusts nothing (its clock was never set).
+            if let previous = lastSyncedAt, previous <= now {
+                trustedRxWindow = previous...now
+            } else {
+                trustedRxWindow = nil
+            }
             touchLastSynced()
+            setRadioTime()
             needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
             flushOutboxAndSweep()
             startOutboxSweep()
@@ -547,8 +576,10 @@ final class RadioManager: ObservableObject {
         switch decoded.portnum {
         case .textMessageApp, .detectionSensorApp, .alertApp:
             let myNum = myNodeNum
+            let window = trustedRxWindow
             Task {
-                if let inbound = await store.ingestTextMessage(packet: packet, myNum: myNum) {
+                if let inbound = await store.ingestTextMessage(packet: packet, myNum: myNum,
+                                                               trustedRxWindow: window) {
                     await MainActor.run { self.notifyIfAppropriate(inbound) }
                 }
                 let unread = await store.totalUnreadConversations()
@@ -562,6 +593,16 @@ final class RadioManager: ObservableObject {
             // 32-bit id space and forge a delivery state.
             guard Int64(packet.to) == myNodeNum else { return }
             let errorRaw = Int32(routing.errorReason.rawValue)
+            if let pending = pendingOwner, pending.packetId == decoded.requestID {
+                pendingOwner = nil
+                if errorRaw != 0 {
+                    log.error("set_owner NAK (\(String(describing: routing.errorReason))) — restoring previous names")
+                    Task {
+                        await store.renameNode(num: myNodeNum, longName: pending.previousLong,
+                                               shortName: pending.previousShort)
+                    }
+                }
+            }
             #if MESHSITES
             // Chunk pacing: any routing result for a Meshsites packet id
             // releases the server's ack wait (no-op for other packet ids);
@@ -1252,12 +1293,37 @@ final class RadioManager: ObservableObject {
 
     // MARK: - Admin (the only radio-config writes in Hops)
 
+    /// Sets the radio's owner names. Names are clamped to the firmware's
+    /// byte limits (see `MeshName`) — an overflowing name is silently
+    /// dropped by the radio, which is what "I can't change my name" looked
+    /// like (TODO 177). The local node record is updated optimistically and
+    /// reverted if the radio NAKs the admin packet.
     func setOwner(longName: String, shortName: String) {
+        let long = MeshName.clampLong(longName.trimmingCharacters(in: .whitespaces))
+        let short = MeshName.clampShort(shortName.trimmingCharacters(in: .whitespaces))
+        guard !long.isEmpty, !short.isEmpty, myNodeNum > 0, let store else { return }
         var user = User()
-        user.longName = String(longName.prefix(36))
-        user.shortName = String(shortName.prefix(4))
+        user.longName = long
+        user.shortName = short
         var admin = AdminMessage()
         admin.setOwner = user
+        let packetId = sendAdmin(admin)
+        Task {
+            let previous = await store.nodeSnapshot(num: myNodeNum)
+            pendingOwner = PendingOwner(packetId: packetId,
+                                        previousLong: previous?.longName ?? "",
+                                        previousShort: previous?.shortName ?? "")
+            await store.renameNode(num: myNodeNum, longName: long, shortName: short)
+        }
+    }
+
+    /// A radio without GPS boots with its clock at the firmware build date
+    /// and drifts from there, and every packet's rx_time comes from that
+    /// clock. Set it from the phone on each connect, as the official app
+    /// does (TODO 179). The firmware keeps a better source (GPS) if it has one.
+    private func setRadioTime() {
+        var admin = AdminMessage()
+        admin.setTimeOnly = UInt32(clamping: Int(Date().timeIntervalSince1970))
         sendAdmin(admin)
     }
 
@@ -1392,7 +1458,9 @@ final class RadioManager: ObservableObject {
         Task { await store?.applyChannel(channel) }
     }
 
-    private func sendAdmin(_ admin: AdminMessage) {
+    /// Returns the packet id so callers can correlate the routing result.
+    @discardableResult
+    private func sendAdmin(_ admin: AdminMessage) -> UInt32 {
         var decoded = DataMessage()
         decoded.portnum = .adminApp
         decoded.payload = (try? admin.serializedData()) ?? Data()
@@ -1408,6 +1476,7 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+        return packet.id
     }
 
     private func persistLoRa() {

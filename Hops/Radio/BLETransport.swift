@@ -33,7 +33,11 @@ final class BLETransport: NSObject {
 
     private let log = Logger(subsystem: "com.w2asm.hops", category: "ble")
     private let queue = DispatchQueue(label: "com.w2asm.hops.ble")
-    private var central: CBCentralManager!
+    /// Created lazily by `activate()`, not in init: instantiating a
+    /// CBCentralManager is what triggers the system Bluetooth prompt, and on
+    /// a fresh install that should happen when the user starts pairing, not
+    /// at first launch (TODO 178).
+    private var central: CBCentralManager?
     private var peripheral: CBPeripheral?
     private var toRadioChar: CBCharacteristic?
     private var fromRadioChar: CBCharacteristic?
@@ -50,12 +54,25 @@ final class BLETransport: NSObject {
     private var writing = false
     private var writeAttempts = 0
 
-    override init() {
-        super.init()
-        central = CBCentralManager(delegate: self, queue: queue, options: [
-            CBCentralManagerOptionRestoreIdentifierKey: "com.w2asm.hops.central",
-            CBCentralManagerOptionShowPowerAlertKey: false,
-        ])
+    /// Creates the CBCentralManager (idempotent). RadioManager calls this at
+    /// launch when a radio is already paired — the manager must exist early
+    /// for iOS state restoration to hand back the peripheral — and otherwise
+    /// only when the user begins a pairing scan, so the Bluetooth permission
+    /// prompt lands in context.
+    func activate() {
+        queue.sync {
+            guard central == nil else { return }
+            central = CBCentralManager(delegate: self, queue: queue, options: [
+                CBCentralManagerOptionRestoreIdentifierKey: "com.w2asm.hops.central",
+                CBCentralManagerOptionShowPowerAlertKey: false,
+            ])
+        }
+    }
+
+    /// The manager, only once it has been created and powered on.
+    private var poweredCentral: CBCentralManager? {
+        guard let central, central.state == .poweredOn else { return nil }
+        return central
     }
 
     private func emit(_ event: Event) {
@@ -66,15 +83,15 @@ final class BLETransport: NSObject {
 
     func startScan() {
         queue.async {
-            guard self.central.state == .poweredOn else { return }
-            self.central.scanForPeripherals(withServices: [UUIDs.service],
-                                            options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
+            guard let central = self.poweredCentral else { return }
+            central.scanForPeripherals(withServices: [UUIDs.service],
+                                       options: [CBCentralManagerScanOptionAllowDuplicatesKey: true])
         }
     }
 
     func stopScan() {
         queue.async {
-            if self.central.state == .poweredOn { self.central.stopScan() }
+            self.poweredCentral?.stopScan()
         }
     }
 
@@ -84,7 +101,7 @@ final class BLETransport: NSObject {
     /// moment the radio advertises — no scanning. Falls back to a scan if retrieval fails.
     func connect(to id: UUID) {
         queue.async {
-            guard self.central.state == .poweredOn else { return }
+            guard let central = self.poweredCentral else { return }
             self.userInitiatedDisconnect = false
             self.desiredId = id
             if let restored = self.restoredPeripheral, restored.identifier == id {
@@ -92,23 +109,23 @@ final class BLETransport: NSObject {
                 if restored.state == .connected {
                     restored.discoverServices([UUIDs.service])
                 } else {
-                    self.central.connect(restored)
+                    central.connect(restored)
                 }
                 self.restoredPeripheral = nil
                 return
             }
-            if let target = self.central.retrievePeripherals(withIdentifiers: [id]).first {
+            if let target = central.retrievePeripherals(withIdentifiers: [id]).first {
                 self.adopt(target)
-                self.central.connect(target)   // pending connect: never expires
+                central.connect(target)   // pending connect: never expires
                 // Scan-assist: an advertisement can arrive before the pending
                 // connect resolves; either path wins, the other is a no-op.
                 // Skipped in Battery Saver; time-boxed otherwise (the pending
                 // connect keeps working after the scan stops).
-                if self.central.state == .poweredOn, !PowerMode.saver {
-                    self.central.scanForPeripherals(withServices: [UUIDs.service], options: nil)
+                if !PowerMode.saver {
+                    central.scanForPeripherals(withServices: [UUIDs.service], options: nil)
                     self.queue.asyncAfter(deadline: .now() + 45) {
                         if self.peripheral?.state != .connected {
-                            self.central.stopScan()
+                            self.poweredCentral?.stopScan()
                         }
                     }
                 }
@@ -123,7 +140,7 @@ final class BLETransport: NSObject {
     func retryFresh(id: UUID) {
         queue.async {
             if let p = self.peripheral {
-                self.central.cancelPeripheralConnection(p)
+                self.central?.cancelPeripheralConnection(p)
                 // didDisconnect → RadioManager re-arms a fresh connect(to:).
             } else {
                 self.queue.async { self.reconnectFresh(id) }
@@ -132,7 +149,7 @@ final class BLETransport: NSObject {
     }
 
     private func reconnectFresh(_ id: UUID) {
-        guard central.state == .poweredOn else { return }
+        guard let central = poweredCentral else { return }
         desiredId = id
         if let target = central.retrievePeripherals(withIdentifiers: [id]).first {
             adopt(target)
@@ -143,11 +160,11 @@ final class BLETransport: NSObject {
 
     func connectDiscovered(id: UUID) {
         queue.async {
-            guard let target = self.known[id] else { return }
+            guard let target = self.known[id], let central = self.poweredCentral else { return }
             self.userInitiatedDisconnect = false
-            self.central.stopScan()
+            central.stopScan()
             self.adopt(target)
-            self.central.connect(target)
+            central.connect(target)
         }
     }
 
@@ -155,7 +172,7 @@ final class BLETransport: NSObject {
         queue.async {
             self.userInitiatedDisconnect = userInitiated
             if let p = self.peripheral {
-                self.central.cancelPeripheralConnection(p)
+                self.central?.cancelPeripheralConnection(p)
             }
         }
     }

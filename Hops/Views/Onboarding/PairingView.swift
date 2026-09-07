@@ -220,16 +220,24 @@ struct PairingView: View {
             if hasFactoryName || nameEdited {
                 Section {
                     TextField("Your name (e.g. Andrew / W2ASM)", text: $longName)
-                        .onChange(of: longName) { _, _ in nameEdited = true }
+                        .onChange(of: longName) { _, newValue in
+                            longName = MeshName.clampLong(newValue)
+                            nameEdited = true
+                        }
                     TextField("Short name (4 characters, on maps)", text: $shortName)
                         .onChange(of: shortName) { _, newValue in
-                            shortName = String(newValue.prefix(4))
+                            shortName = MeshName.clampShort(newValue)
                             nameEdited = true
                         }
                 } header: {
                     Text("What should the mesh call you?")
                 } footer: {
-                    Text("Your radio still has its factory name. This is how you appear to everyone.")
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Your radio still has its factory name. This is how you appear to everyone. The short name holds up to 4 letters, or one plain emoji.")
+                        if let note = MeshName.budgetNote(long: longName, short: shortName) {
+                            Text(note)
+                        }
+                    }
                 }
             }
 
@@ -277,11 +285,8 @@ struct PairingView: View {
         let trimmedLong = longName.trimmingCharacters(in: .whitespaces)
         let trimmedShort = shortName.trimmingCharacters(in: .whitespaces)
         if nameEdited, !trimmedLong.isEmpty, !trimmedShort.isEmpty {
+            // RadioManager mirrors the names locally (and reverts on NAK).
             radio.setOwner(longName: trimmedLong, shortName: trimmedShort)
-            if let node = myNode {
-                node.longName = trimmedLong
-                node.shortName = trimmedShort
-            }
         }
         onboardingComplete = true
         radio.finishOnboarding()

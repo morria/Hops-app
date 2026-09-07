@@ -4,6 +4,86 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+179. [x] TestFlight feedback ×2 (builds 4 and 9): "messages come in out of
+         order, possibly my node's clock is off" and "new messages I send
+         appear before older messages". Screenshots: a channel with a
+         "Jul 8, 2026" day header over messages clearly contemporaneous with
+         the Aug 25 ones; a just-sent "Test" (Sending…) sitting above a
+         dozen older incoming bubbles. Root cause: inbound messages were
+         stamped with the packet's rx_time — the radio's clock — while
+         sends use the phone's. Hops never set the radio's clock; a radio
+         without GPS boots at the firmware build date (≈ Jul 8) and drifts,
+         so live messages landed weeks back or in the future and sorted
+         around sends arbitrarily. Fix: (1) set_time_only on every connect,
+         as the official app does; (2) rx_time is believed only when it
+         falls between the previous sync and this connect — a packet queued
+         on the radio while we were away, the one case the phone has no
+         better clock — everything else is stamped on arrival, strictly
+         increasing so a replayed batch keeps its order; (3) RESEND
+         recoveries clamp the peer-supplied time to now; (4) a startup
+         repair pulls already-stored future-dated messages back to now in
+         order. Not verified on a radio yet — check a reconnect replay and
+         a fresh-boot radio.
+
+178. [ ] App Review rejected 1.0 (7) under Guideline 2.5.4 (submission
+         6fbef46d-02b4-4568-a452-5b8f1f9a422f, reviewed 2026-09-05 on an
+         iPad Air 11" M3): "declares bluetooth-central in UIBackgroundModes
+         but we are unable to locate any Bluetooth Low Energy
+         functionality." Not a dispute about the permission — the reviewer
+         had no Meshtastic radio, so nothing visibly used BLE. Apple's own
+         next step: reply with a screen recording showing Bluetooth usage
+         on a physical device, and put that recording in App Review
+         Information > Notes for future submissions. To do:
+         (a) record on a physical iPhone: Settings > Bluetooth showing the
+             radio paired, then Hops pairing (scan, connect), a message
+             round-trip with a second node, and backgrounding the app while
+             a message arrives (that justifies the background mode);
+         (b) reply in Resolution Center (draft below), attach the video;
+         (c) add the video link + "requires a Meshtastic LoRa radio; BLE is
+             the only transport" to App Review notes permanently;
+         (d) DONE: BLETransport now creates its CBCentralManager lazily —
+             at launch only when a radio is already paired (state
+             restoration needs it early), otherwise on the first pairing
+             scan, so a fresh install's Bluetooth prompt lands in context.
+             Still optional: a reviewer demo mode (ScreenshotMode seed
+             outside DEBUG).
+         Reply draft: "Hops is a companion app for Meshtastic LoRa mesh
+         radios; it has no function without one. All communication with
+         the radio is over Bluetooth Low Energy via Core Bluetooth
+         (BLETransport.swift: CBCentralManager scanning for the Meshtastic
+         service UUID 6ba1b218-15a8-461f-9fa8-5dcae273eafd, connecting, and
+         exchanging FromRadio/ToRadio characteristics). bluetooth-central
+         background mode keeps that connection alive so incoming mesh
+         messages can be delivered as notifications while the app is
+         backgrounded. Attached is a screen recording on a physical iPhone
+         showing pairing, a message round-trip, and delivery in the
+         background. We've added the recording to the App Review notes."
+
+177. [x] Bug report: a user couldn't reset their node name, possibly with an
+         emoji in the short or long name. Probable cause: the firmware's
+         nanopb limits are bytes (short_name max 4 + NUL, long_name 39 +
+         NUL) but setOwner truncates by Swift Character (prefix(4) /
+         prefix(36)), so a flag, skin-toned, or ZWJ emoji short name (8+
+         bytes), or a long name of ~10+ emoji, overflows the field. nanopb
+         then fails to decode the whole AdminMessage and the radio silently
+         drops the set_owner — no error reaches the app (sendAdmin only
+         wants a packet ack). Worse, IdentityView/PairingView write the new
+         name into the local NodeEntity optimistically, so the UI shows it
+         "saved" until the next NodeInfo from the radio reverts it — which
+         reads exactly like "can't change my name". Fix: truncate by UTF-8
+         byte count (4 / 39) without splitting a scalar, show a live byte
+         budget in the fields, disable Save when over, and only mirror the
+         name locally after the admin ack (or the radio's next NodeInfo).
+         Also check whether the reporter's firmware rejects names on its own
+         (newer firmware validates set_owner) and whether a blank/whitespace
+         field was involved (the Save button already blocks those).
+         Done: new `MeshName` helper clamps by UTF-8 bytes (4 / 39) without
+         splitting a grapheme; both name editors clamp live and show a byte
+         note whenever a name is non-ASCII; setOwner clamps again, mirrors
+         the names via the store, and reverts them if the radio NAKs the
+         admin packet (sendAdmin now returns the packet id). Not verified
+         against a radio yet — needs an on-device check with a flag emoji.
+
 176. [x] Released holds re-hold on timeout instead of failing (reported by
          Max): one heard packet proves the peer WAS transmitting, not that
          they're still in range — so a send-when-heard message whose
