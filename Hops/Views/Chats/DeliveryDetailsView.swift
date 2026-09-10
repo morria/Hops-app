@@ -128,31 +128,7 @@ struct DeliveryDetailsView: View {
         }
     }
 
-    /// Routing.Error raw values (plus our -1 local-timeout sentinel), in words.
     private var failureReason: String {
-        switch message.ackErrorRaw {
-        case -1:
-            return "No acknowledgment arrived before the timeout. The message may still have been delivered — acks get lost more often than messages do."
-        case 1:
-            return "No route to the destination was found."
-        case 2:
-            return "The destination radio rejected the message (NAK)."
-        case 3:
-            return "The request timed out inside the mesh."
-        case 5:
-            return "Your radio gave up after its maximum retransmissions — nothing acknowledged the packet."
-        case 6:
-            return "The receiving side has no matching channel for this message."
-        case 7:
-            return "The message was too large for the mesh."
-        case 8:
-            return "The destination saw the request but sent no response."
-        case 9:
-            return "A radio on the path hit its regulatory duty-cycle limit."
-        case 34, 35:
-            return "Encryption keys don't match — the destination couldn't decrypt it. Their key may have changed."
-        default:
-            return "Routing error code \(message.ackErrorRaw)."
-        }
+        RoutingFailure.detail(code: message.ackErrorRaw)
     }
 }

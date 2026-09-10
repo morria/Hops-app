@@ -4,6 +4,116 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+184. [ ] Map: tapping a node should offer a Message button. TODO 6/7 added
+         one to the shared NodeCardView for "messageable" nodes only (role
+         filter: routers, repeaters, trackers, sensors, TAK, hidden are
+         excluded) — check whether the reporter's node fell through that
+         filter or the map panel isn't showing the card's action at all.
+
+183. [ ] Channels: invite someone to a single channel (a QR/URL carrying
+         just that channel, not the whole channel set), and show the
+         channel's key on the channel screen with a copy action.
+
+182. [x] Sends broke somewhere before build 9: DMs and channel messages
+         used to ack in seconds, now every send errors.
+         ROOT CAUSE (Sep 9): the reliability trailer (TODO 160, Aug 29) put
+         the sequence number in bits 23–31 of Data.bitfield, but the
+         firmware stores that field in one byte (mesh.options
+         `*Data.bitfield int_size:8`). nanopb rejects the overflow, the
+         whole ToRadio fails to decode, and the radio silently drops every
+         non-tapback text Hops sends — no NAK, no QueueStatus, nothing on
+         the air. Probes, admin, and emoji tapbacks carry no trailer, which
+         is why they kept working (the decisive clue: "I can probe and get
+         nodeinfo back but no acks"). Fix: trailer now lives in bits 2–7
+         (bit 7 present, bits 2–6 seq mod 32; bits 0–1 stay the firmware's),
+         gap window and counters are mod 32, Settings › Data has a kill
+         switch, and the radio's QueueStatus for each send is logged in
+         Mesh Traffic ("queue res=… free=…/…"). Build 11 on TestFlight
+         still has the bug; Max's report in 176 was almost certainly this.
+         Verify on device, then ship.
+         Evidence so far (Sep 8): three channel broadcasts, all failed with
+         the local timeout (-1), never a firmware NAK, no routing entry in
+         Mesh Traffic, recipients received nothing, mesh quiet. So the
+         radio never rejected the packet: either it never got it over BLE,
+         or it transmitted something no neighbour could decode or relay
+         (wrong PSK/hash → no rebroadcast in core-ports-only meshes → no
+         implicit ack). Instrumentation added: every text and admin send
+         now logs "→ channel N #ID" / "→ !node (PKI) #ID" in Mesh Traffic
+         from our side; BLE write errors log as port "ble"; a 10 s watchdog
+         detects a TORADIO write whose completion never comes, logs
+         "Write to radio stalled", and resets the pump. Next: send once,
+         read the log — a "sent" entry with no "ble" error and still no
+         routing reply points at the radio/channel; a "stalled" entry is
+         the BLE queue. Then pull-to-refresh in Settings: fresh battery
+         proves the write path end-to-end.
+         Phone log (sudo log collect, Sep 8 21:02–21:32) settles BLE: the
+         radio link (CBDevice FD67A8FC) shows no disconnects at all; every
+         Hops write is "Writing value with response to handle 0x002c"; the
+         radio's FROMNUM notify follows some writes within ~130 ms and Hops
+         reads the reply. The 21:20:49 link drop was the Apple Watch. So
+         packets reach the firmware intact and it never NAKs them — the
+         remaining fault is on the air: the radio does not transmit, or
+         nobody hears/relays it. Mesh Traffic now has a share button that
+         exports the log as text (in-memory only — export before
+         relaunching). Decisive tests outstanding: does the rabbit node
+         (direct, 8.8 dB) receive a phone send; does the official app send
+         from the same radio; power-cycle the radio.
+         Investigation plan (evidence first, then hypotheses in likelihood order):
+         (1) Read the failure code on the phone — the transcript now shows
+             it (TODO 181). "No response" (-1) means nothing came back at
+             all; any firmware code means the radio got the packet.
+         (2) Ask a recipient whether messages arrive anyway. If yes, this
+             is ack accounting, not sending.
+         (3) Instrument: log our own sends in Mesh Traffic ("You → message",
+             packet id), log each BLE write completion/error, log every
+             routing result with request id, and show that timeline in
+             Delivery Details. Today the log only records received
+             packets, so a send that never left the phone is invisible.
+         (4) Send from the official app on the same radio. Fails there too
+             → radio config (channel PSK/slot, rebroadcast mode, hop limit,
+             firmware version). Works → Hops.
+         (5) Bisect builds 6→9 (commits 823992c..b5951f1, Aug 26–30) on the
+             phone with a radio; ~4 steps.
+         Hypotheses: (a) BLE write queue head-of-line stall — `writing`
+             stuck true or a poisoned frame (Meshsites beacon) retried, so
+             every later ToRadio silently queues; tell-tale: pull-to-refresh
+             telemetry also stops updating. (b) Radio TX pool saturated by
+             the Aug 29 presence probes/announces + Meshsites beacons; test
+             with both disabled. (c) Metro preset (Aug 29) left the sent
+             channel on a slot whose PSK nobody shares — receives still
+             work on another slot; broadcasts then get no rebroadcast, no
+             implicit ack, only timeout. (d) Rebroadcast-mode / config
+             transaction writes (Aug 25) left device config in a state the
+             official app should reveal. (e) Sequence trailer in
+             Data.bitfield (Aug 29) — firmware preserves it, low, but
+             trivially testable by disabling. (f) Hold/re-hold path (TODO
+             176) catching plain sends. (g) Firmware updated at the same
+             time. (h) DM-only PKI codes 34/39 — secondary since channels
+             fail too.
+
+181. [x] Failed DMs now say why, as small text in the transcript: the
+         failure line maps the firmware's Routing.Error to a short phrase
+         (35 "Their radio didn't have your key — it does now, so retry",
+         34 key mismatch, 39 your radio lacks their key, plus no-route,
+         max-retransmit, too-large, duty-cycle, rate-limit) instead of a
+         blanket "No response from their radio". One table
+         (`RoutingFailure`) feeds both the transcript and Delivery Details,
+         which also gained code 39. Still open from the send-path review:
+         push an add_contact before each PKI DM (the official app does; a
+         peer that rolled out of the radio's ~100-node DB otherwise NAKs
+         39 before transmit), offer "trust their new key" on 34, and raise
+         hop_limit to hops-away when larger.
+
+180. [x] A just-sent message appeared below the fold with no auto-scroll.
+         The transcript scrolled to the newest message's id: a no-op on the
+         first pass (the row didn't exist in the hierarchy yet) and
+         unreliable on the delayed pass inside a LazyVStack whose last row
+         was still settling. Now the transcript ends in a permanent 1 pt
+         anchor and every scroll-to-bottom targets that; the count change
+         scrolls on the next runloop, then at 0.25 s and 0.6 s to catch late
+         bubble layout. Verify on device: send from a scrolled-up position,
+         send a 5-line message, send with the keyboard up.
+
 179. [x] TestFlight feedback ×2 (builds 4 and 9): "messages come in out of
          order, possibly my node's clock is off" and "new messages I send
          appear before older messages". Screenshots: a channel with a

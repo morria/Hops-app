@@ -594,7 +594,8 @@ actor MessageStore {
         // Reliability trailer (docs/RELIABILITY.md): bit 23 marks presence,
         // bits 24-31 carry the per-conversation sequence number.
         let bf = packet.decoded.bitfield
-        let inboundSeq: Int = (bf & 0x0080_0000) != 0 ? Int((bf >> 24) & 0xFF) : -1
+        // 8-bit field on the radio: bit 7 = present, bits 2–6 = seq mod 32.
+        let inboundSeq: Int = (bf & 0x80) != 0 ? Int((bf >> 2) & 0x1F) : -1
         let message = MessageEntity(
             packetId: packetId,
             conversationKey: key,
@@ -782,7 +783,7 @@ actor MessageStore {
             replyId: replyId
         )
         if !isEmoji {
-            convo.seqCounter = (convo.seqCounter + 1) & 0xFF
+            convo.seqCounter = (convo.seqCounter + 1) & 0x1F
             message.seqNum = convo.seqCounter
         }
         modelContext.insert(message)
@@ -872,9 +873,9 @@ actor MessageStore {
         let tracker = seqTracker(convoKey: convoKey, sender: sender)
         defer { tracker.lastSeen = seq }
         guard tracker.lastSeen >= 0 else { return }
-        let delta = (seq - tracker.lastSeen + 256) % 256
+        let delta = (seq - tracker.lastSeen + 32) % 32
         guard delta >= 2, delta <= 8 else { return }
-        let missing = (1..<delta).map { (tracker.lastSeen + $0) % 256 }
+        let missing = (1..<delta).map { (tracker.lastSeen + $0) % 32 }
         let gap = MessageEntity(
             packetId: Int64.random(in: (1 << 40)..<(1 << 62)),
             conversationKey: convoKey, fromNum: sender, toNum: 0, channel: 0,

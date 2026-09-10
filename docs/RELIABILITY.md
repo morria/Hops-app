@@ -6,23 +6,28 @@ and a tiny **resend protocol** on port 423.
 
 ## Sequence trailer (Data.bitfield)
 
-Outgoing non-tapback texts set, in the `Data.bitfield` uint32 (which travels
-inside the encrypted payload, end-to-end, and is ignored by clients that
-don't know it):
+`Data.bitfield` is a `uint32` on the wire but the firmware stores it in **one
+byte** (`mesh.options`: `*Data.bitfield int_size:8`). Anything above bit 7
+makes nanopb reject the whole ToRadio and the radio silently drops the
+packet — draft 1 used bits 23–31 and every Hops text vanished (TODO 182).
+Bits 0–1 belong to the firmware (OK_TO_MQTT, WANT_RESPONSE). Outgoing
+non-tapback texts therefore set:
 
 | Bits | Meaning |
 |---|---|
-| 23 | Hops sequence present |
-| 24–31 | sequence number, mod 256 |
+| 7 | Hops sequence present |
+| 2–6 | sequence number, mod 32 |
+| 0–1 | left exactly as found (firmware flags) |
 
 - One counter per (sender → conversation): per-peer for DMs, per-(sender,
   channel) for channels. Persisted on both ends.
-- Receiver gap rule (mod-256 window): forward delta 1 = in order; delta 2–8 =
+- Receiver gap rule (mod-32 window): forward delta 1 = in order; delta 2–8 =
   a gap of delta−1 messages, surfaced in the transcript where the hole is;
   anything else (duplicate, backward, larger) = counter reset — resync
   silently, never claim a giant gap after a reinstall.
-- Senders that never set bit 23 (official app, old Hops) simply get no gap
-  detection. Bits 0–22 are left exactly as found (OK_TO_MQTT etc.).
+- Senders that never set bit 7 (official app, old Hops) simply get no gap
+  detection.
+- Settings › Data has a kill switch ("Sequence numbers on sends"), default on.
 - Known limit: two of the user's own devices share the conversation counter
   via iCloud; near-simultaneous sends from both can duplicate a seq. Receiver
   dedupe by (sender, conversation, seq) absorbs it.

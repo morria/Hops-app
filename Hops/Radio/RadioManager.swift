@@ -368,6 +368,13 @@ final class RadioManager: ObservableObject {
             state = .bondLost
             NotificationManager.shared.postBondLost()
 
+        case .writeError(let message):
+            logTraffic(from: myNodeNum, port: "ble", summary: "Write to radio failed: \(message)")
+
+        case .writeStalled(let pending):
+            logTraffic(from: myNodeNum, port: "ble",
+                       summary: "Write to radio stalled — \(pending) queued, pump reset")
+
         case .frame(let data):
             process(frame: data)
 
@@ -533,6 +540,13 @@ final class RadioManager: ObservableObject {
 
         case .packet(let packet):
             handleMeshPacket(packet)
+
+        case .queueStatus(let qs):
+            // The firmware's verdict on every packet the phone hands it:
+            // res is the sendLocal error code, free/maxlen the TX queue.
+            // A packet the firmware couldn't even decode never gets one.
+            logTraffic(from: myNodeNum, port: "queue",
+                       summary: "res=\(qs.res) free=\(qs.free)/\(qs.maxlen) for #\(String(format: "%08X", qs.meshPacketID))")
 
         default:
             break
@@ -920,6 +934,11 @@ final class RadioManager: ObservableObject {
         }
     }
 
+    /// Kill switch for the sequence trailer (Settings › Data), default on.
+    static var sequenceTrailerEnabled: Bool {
+        UserDefaults.standard.object(forKey: "sequenceTrailerEnabled") as? Bool ?? true
+    }
+
     private func transmit(_ record: MessageStore.OutgoingRecord) {
         var decoded = DataMessage()
         decoded.portnum = .textMessageApp
@@ -927,11 +946,14 @@ final class RadioManager: ObservableObject {
         if record.isEmoji {
             decoded.emoji = 1
         }
-        // Reliability trailer (docs/RELIABILITY.md): sequence number in the
-        // undefined high bits of Data.bitfield — invisible to other clients,
-        // rides end-to-end inside the encrypted payload.
-        if record.seqNum >= 0, !record.isEmoji {
-            decoded.bitfield = decoded.bitfield | 0x0080_0000 | (UInt32(record.seqNum & 0xFF) << 24)
+        // Reliability trailer (docs/RELIABILITY.md) in Data.bitfield. The
+        // firmware stores that field in ONE byte (mesh.options: int_size:8):
+        // bits 0–1 are its own flags, so ours live in bits 2–7 — bit 7 marks
+        // presence, bits 2–6 carry the sequence mod 32. Draft 1 used bits
+        // 23–31; that overflowed the byte, nanopb rejected the whole ToRadio,
+        // and the radio silently dropped every text Hops sent (TODO 182).
+        if record.seqNum >= 0, !record.isEmoji, Self.sequenceTrailerEnabled {
+            decoded.bitfield = (decoded.bitfield & 0x03) | 0x80 | (UInt32(record.seqNum & 0x1F) << 2)
         }
         if record.replyId > 0 {
             decoded.replyID = UInt32(truncatingIfNeeded: record.replyId)
@@ -952,6 +974,16 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+        // Our side of the story in Mesh Traffic (TODO 182): until now the
+        // log held only what the radio received, so a send that never left
+        // the phone was indistinguishable from one the mesh ignored.
+        let preview = record.text.count > 40 ? String(record.text.prefix(40)) + "…" : record.text
+        let target = record.toNum == Int64(UInt32.max)
+            ? "channel \(record.channel)"
+            : String(format: "!%08x", UInt32(truncatingIfNeeded: record.toNum))
+            + (record.peerPublicKey.isEmpty ? "" : " (PKI)")
+        logTraffic(from: myNodeNum, port: "sent",
+                   summary: "→ \(target) #\(String(format: "%08X", packet.id)): \(preview)")
     }
 
     #if MESHSITES
@@ -1476,7 +1508,20 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+        logTraffic(from: myNodeNum, port: "sent",
+                   summary: "→ admin #\(String(format: "%08X", packet.id)): \(adminLabel(admin))")
         return packet.id
+    }
+
+    private func adminLabel(_ admin: AdminMessage) -> String {
+        switch admin.payloadVariant {
+        case .setOwner: return "set owner"
+        case .setTimeOnly: return "set time"
+        case .setConfig: return "set config"
+        case .setChannel(let ch): return "set channel \(ch.index)"
+        case .setModuleConfig: return "set module config"
+        default: return String(describing: admin.payloadVariant).components(separatedBy: "(").first ?? "admin"
+        }
     }
 
     private func persistLoRa() {

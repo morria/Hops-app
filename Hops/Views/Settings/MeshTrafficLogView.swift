@@ -74,7 +74,27 @@ struct MeshTrafficLogView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            ToolbarItem(placement: .topBarTrailing) {
+                // Plain-text export for bug reports (TODO 182): oldest first,
+                // one line per entry, with the same fields the rows show.
+                ShareLink(item: logText, preview: SharePreview("Mesh Traffic log")) {
+                    Image(systemName: "square.and.arrow.up")
+                }
+                .disabled(radio.trafficLog.isEmpty)
+            }
         }
+    }
+
+    private var logText: String {
+        let stamp = Date.FormatStyle(date: .numeric, time: .standard)
+        let lines = radio.trafficLog.reversed().map { entry -> String in
+            var line = "\(entry.date.formatted(stamp))  \(name(for: entry.fromNum))  [\(entry.portName)]  \(entry.summary)"
+            if entry.hopsAway >= 0 { line += "  hops=\(entry.hopsAway)" }
+            if entry.snr != 0 { line += String(format: "  snr=%.1f", entry.snr) }
+            return line
+        }
+        let header = "Hops Mesh Traffic — node \(String(format: "!%08x", UInt32(truncatingIfNeeded: radio.myNodeNum))), firmware \(radio.firmwareVersion), \(radio.meshPacketsHeard) heard"
+        return ([header] + lines).joined(separator: "\n")
     }
 
     private func name(for num: Int64) -> String {

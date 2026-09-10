@@ -27,6 +27,8 @@ final class BLETransport: NSObject {
         case frame(Data)             // one FromRadio protobuf frame
         case drainComplete           // FROMRADIO read returned empty
         case bondLost
+        case writeError(String)      // a TORADIO frame was dropped by the stack
+        case writeStalled(pending: Int)  // no completion for the head frame; queue reset
     }
 
     var onEvent: (@MainActor (Event) -> Void)?
@@ -53,6 +55,9 @@ final class BLETransport: NSObject {
     private var writeQueue: [Data] = []
     private var writing = false
     private var writeAttempts = 0
+    /// Bumps on every completed frame; the stall watchdog compares it.
+    private var writeSerial = 0
+    private static let writeStallSeconds = 10.0
 
     /// Creates the CBCentralManager (idempotent). RadioManager calls this at
     /// launch when a radio is already paired — the manager must exist early
@@ -181,6 +186,25 @@ final class BLETransport: NSObject {
         queue.async {
             self.writeQueue.append(data)
             self.pumpWrites()
+            self.armStallWatchdog()
+        }
+    }
+
+    /// TODO 182: a TORADIO write whose completion never arrives would leave
+    /// `writing` true forever and every later frame — texts, admin, heartbeat
+    /// — silently queued. Detect it, report it, and reset the pump. A
+    /// duplicate of the head frame is harmless (the radio dedups by id).
+    private func armStallWatchdog() {
+        guard writing else { return }
+        let serial = writeSerial
+        queue.asyncAfter(deadline: .now() + Self.writeStallSeconds) {
+            guard self.writing, self.writeSerial == serial, !self.writeQueue.isEmpty else { return }
+            self.log.error("TORADIO write stalled; \(self.writeQueue.count) queued — resetting pump")
+            self.emit(.writeStalled(pending: self.writeQueue.count))
+            self.writing = false
+            self.writeAttempts = 0
+            self.pumpWrites()
+            self.armStallWatchdog()
         }
     }
 
@@ -195,7 +219,9 @@ final class BLETransport: NSObject {
         if !writeQueue.isEmpty { writeQueue.removeFirst() }
         writeAttempts = 0
         writing = false
+        writeSerial += 1
         pumpWrites()
+        armStallWatchdog()
     }
 
     /// Kick (or coalesce) the read-until-empty drain loop.
@@ -376,6 +402,7 @@ extension BLETransport: CBPeripheralDelegate {
         }
         if let error {
             log.error("write error: \(error.localizedDescription)")
+            emit(.writeError(error.localizedDescription))
         }
         finishCurrentWrite()
     }

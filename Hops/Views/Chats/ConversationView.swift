@@ -316,6 +316,14 @@ struct ConversationView: View {
                         }
                         timeRevealRow(for: row)
                     }
+                    // Always-present end marker: scrolling to it lands on the
+                    // true bottom (status line included) even before a new
+                    // row exists in the hierarchy — scrolling to the newest
+                    // message id was a no-op until that row was laid out,
+                    // and unreliable inside a LazyVStack after (TODO 180).
+                    Color.clear
+                        .frame(height: 1)
+                        .id(Self.bottomAnchorID)
                 }
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
@@ -350,11 +358,14 @@ struct ConversationView: View {
             }
             .onChange(of: messages.count) {
                 rebuildRows()
-                scrollToBottom(proxy, animated: true)
-                // Second pass after the new row has real layout — without it a
-                // just-sent message can land below the fold.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-                    scrollToBottom(proxy, animated: true)
+                // The rows change above lands on the next render; scroll once
+                // the new row exists, then again after its bubble has real
+                // layout (status line, link detection, map card).
+                DispatchQueue.main.async { scrollToBottom(proxy, animated: true) }
+                for delay in [0.25, 0.6] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        scrollToBottom(proxy, animated: true)
+                    }
                 }
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
@@ -390,14 +401,16 @@ struct ConversationView: View {
         return true
     }
 
+    private static let bottomAnchorID = "transcript-bottom"
+
     private func scrollToBottom(_ proxy: ScrollViewProxy, animated: Bool) {
-        guard let last = transcript.last else { return }
+        guard !transcript.isEmpty else { return }
         if animated {
             withAnimation(.easeOut(duration: 0.2)) {
-                proxy.scrollTo(last.packetId, anchor: .bottom)
+                proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
             }
         } else {
-            proxy.scrollTo(last.packetId, anchor: .bottom)
+            proxy.scrollTo(Self.bottomAnchorID, anchor: .bottom)
         }
     }
 
@@ -904,9 +917,7 @@ struct MessageBubble: View {
     }
 
     private var failureText: String {
-        if message.ackErrorRaw == -1 { return "No response" }
-        if isDM { return "No response from their radio" }
-        return "Couldn't send"
+        RoutingFailure.short(code: message.ackErrorRaw, isDM: isDM)
     }
 
     private func statusText(_ text: String, color: Color) -> some View {

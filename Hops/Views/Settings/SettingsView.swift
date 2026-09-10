@@ -265,6 +265,7 @@ struct SettingsView: View {
     // MARK: - Node retention
 
     @AppStorage("nodeMaxAgeDays") private var nodeMaxAgeDays = 90
+    @AppStorage("sequenceTrailerEnabled") private var sequenceTrailerEnabled = true
 
     private var dataSection: some View {
         Section {
@@ -277,6 +278,7 @@ struct SettingsView: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
+            Toggle("Sequence numbers on sends", isOn: $sequenceTrailerEnabled)
             Picker("Remove unheard nodes after", selection: $nodeMaxAgeDays) {
                 Text("7 days").tag(7)
                 Text("30 days").tag(30)
