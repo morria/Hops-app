@@ -139,6 +139,12 @@ final class RadioManager: ObservableObject {
         }
     }
 
+    /// App-level breadcrumbs (deep links, notification taps) in the same
+    /// log as mesh traffic, so a "tap did nothing" report comes with a trail.
+    func noteAppEvent(_ text: String) {
+        logTraffic(from: myNodeNum, port: "app", summary: text)
+    }
+
     // Connected radio facts (mirrored to UserDefaults for cold launches).
     @Published private(set) var myNodeNum: Int64
     @Published private(set) var firmwareVersion: String

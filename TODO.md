@@ -4,15 +4,52 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+186. [ ] Tapping a notification still does not open the conversation;
+         possibly an app crash. Prior attempts: TODO 6 (tab switch), 132-133
+         (cold launch), 156 (land on the exact message). Investigate with
+         evidence this time: crash reports on the Mac/phone, the tap
+         delivery path (delegate set before didFinishLaunching returns?
+         cold vs warm launch, pending-target consumption), and a log trail
+         for every step of a tap.
+         Sep 9: no Hops crash in the Sep 8 phone log (pid 15029 lived the
+         whole window; the two ReportCrash corpses were other processes).
+         Found a real mechanism: on iPhone the chat list used
+         navigationDestination(item:) and, when another thread was already
+         pushed, cleared the selection then re-set it on the next runloop —
+         SwiftUI drops that push while the pop animation is in flight, so
+         a tap for thread B while thread A was open did nothing. Now the
+         compact stack is path-driven (NavigationStack(path:)) mirrored
+         from selection; replacing the path swaps the detail atomically,
+         and a back-button pop clears selection so the same key re-opens.
+         The cold-launch replay is dispatched off the onAppear view update.
+         Every step now logs to Mesh Traffic as port "app": "notification
+         tap → handler|buffered", "open requested", "chat list opening
+         (onChange|onAppear)". Verify: tap a notification with (a) the app
+         killed, (b) backgrounded on another tab, (c) another thread open,
+         (d) the same thread open. If it still fails, export Mesh Traffic
+         and check iOS Settings › Privacy & Security › Analytics Data for
+         Hops-*.ips crash files.
+
+185. [x] Add/Edit Channel had no way to enter a specific key — only
+         default, random, or none — so joining a friend's channel by hand
+         was impossible. Added an "Enter a key" field (paste button when the
+         clipboard has text): base64, URL-safe base64, or hex; must be 1,
+         16, or 32 bytes, with the reason shown in red otherwise.
+
 184. [ ] Map: tapping a node should offer a Message button. TODO 6/7 added
          one to the shared NodeCardView for "messageable" nodes only (role
          filter: routers, repeaters, trackers, sensors, TAK, hidden are
          excluded) — check whether the reporter's node fell through that
          filter or the map panel isn't showing the card's action at all.
 
-183. [ ] Channels: invite someone to a single channel (a QR/URL carrying
-         just that channel, not the whole channel set), and show the
-         channel's key on the channel screen with a copy action.
+183. [x] Channels: invite someone to a single channel, and show its key.
+         Edit Channel now shows the key (base64, selectable) with Copy Key,
+         and "Share This Channel…" opens a QR + link in the official
+         add-mode form (meshtastic.org/e/?add=true#…, one channel, no LoRa
+         config). Importing handles add mode both ways: an add link, or any
+         link without LoRa config, appends to free slots and never touches
+         the primary or radio settings; the confirm sheet says which slot.
+         Verify: scan the invite with the official app and with Hops.
 
 182. [x] Sends broke somewhere before build 9: DMs and channel messages
          used to ack in seconds, now every send errors.

@@ -169,8 +169,10 @@ extension NotificationManager: UNUserNotificationCenterDelegate {
                 }
             default:
                 if let open = NotificationManager.shared.openConversation {
+                    radio.noteAppEvent("notification tap: \(key) → handler")
                     open(key, packetId)
                 } else {
+                    radio.noteAppEvent("notification tap: \(key) → buffered (cold launch)")
                     NotificationManager.shared.pendingOpen = (key, packetId)
                 }
             }

@@ -62,7 +62,10 @@ struct HopsApp: App {
                 .environmentObject(appModel)
                 .onAppear {
                     NotificationManager.shared.openConversation = { key, packetId in
-                        appModel.openConversation(key, scrollTo: packetId)
+                        // Off the current view update: a tap replayed from a
+                        // cold launch arrives inside onAppear, and publishing
+                        // there can be dropped (TODO 186).
+                        DispatchQueue.main.async { appModel.openConversation(key, scrollTo: packetId) }
                     }
                     #if DEBUG
                     if ScreenshotMode.isActive {
@@ -121,6 +124,7 @@ final class AppModel: ObservableObject {
     @Published var selectedTab: Int = 0
 
     func openConversation(_ key: String, scrollTo packetId: Int64 = 0) {
+        RadioManager.shared.noteAppEvent("open requested: \(key) packet \(packetId)")
         pendingScrollPacketId = packetId != 0 ? packetId : nil
         pendingScrollConversationKey = packetId != 0 ? key : nil
         pendingConversationKey = key

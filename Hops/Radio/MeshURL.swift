@@ -6,23 +6,58 @@ import MeshtasticProtobufs
 /// The standard Meshtastic channel-share URL: https://meshtastic.org/e/#<base64url ChannelSet>
 enum MeshURL {
 
-    static func parse(_ string: String) -> ChannelSet? {
+    /// A parsed share link. `add` means "append these channels to free slots,
+    /// leave everything else alone" — the `?add=true` form the official app
+    /// uses for single-channel invites (TODO 183). A link that carries no
+    /// LoRa config is treated as an add too: nothing in it justifies
+    /// replacing the primary.
+    struct Link {
+        let channelSet: ChannelSet
+        let add: Bool
+    }
+
+    static func parseLink(_ string: String) -> Link? {
         guard let hashIndex = string.firstIndex(of: "#") else { return nil }
-        var base64 = String(string[string.index(after: hashIndex)...])
+        let prefix = String(string[..<hashIndex])
+        var fragment = String(string[string.index(after: hashIndex)...])
+        var addFlag = hasAddFlag(prefix.components(separatedBy: "?").dropFirst().joined(separator: "?"))
+        if let q = fragment.firstIndex(of: "?") {
+            addFlag = addFlag || hasAddFlag(String(fragment[fragment.index(after: q)...]))
+            fragment = String(fragment[..<q])
+        }
+        var base64 = fragment
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
         while base64.count % 4 != 0 { base64.append("=") }
-        guard let data = Data(base64Encoded: base64) else { return nil }
-        return try? ChannelSet(serializedBytes: data)
+        guard let data = Data(base64Encoded: base64),
+              let channelSet = try? ChannelSet(serializedBytes: data) else { return nil }
+        return Link(channelSet: channelSet, add: addFlag || !channelSet.hasLoraConfig)
     }
 
-    static func encode(_ channelSet: ChannelSet) -> String? {
+    private static func hasAddFlag(_ query: String) -> Bool {
+        query.lowercased().components(separatedBy: "&").contains { $0 == "add=true" || $0 == "add=1" }
+    }
+
+    static func parse(_ string: String) -> ChannelSet? { parseLink(string)?.channelSet }
+
+    static func encode(_ channelSet: ChannelSet, add: Bool = false) -> String? {
         guard let data = try? channelSet.serializedData() else { return nil }
         let base64 = data.base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
-        return "https://meshtastic.org/e/#\(base64)"
+        return "https://meshtastic.org/e/\(add ? "?add=true" : "")#\(base64)"
+    }
+
+    /// Invite link for one channel: add-mode, no LoRa config, so scanning it
+    /// appends the channel instead of replacing the recipient's mesh.
+    static func encodeSingle(name: String, psk: Data) -> String? {
+        var settings = ChannelSettings()
+        settings.name = name
+        settings.psk = psk
+        var set = ChannelSet()
+        set.settings = [settings]
+        return encode(set, add: true)
     }
 
     static func qrImage(for string: String) -> UIImage? {

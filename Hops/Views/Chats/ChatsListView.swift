@@ -21,6 +21,12 @@ struct ChatsListView: View {
     /// Drives the split-view detail column; on iPhone the split view
     /// collapses and selection becomes the pushed conversation.
     @State private var selection: String?
+    /// Compact-width navigation path, mirrored from `selection`. Replacing
+    /// the path wholesale is the one way SwiftUI swaps a pushed detail
+    /// atomically; the old pop-then-push-next-runloop trick lost the push
+    /// whenever a pop animation was in flight — the notification-tap bug
+    /// (TODO 186).
+    @State private var path: [String] = []
     @State private var deleteTarget: ConversationEntity?
     @State private var renameTarget: ConversationEntity?
     @State private var renameText = ""
@@ -61,12 +67,22 @@ struct ChatsListView: View {
                 }
             }
         } else {
-            NavigationStack {
+            NavigationStack(path: $path) {
                 sidebar
-                    .navigationDestination(item: $selection) { key in
+                    .navigationDestination(for: String.self) { key in
                         ConversationView(conversationKey: key)
                     }
             }
+            .onChange(of: selection) { _, key in
+                let want = key.map { [$0] } ?? []
+                if path != want { path = want }
+            }
+            .onChange(of: path) { _, newPath in
+                // Back button popped: keep selection honest so the same key
+                // can be selected again (a no-op change never re-pushes).
+                if newPath.isEmpty, selection != nil { selection = nil }
+            }
+            .onAppear { path = selection.map { [$0] } ?? [] }
         }
     }
 
@@ -122,6 +138,7 @@ struct ChatsListView: View {
             .onChange(of: appModel.pendingConversationKey) { _, key in
                 guard let key else { return }
                 appModel.pendingConversationKey = nil
+                RadioManager.shared.noteAppEvent("chat list opening \(key) (onChange)")
                 openFromDeepLink(key)
             }
             .photosPicker(isPresented: $showPhotoPicker, selection: $pickedPhoto, matching: .images)
@@ -173,7 +190,8 @@ struct ChatsListView: View {
                 // (e.g. the map's Message button on first use).
                 if let key = appModel.pendingConversationKey {
                     appModel.pendingConversationKey = nil
-                    selection = key
+                    RadioManager.shared.noteAppEvent("chat list opening \(key) (onAppear)")
+                    openFromDeepLink(key)
                 }
                 #if DEBUG
                 if let key = ScreenshotMode.initialConversation, selection == nil {
@@ -188,12 +206,9 @@ struct ChatsListView: View {
     /// view's identity in place — is crash-prone in SwiftUI navigation.
     /// Pop first, push on the next runloop; fresh push = fresh state.
     private func openFromDeepLink(_ key: String) {
-        if hSize != .regular, selection != nil, selection != key {
-            selection = nil
-            DispatchQueue.main.async { selection = key }
-        } else {
-            selection = key
-        }
+        // Compact: the path mirror replaces any pushed detail in one shot.
+        // Regular: the split view's detail is keyed by selection already.
+        selection = key
     }
 
     private func cancelSearch() {

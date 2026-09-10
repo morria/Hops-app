@@ -8,7 +8,7 @@ struct ChannelsView: View {
 
     @State private var showScanner = false
     @State private var showShare = false
-    @State private var pendingImport: ChannelSet?
+    @State private var pendingImport: MeshURL.Link?
     @State private var importFailed = false
 
     var body: some View {
@@ -88,11 +88,18 @@ struct ChannelsView: View {
         }
         .sheet(item: Binding(
             get: { pendingImport.map(ImportBox.init) },
-            set: { pendingImport = $0?.channelSet }
+            set: { pendingImport = $0?.link }
         )) { box in
             NavigationStack {
-                ImportConfirmView(channelSet: box.channelSet) {
-                    radio.applyChannelSet(box.channelSet)
+                ImportConfirmView(link: box.link, freeSlots: freeSlots) {
+                    if box.link.add {
+                        // Append to free slots; never touch the primary or LoRa.
+                        for (settings, slot) in zip(box.link.channelSet.settings, freeSlots) {
+                            radio.setChannel(index: slot, name: settings.name, roleRaw: 2, psk: settings.psk)
+                        }
+                    } else {
+                        radio.applyChannelSet(box.link.channelSet)
+                    }
                     pendingImport = nil
                 }
             }
@@ -105,11 +112,13 @@ struct ChannelsView: View {
         }
     }
 
-    /// First unused channel slot (radios support indexes 0–7).
-    private var firstFreeIndex: Int32? {
+    /// Unused channel slots, lowest first (radios support indexes 0–7).
+    private var freeSlots: [Int32] {
         let used = Set(channels.filter { $0.roleRaw != 0 }.map { $0.index })
-        return (Int32(0)...7).first { !used.contains($0) }
+        return (Int32(0)...7).filter { !used.contains($0) }
     }
+
+    private var firstFreeIndex: Int32? { freeSlots.first }
 
     private func importFromPasteboard() {
         guard let string = UIPasteboard.general.string else {
@@ -120,8 +129,8 @@ struct ChannelsView: View {
     }
 
     private func handleImport(_ string: String) {
-        if let channelSet = MeshURL.parse(string), !channelSet.settings.isEmpty {
-            pendingImport = channelSet
+        if let link = MeshURL.parseLink(string), !link.channelSet.settings.isEmpty {
+            pendingImport = link
         } else {
             importFailed = true
         }
@@ -129,35 +138,47 @@ struct ChannelsView: View {
 }
 
 private struct ImportBox: Identifiable {
-    let channelSet: ChannelSet
-    var id: String { (try? channelSet.serializedData())?.base64EncodedString() ?? UUID().uuidString }
+    let link: MeshURL.Link
+    var id: String {
+        ((try? link.channelSet.serializedData())?.base64EncodedString() ?? UUID().uuidString) + (link.add ? "+add" : "")
+    }
 }
 
 /// One-screen confirmation before a QR/link import writes to the radio — a channel
 /// QR contains LoRa settings, so the diff is shown, never silently applied.
 struct ImportConfirmView: View {
-    let channelSet: ChannelSet
+    let link: MeshURL.Link
+    var freeSlots: [Int32] = []
     var onApply: () -> Void
 
     @EnvironmentObject private var radio: RadioManager
     @Environment(\.dismiss) private var dismiss
 
+    private var channelSet: ChannelSet { link.channelSet }
+    private var addLines: [String] {
+        zip(channelSet.settings, freeSlots).map { settings, slot in
+            "Adds \(settings.name.isEmpty ? "an unnamed channel" : "\"\(settings.name)\"")\(settings.psk.isEmpty ? "" : " (encrypted)") in slot \(slot)"
+        } + (channelSet.settings.count > freeSlots.count ? ["Not enough free slots for every channel (radios hold 8)"] : [])
+    }
+
     var body: some View {
         List {
             Section {
-                ForEach(MeshURL.describeImport(channelSet, current: radio.loRa), id: \.self) { line in
+                ForEach(link.add ? addLines : MeshURL.describeImport(channelSet, current: radio.loRa), id: \.self) { line in
                     Text(line)
                 }
             } header: {
-                Text("Joining applies these settings")
+                Text(link.add ? "Adding a channel" : "Joining applies these settings")
             } footer: {
-                Text("If radio settings change, your radio restarts; Hops reconnects automatically.")
+                Text(link.add
+                     ? "Your primary channel and radio settings are not changed."
+                     : "If radio settings change, your radio restarts; Hops reconnects automatically.")
             }
             Button {
                 onApply()
                 dismiss()
             } label: {
-                Text("Join Mesh")
+                Text(link.add ? (channelSet.settings.count == 1 ? "Add Channel" : "Add Channels") : "Join Mesh")
                     .frame(maxWidth: .infinity)
                     .font(.body.weight(.semibold))
             }
