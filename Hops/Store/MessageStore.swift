@@ -31,7 +31,36 @@ actor MessageStore {
     private var localNodeNum: Int64 = 0
 
     func setLocalNodeNum(_ num: Int64) {
+        let wasUnknown = localNodeNum <= 0
         localNodeNum = num
+        // Merges are refused while we don't know which record is us, so
+        // anything that arrived during that window is still unfolded. Now we
+        // know: sweep once.
+        if wasUnknown, num > 0 { foldDuplicateKeyedNodes() }
+    }
+
+    /// Fold ghost identities left by firmware renumbering: for every set of
+    /// nodes sharing a public key, the most recently heard number wins — except
+    /// when the local radio is one of them (see `mergeRenumberedNodes`).
+    private func foldDuplicateKeyedNodes() {
+        guard localNodeNum > 0 else { return }
+        let keyed = ((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? [])
+            .filter { !$0.publicKey.isEmpty }
+        for (_, group) in Dictionary(grouping: keyed, by: { $0.publicKey }) where group.count > 1 {
+            // This path is the more dangerous of the two: the keeper is
+            // whoever was heard last, and our own row is routinely the
+            // quietest (we don't hear ourselves), so the local record would
+            // lose by default — at launch, before any of it is on screen.
+            if group.contains(where: { $0.num == localNodeNum }) {
+                log.warning("refusing to fold the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: localNodeNum)), privacy: .public) shares a public key with \(group.filter { $0.num != localNodeNum }.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0.num)) }.joined(separator: ", "), privacy: .public)")
+                continue
+            }
+            let keeper = group.max(by: {
+                ($0.lastHeard ?? .distantPast) < ($1.lastHeard ?? .distantPast)
+            })!
+            for old in group where old !== keeper { mergeNode(old, into: keeper) }
+        }
+        try? modelContext.save()
     }
 
     private func scheduleSave() {
@@ -256,20 +285,32 @@ actor MessageStore {
         let dupes = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
             predicate: #Predicate { $0.publicKey == key && $0.num != num }))) ?? []
         guard !dupes.isEmpty else { return }
-        // The local radio's record must never be the one that loses. MyInfo
-        // from the connected radio is authoritative for this device, and
-        // nothing re-points `myNodeNum` at a survivor, so folding our own
-        // record into a sibling num deletes the node every view calls "me".
-        var survivor = keeper
-        var losers = dupes
-        if localNodeNum > 0, keeper.num != localNodeNum,
-           let mine = dupes.first(where: { $0.num == localNodeNum }) {
-            survivor = mine
-            losers = dupes.filter { $0.num != localNodeNum } + [keeper]
+        // Identity unknown (no MyInfo yet this session): refuse everything.
+        // A merge is irreversible and we cannot check whether we are a party
+        // to it, so wait — `setLocalNodeNum` sweeps once identity arrives.
+        guard localNodeNum > 0 else {
+            log.warning("deferring node merge: local node number not known yet")
+            return
         }
-        for old in losers {
-            log.notice("merging renumbered node \(String(format: "!%08x", UInt32(truncatingIfNeeded: old.num))) into \(String(format: "!%08x", UInt32(truncatingIfNeeded: survivor.num)))")
-            mergeNode(old, into: survivor)
+        // Refuse to merge anything the local radio is part of. A shared public
+        // key means "same radio" only if keys are unique per device, and they
+        // are not: duplicated keypairs shipped on cloned/low-entropy devices
+        // (meshtastic/firmware advisory GHSA-gq7v-jr8c-mfr7), and a config
+        // export/import copies security.private_key. From the key alone we
+        // cannot tell "me, renumbered" from "someone else carrying my key" —
+        // and both merge directions are destructive:
+        //   fold us into them  → the record every view calls "me" is deleted
+        //                        (SettingsView.swift:16 → "Your name: Not set")
+        //   fold them into us  → their messages are rewritten as ours
+        // So leave both rows alone and say so in the log.
+        if keeper.num == localNodeNum || dupes.contains(where: { $0.num == localNodeNum }) {
+            let others = dupes.filter { $0.num != localNodeNum }.map(\.num) + (keeper.num == localNodeNum ? [] : [keeper.num])
+            log.warning("refusing to merge the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: localNodeNum)), privacy: .public) shares a public key with \(others.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", "), privacy: .public)")
+            return
+        }
+        for old in dupes {
+            log.notice("merging renumbered node \(String(format: "!%08x", UInt32(truncatingIfNeeded: old.num)), privacy: .public) into \(String(format: "!%08x", UInt32(truncatingIfNeeded: keeper.num)), privacy: .public)")
+            mergeNode(old, into: keeper)
         }
         try? modelContext.save()
     }
@@ -278,16 +319,6 @@ actor MessageStore {
         // Custom identity follows the person.
         if keeper.customName.isEmpty { keeper.customName = old.customName }
         if keeper.iconData == nil { keeper.iconData = old.iconData }
-        // Same radio, so the mesh-reported identity follows too — but only
-        // into a keeper that has none of its own (a placeholder record from
-        // `NodeEntity.init` is "Node 0a1b2c3d"), never over a real name.
-        if keeper.longName.isEmpty || keeper.longName.hasPrefix("Node "),
-           !old.longName.isEmpty, !old.longName.hasPrefix("Node ") {
-            keeper.longName = old.longName
-            keeper.shortName = old.shortName
-        }
-        if keeper.batteryLevel < 0 { keeper.batteryLevel = old.batteryLevel }
-        if keeper.lastHeard == nil { keeper.lastHeard = old.lastHeard }
         let oldNum = old.num
         let newNum = keeper.num
         let oldKey = ConversationEntity.dmKey(oldNum)
@@ -365,8 +396,12 @@ actor MessageStore {
         let convoKeys = Set(((try? modelContext.fetch(FetchDescriptor<ConversationEntity>())) ?? []).map(\.key))
         var removedNums: [Int64] = []
         for node in stale {
-            // Never prune the local radio: its record often carries no
-            // lastHeard (we don't hear ourselves), so it looks stale forever.
+            // Never prune the local radio. The firmware stamps our own entry
+            // with `last_heard = getValidTime(RTCQualityFromNet)` in every DB
+            // dump (firmware v2.7.15 PhoneAPI.cpp:643), but that returns 0
+            // when the radio's clock has no valid source — and Hops only
+            // accepts `lastHeard > 0`, so a GPS-less radio on a fresh boot
+            // leaves our own row with no lastHeard at all, i.e. prunable.
             guard node.num != localNodeNum else { continue }
             guard node.customName.isEmpty, node.iconData == nil,
                   !convoKeys.contains(ConversationEntity.dmKey(node.num)) else { continue }
@@ -1085,16 +1120,7 @@ actor MessageStore {
     func repairConversations() {
         dedupeAfterSync()
         repairFutureTimestamps()
-        // Fold ghost identities left by firmware renumbering: for every set
-        // of nodes sharing a public key, the most recently heard number wins.
-        let keyed = ((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? [])
-            .filter { !$0.publicKey.isEmpty }
-        for (_, group) in Dictionary(grouping: keyed, by: { $0.publicKey }) where group.count > 1 {
-            let keeper = group.max(by: {
-                ($0.lastHeard ?? .distantPast) < ($1.lastHeard ?? .distantPast)
-            })!
-            for old in group where old !== keeper { mergeNode(old, into: keeper) }
-        }
+        foldDuplicateKeyedNodes()
         // Backfill legacy boolean mutes into the notify-level field.
         let mutedDescriptor = FetchDescriptor<ConversationEntity>(
             predicate: #Predicate { $0.muted == true && $0.notifyLevelRaw == 0 }
