@@ -4,6 +4,7 @@ import SwiftData
 /// Real-time log of decoded mesh traffic — updates live while connected.
 struct MeshTrafficLogView: View {
     @EnvironmentObject private var radio: RadioManager
+    @ObservedObject private var traffic = TrafficMonitor.shared
     @Query private var nodes: [NodeEntity]
 
     private var namesByNum: [Int64: String] {
@@ -12,7 +13,7 @@ struct MeshTrafficLogView: View {
 
     var body: some View {
         Group {
-            if radio.trafficLog.isEmpty {
+            if traffic.entries.isEmpty {
                 ContentUnavailableView(
                     "No traffic yet",
                     systemImage: "dot.radiowaves.left.and.right",
@@ -21,7 +22,7 @@ struct MeshTrafficLogView: View {
                                       : "Connect to your radio to watch live mesh traffic.")
                 )
             } else {
-                List(radio.trafficLog) { entry in
+                List(traffic.entries) { entry in
                     VStack(alignment: .leading, spacing: 2) {
                         HStack {
                             Text(name(for: entry.fromNum))
@@ -70,7 +71,7 @@ struct MeshTrafficLogView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Text("\(radio.meshPacketsHeard) heard")
+                Text("\(traffic.meshPacketsHeard) heard")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -80,20 +81,20 @@ struct MeshTrafficLogView: View {
                 ShareLink(item: logText, preview: SharePreview("Mesh Traffic log")) {
                     Image(systemName: "square.and.arrow.up")
                 }
-                .disabled(radio.trafficLog.isEmpty)
+                .disabled(traffic.entries.isEmpty)
             }
         }
     }
 
     private var logText: String {
         let stamp = Date.FormatStyle(date: .numeric, time: .standard)
-        let lines = radio.trafficLog.reversed().map { entry -> String in
+        let lines = traffic.entries.reversed().map { entry -> String in
             var line = "\(entry.date.formatted(stamp))  \(name(for: entry.fromNum))  [\(entry.portName)]  \(entry.summary)"
             if entry.hopsAway >= 0 { line += "  hops=\(entry.hopsAway)" }
             if entry.snr != 0 { line += String(format: "  snr=%.1f", entry.snr) }
             return line
         }
-        let header = "Hops Mesh Traffic — node \(String(format: "!%08x", UInt32(truncatingIfNeeded: radio.myNodeNum))), firmware \(radio.firmwareVersion), \(radio.meshPacketsHeard) heard"
+        let header = "Hops Mesh Traffic — node \(String(format: "!%08x", UInt32(truncatingIfNeeded: radio.myNodeNum))), firmware \(radio.firmwareVersion), \(traffic.meshPacketsHeard) heard"
         return ([header] + lines).joined(separator: "\n")
     }
 

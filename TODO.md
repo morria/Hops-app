@@ -4,6 +4,20 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+188. [x] iOS killed Hops twice for CPU (Hops.cpu_resource_fatal, Sep 9 and
+         10): 48 s CPU in 55 s while in the BACKGROUND, idle, one thread,
+         382 MB. Symbolicated: main → SettingsView.body → radioSection →
+         SettingsView.myNode (an all-nodes @Query scanned on every render)
+         → SwiftData fetch. Every heard packet published trafficLog /
+         meshPacketsHeard / lastMeshPacketAt on RadioManager, so every view
+         observing the radio re-rendered per packet, Settings re-fetched
+         every node each time, and on a busy mesh that never stopped. Fix:
+         per-packet state moved to TrafficMonitor (publishes only while the
+         app is active, once on return), Settings reads the local node
+         through a one-row filtered @Query in a child view, and the traffic
+         summary row is its own view. Watch for: further CPU reports, and
+         whether Map/Chats need the same treatment.
+
 187. [x] GitHub issues #1, #2, #4 (Max). #2: landed PR #3 (never delete
          the local radio's node record; refuse ambiguous same-key merges;
          guard the stale prune) with compile fixes, plus setOwner now
@@ -16,7 +30,19 @@ Working list from on-device testing. Items stay here until resolved.
          60 s timeout, one in flight per peer, logged in Mesh Traffic; the
          product vision now allows it as a text-only diagnostic.
 
-186. [ ] Tapping a notification still does not open the conversation;
+186. [x] Tapping a notification crashed the app. ROOT CAUSE (from
+         Hops-2026-09-11-205249.ips, symbolicated against a rebuild of
+         c3df75b): SIGABRT from an NSAssertion in UIKit's
+         _updateSnapshotAndStateRestorationWithAction, invoked from the
+         completion of userNotificationCenter(_:didReceive:) on a
+         cooperative background thread. The delegate used the `async`
+         form; Swift calls the bridged completion from whatever executor
+         the task ends on (after `await MainActor.run`, not main), and iOS
+         26 asserts. Fix: both delegate methods now use the
+         completion-handler form and complete on the main actor. The
+         navigation rework from Sep 9 stays (it fixed the real
+         pop-then-push loss) but was never the crash.
+         Earlier notes — tapping a notification did not open the conversation;
          Sep 12: reporter confirms it is a CRASH on tap (build with the
          path-driven stack from Sep 9). Need the .ips: iOS Settings ›
          Privacy & Security › Analytics & Improvements › Analytics Data ›

@@ -134,22 +134,31 @@ final class NotificationManager: NSObject {
 
 extension NotificationManager: UNUserNotificationCenterDelegate {
 
+    // Both delegate methods use the completion-handler form on purpose. The
+    // `async` variants let Swift call the completion from whatever executor
+    // the task ends on — a cooperative background thread after `await
+    // MainActor.run` — and UIKit's state-restoration work inside that
+    // completion asserts off the main thread on iOS 26: SIGABRT in
+    // _updateSnapshotAndStateRestorationWithAction on every tap (TODO 186).
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.list, .banner, .sound]
+                                            willPresent notification: UNNotification,
+                                            withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        DispatchQueue.main.async { completionHandler([.list, .banner, .sound]) }
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                            didReceive response: UNNotificationResponse) async {
+                                            didReceive response: UNNotificationResponse,
+                                            withCompletionHandler completionHandler: @escaping () -> Void) {
         let userInfo = response.notification.request.content.userInfo
-        guard let key = userInfo["conversationKey"] as? String else { return }
+        let key = userInfo["conversationKey"] as? String
         let senderNum = userInfo["senderNum"] as? Int64 ?? Int64(userInfo["senderNum"] as? Int ?? 0)
         let packetId = userInfo["packetId"] as? Int64 ?? Int64(userInfo["packetId"] as? Int ?? 0)
-
         let actionId = response.actionIdentifier
         let replyText = (response as? UNTextInputNotificationResponse)?.userText
 
-        await MainActor.run {
+        Task { @MainActor in
+            defer { completionHandler() }   // always on the main actor
+            guard let key else { return }
             let radio = RadioManager.shared
             let destination = Self.destination(forConversationKey: key, senderNum: senderNum)
             switch actionId {

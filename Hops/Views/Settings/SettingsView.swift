@@ -2,9 +2,49 @@ import SwiftUI
 import SwiftData
 import MeshtasticProtobufs
 
+/// One-row query for the local node (TODO 188). SettingsView used to hold an
+/// all-nodes @Query and scan it on every render — and it re-rendered on every
+/// radio change, in the background too, until iOS killed the app for CPU.
+private struct MyNodeSummary<Content: View>: View {
+    @Query private var nodes: [NodeEntity]
+    private let content: (NodeEntity?) -> Content
+
+    init(num: Int64, @ViewBuilder content: @escaping (NodeEntity?) -> Content) {
+        _nodes = Query(filter: #Predicate<NodeEntity> { $0.num == num })
+        self.content = content
+    }
+
+    var body: some View { content(nodes.first) }
+}
+
+/// The "Mesh traffic" summary row observes the per-packet monitor alone, so
+/// packets re-render this one row and not the whole Settings screen.
+private struct TrafficSummaryRow: View {
+    @ObservedObject private var traffic = TrafficMonitor.shared
+
+    var body: some View {
+        LabeledContent("Mesh traffic") {
+            Text(description)
+                .foregroundStyle(traffic.meshPacketsHeard == 0 ? .orange : .secondary)
+                .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private var description: String {
+        if traffic.meshPacketsHeard == 0 {
+            return "None heard since launch"
+        }
+        // Compact on purpose — "15 seconds ago" wraps the row.
+        var text = "\(traffic.meshPacketsHeard) pkts · \(traffic.textMessagesHeard) msgs"
+        if let last = traffic.lastMeshPacketAt {
+            text += " · \(SettingsView.compactAgo(last))"
+        }
+        return text
+    }
+}
+
 struct SettingsView: View {
     @EnvironmentObject private var radio: RadioManager
-    @Query private var nodes: [NodeEntity]
 
     @AppStorage("notifyDMs") private var notifyDMs = true
     @AppStorage("notifyChannels") private var notifyChannels = true
@@ -12,10 +52,6 @@ struct SettingsView: View {
     @AppStorage("onboardingComplete") private var onboardingComplete = false
 
     @State private var showForgetConfirm = false
-
-    private var myNode: NodeEntity? {
-        nodes.first(where: { $0.num == radio.myNodeNum })
-    }
 
     var body: some View {
         NavigationStack {
@@ -41,7 +77,8 @@ struct SettingsView: View {
 
     private var radioSection: some View {
         Section("Radio") {
-            HStack(spacing: 12) {
+            MyNodeSummary(num: radio.myNodeNum) { myNode in
+              HStack(spacing: 12) {
                 Image(systemName: "antenna.radiowaves.left.and.right")
                     .font(.title2)
                     .foregroundStyle(stateColor)
@@ -60,8 +97,10 @@ struct SettingsView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+              }
+              .padding(.vertical, 4)
             }
-            .padding(.vertical, 4)
+            .id(radio.myNodeNum)
 
             NavigationLink {
                 MeshSetupView(isFirstRun: false)
@@ -143,19 +182,7 @@ struct SettingsView: View {
         }
     }
 
-    private var trafficDescription: String {
-        if radio.meshPacketsHeard == 0 {
-            return "None heard since launch"
-        }
-        // Compact on purpose — "15 seconds ago" wraps the row.
-        var text = "\(radio.meshPacketsHeard) pkts · \(radio.textMessagesHeard) msgs"
-        if let last = radio.lastMeshPacketAt {
-            text += " · \(Self.compactAgo(last))"
-        }
-        return text
-    }
-
-    private static func compactAgo(_ date: Date) -> String {
+    fileprivate static func compactAgo(_ date: Date) -> String {
         let seconds = max(0, Int(Date().timeIntervalSince(date)))
         if seconds < 60 { return "\(seconds)s ago" }
         if seconds < 3600 { return "\(seconds / 60)m ago" }
@@ -193,7 +220,10 @@ struct SettingsView: View {
             NavigationLink {
                 IdentityView()
             } label: {
-                LabeledContent("Your name", value: myNode.map { "\($0.longName) (\($0.shortName))" } ?? "Not set")
+                MyNodeSummary(num: radio.myNodeNum) { myNode in
+                    LabeledContent("Your name", value: myNode.map { "\($0.longName) (\($0.shortName))" } ?? "Not set")
+                }
+                .id(radio.myNodeNum)
             }
             NavigationLink {
                 ChannelsView()
@@ -272,11 +302,7 @@ struct SettingsView: View {
             NavigationLink {
                 MeshTrafficLogView()
             } label: {
-                LabeledContent("Mesh traffic") {
-                    Text(trafficDescription)
-                        .foregroundStyle(radio.meshPacketsHeard == 0 ? .orange : .secondary)
-                        .multilineTextAlignment(.trailing)
-                }
+                TrafficSummaryRow()
             }
             Toggle("Sequence numbers on sends", isOn: $sequenceTrailerEnabled)
             Picker("Remove unheard nodes after", selection: $nodeMaxAgeDays) {

@@ -31,9 +31,11 @@ final class RadioManager: ObservableObject {
 
     // Mesh-traffic diagnostics (since launch): distinguishes "radio hears nothing"
     // (config/frequency problem) from "app mishandles what arrives" (our bug).
-    @Published private(set) var meshPacketsHeard = 0
-    @Published private(set) var textMessagesHeard = 0
-    @Published private(set) var lastMeshPacketAt: Date?
+    // Per-packet counters live on TrafficMonitor (TODO 188) so a heard
+    // packet doesn't republish RadioManager to every view observing it.
+    var meshPacketsHeard: Int { TrafficMonitor.shared.meshPacketsHeard }
+    var textMessagesHeard: Int { TrafficMonitor.shared.textMessagesHeard }
+    var lastMeshPacketAt: Date? { TrafficMonitor.shared.lastMeshPacketAt }
 
     // Store & Forward: the last router heard heartbeating, for history recovery.
     private var sfRouterNum: Int64 {
@@ -125,18 +127,11 @@ final class RadioManager: ObservableObject {
     }
 
     /// Rolling log of decoded mesh traffic, newest first (capped).
-    @Published private(set) var trafficLog: [TrafficEntry] = []
-    private var trafficCounter = 0
+    var trafficLog: [TrafficEntry] { TrafficMonitor.shared.entries }
 
     private func logTraffic(from: Int64, port: String, summary: String,
                             snr: Float = 0, hopsAway: Int = -1) {
-        trafficCounter += 1
-        trafficLog.insert(TrafficEntry(id: trafficCounter, date: Date(), fromNum: from,
-                                       portName: port, summary: summary,
-                                       snr: snr, hopsAway: hopsAway), at: 0)
-        if trafficLog.count > 200 {
-            trafficLog.removeLast(trafficLog.count - 200)
-        }
+        TrafficMonitor.shared.append(from: from, port: port, summary: summary, snr: snr, hopsAway: hopsAway)
     }
 
     /// App-level breadcrumbs (deep links, notification taps) in the same
@@ -573,8 +568,7 @@ final class RadioManager: ObservableObject {
         guard let store else { return }
         let fromNum = Int64(packet.from)
         if fromNum != myNodeNum {
-            meshPacketsHeard += 1
-            lastMeshPacketAt = Date()
+            TrafficMonitor.shared.noteMeshPacket()
             accumulateCoverage(snr: packet.rxSnr)
             Task {
                 await store.heard(num: fromNum, snr: packet.rxSnr,
@@ -597,7 +591,7 @@ final class RadioManager: ObservableObject {
             return
         }
         if decoded.portnum == .textMessageApp, fromNum != myNodeNum {
-            textMessagesHeard += 1
+            TrafficMonitor.shared.noteTextMessage()
         }
         notePresenceHeard(fromNum, hops: hops)
         logTraffic(from: fromNum, port: portLabel(decoded.portnum), summary: trafficSummary(decoded),
@@ -1738,7 +1732,57 @@ final class RadioManager: ObservableObject {
 @MainActor
 final class UIStateObserver {
     static let shared = UIStateObserver()
-    var isActive = false
+    var isActive = false {
+        didSet { if isActive, !oldValue { Task { @MainActor in TrafficMonitor.shared.publishIfDirty() } } }
+    }
+}
+
+/// Everything that changes on every heard packet — the traffic log and its
+/// counters — kept off RadioManager so one packet doesn't re-render every
+/// view observing the radio (TODO 188: Settings re-fetched all nodes per
+/// render and, in the background, spun until iOS killed the app for CPU).
+/// Publishes only while the app is active; in the background it accumulates
+/// and publishes once on return.
+@MainActor
+final class TrafficMonitor: ObservableObject {
+    static let shared = TrafficMonitor()
+
+    private(set) var entries: [RadioManager.TrafficEntry] = []
+    private(set) var meshPacketsHeard = 0
+    private(set) var textMessagesHeard = 0
+    private(set) var lastMeshPacketAt: Date?
+    private var counter = 0
+    private var dirty = false
+
+    private func willChange() {
+        if UIStateObserver.shared.isActive { objectWillChange.send() } else { dirty = true }
+    }
+
+    func publishIfDirty() {
+        guard dirty else { return }
+        dirty = false
+        objectWillChange.send()
+    }
+
+    func noteMeshPacket() {
+        willChange()
+        meshPacketsHeard += 1
+        lastMeshPacketAt = Date()
+    }
+
+    func noteTextMessage() {
+        willChange()
+        textMessagesHeard += 1
+    }
+
+    func append(from: Int64, port: String, summary: String, snr: Float, hopsAway: Int) {
+        willChange()
+        counter += 1
+        entries.insert(RadioManager.TrafficEntry(id: counter, date: Date(), fromNum: from,
+                                                 portName: port, summary: summary,
+                                                 snr: snr, hopsAway: hopsAway), at: 0)
+        if entries.count > 200 { entries.removeLast(entries.count - 200) }
+    }
 }
 
 private extension UserDefaults {
