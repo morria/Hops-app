@@ -243,7 +243,11 @@ final class RadioManager: ObservableObject {
     func configure(container: ModelContainer) {
         let store = MessageStore(modelContainer: container)
         self.store = store
+        let localNum = myNodeNum
         Task {
+            // Before any maintenance pass: the store must know which record
+            // is us, so a renumber merge or a stale prune can't delete it.
+            await store.setLocalNodeNum(localNum)
             await store.repairConversations()
             await store.pruneTrails()
             await store.pruneCoverage()
@@ -284,6 +288,7 @@ final class RadioManager: ObservableObject {
         pairedPeripheralId = nil
         myNodeNum = 0
         defaults.set(0, forKey: Keys.myNodeNum)
+        Task { await store?.setLocalNodeNum(0) }
         defaults.set(false, forKey: Keys.loraReceived)
         loRa = LoRaSnapshot()
         state = .noRadio
@@ -498,6 +503,8 @@ final class RadioManager: ObservableObject {
         case .myInfo(let myInfo):
             myNodeNum = Int64(myInfo.myNodeNum)
             defaults.set(myNodeNum, forKey: Keys.myNodeNum)
+            let localNum = myNodeNum
+            Task { await store?.setLocalNodeNum(localNum) }
 
         case .metadata(let metadata):
             firmwareVersion = metadata.firmwareVersion

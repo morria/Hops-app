@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 import MeshtasticProtobufs
 
@@ -15,6 +16,23 @@ actor MessageStore {
     // actions and message ingest still save immediately.
 
     private var saveScheduled = false
+
+    private let log = Logger(subsystem: "com.w2asm.hops", category: "store")
+
+    // MARK: - Who we are
+    //
+    // The store has to know which node record is the local radio: several
+    // maintenance paths (renumber merge, stale prune) delete node records,
+    // and deleting *ours* strands every view that resolves "me" as
+    // `nodes.first { $0.num == radio.myNodeNum }` — the name, short name and
+    // battery all blink to "Not set" while the radio stays connected.
+    // RadioManager pushes this on launch and whenever MyInfo arrives.
+
+    private var localNodeNum: Int64 = 0
+
+    func setLocalNodeNum(_ num: Int64) {
+        localNodeNum = num
+    }
 
     private func scheduleSave() {
         guard !saveScheduled else { return }
@@ -238,7 +256,21 @@ actor MessageStore {
         let dupes = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
             predicate: #Predicate { $0.publicKey == key && $0.num != num }))) ?? []
         guard !dupes.isEmpty else { return }
-        for old in dupes { mergeNode(old, into: keeper) }
+        // The local radio's record must never be the one that loses. MyInfo
+        // from the connected radio is authoritative for this device, and
+        // nothing re-points `myNodeNum` at a survivor, so folding our own
+        // record into a sibling num deletes the node every view calls "me".
+        var survivor = keeper
+        var losers = dupes
+        if localNodeNum > 0, keeper.num != localNodeNum,
+           let mine = dupes.first(where: { $0.num == localNodeNum }) {
+            survivor = mine
+            losers = dupes.filter { $0.num != localNodeNum } + [keeper]
+        }
+        for old in losers {
+            log.notice("merging renumbered node \(String(format: "!%08x", UInt32(truncatingIfNeeded: old.num))) into \(String(format: "!%08x", UInt32(truncatingIfNeeded: survivor.num)))")
+            mergeNode(old, into: survivor)
+        }
         try? modelContext.save()
     }
 
@@ -246,6 +278,16 @@ actor MessageStore {
         // Custom identity follows the person.
         if keeper.customName.isEmpty { keeper.customName = old.customName }
         if keeper.iconData == nil { keeper.iconData = old.iconData }
+        // Same radio, so the mesh-reported identity follows too — but only
+        // into a keeper that has none of its own (a placeholder record from
+        // `NodeEntity.init` is "Node 0a1b2c3d"), never over a real name.
+        if keeper.longName.isEmpty || keeper.longName.hasPrefix("Node "),
+           !old.longName.isEmpty, !old.longName.hasPrefix("Node ") {
+            keeper.longName = old.longName
+            keeper.shortName = old.shortName
+        }
+        if keeper.batteryLevel < 0 { keeper.batteryLevel = old.batteryLevel }
+        if keeper.lastHeard == nil { keeper.lastHeard = old.lastHeard }
         let oldNum = old.num
         let newNum = keeper.num
         let oldKey = ConversationEntity.dmKey(oldNum)
@@ -323,6 +365,9 @@ actor MessageStore {
         let convoKeys = Set(((try? modelContext.fetch(FetchDescriptor<ConversationEntity>())) ?? []).map(\.key))
         var removedNums: [Int64] = []
         for node in stale {
+            // Never prune the local radio: its record often carries no
+            // lastHeard (we don't hear ourselves), so it looks stale forever.
+            guard node.num != localNodeNum else { continue }
             guard node.customName.isEmpty, node.iconData == nil,
                   !convoKeys.contains(ConversationEntity.dmKey(node.num)) else { continue }
             removedNums.append(node.num)
