@@ -194,6 +194,8 @@ One purpose: *where is everyone?*
   **Message** and **Directions** (hands off to Apple Maps).
 
 No overlays, offline tiles, traceroute flyovers, geofences, or route recording.
+(Traceroute exists as a text-only diagnostic in the node card — a list of hops
+with signal, never drawn on the map. See issue #1.)
 
 ### 4. Settings view
 

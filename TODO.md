@@ -4,8 +4,23 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+187. [x] GitHub issues #1, #2, #4 (Max). #2: landed PR #3 (never delete
+         the local radio's node record; refuse ambiguous same-key merges;
+         guard the stale prune) with compile fixes, plus setOwner now
+         requires MyInfo this session and merges/refusals log to Mesh
+         Traffic as port "app". #4: mergeNode and the launch dedupe carry
+         the real mesh name, battery, lastHeard, and position onto a
+         placeholder keeper. #1: Trace Route in the node card's
+         Reachability section — TRACEROUTE_APP request with want_response,
+         reply rendered as "You → hop (SNR) → target" plus the return path,
+         60 s timeout, one in flight per peer, logged in Mesh Traffic; the
+         product vision now allows it as a text-only diagnostic.
+
 186. [ ] Tapping a notification still does not open the conversation;
-         possibly an app crash. Prior attempts: TODO 6 (tab switch), 132-133
+         Sep 12: reporter confirms it is a CRASH on tap (build with the
+         path-driven stack from Sep 9). Need the .ips: iOS Settings ›
+         Privacy & Security › Analytics & Improvements › Analytics Data ›
+         Hops-2026-09-… › share to the Mac. Prior attempts: TODO 6 (tab switch), 132-133
          (cold launch), 156 (land on the exact message). Investigate with
          evidence this time: crash reports on the Mac/phone, the tap
          delivery path (delegate set before didFinishLaunching returns?

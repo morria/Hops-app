@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 import MeshtasticProtobufs
 
@@ -15,6 +16,57 @@ actor MessageStore {
     // actions and message ingest still save immediately.
 
     private var saveScheduled = false
+
+    private let log = Logger(subsystem: "com.w2asm.hops", category: "store")
+
+    // MARK: - Who we are
+    //
+    // The store has to know which node record is the local radio: several
+    // maintenance paths (renumber merge, stale prune) delete node records,
+    // and deleting *ours* strands every view that resolves "me" as
+    // `nodes.first { $0.num == radio.myNodeNum }` — the name, short name and
+    // battery all blink to "Not set" while the radio stays connected.
+    // RadioManager pushes this on launch and whenever MyInfo arrives.
+
+    private var localNodeNum: Int64 = 0
+
+    /// Breadcrumbs for Mesh Traffic (port "app"): merges and refusals are
+    /// invisible otherwise (issue #2).
+    private var eventSink: (@Sendable (String) -> Void)?
+    func setEventSink(_ sink: @escaping @Sendable (String) -> Void) { eventSink = sink }
+
+    func setLocalNodeNum(_ num: Int64) {
+        let wasUnknown = localNodeNum <= 0
+        localNodeNum = num
+        // Merges are refused while we don't know which record is us, so
+        // anything that arrived during that window is still unfolded. Now we
+        // know: sweep once.
+        if wasUnknown, num > 0 { foldDuplicateKeyedNodes() }
+    }
+
+    /// Fold ghost identities left by firmware renumbering: for every set of
+    /// nodes sharing a public key, the most recently heard number wins — except
+    /// when the local radio is one of them (see `mergeRenumberedNodes`).
+    private func foldDuplicateKeyedNodes() {
+        guard localNodeNum > 0 else { return }
+        let keyed = ((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? [])
+            .filter { !$0.publicKey.isEmpty }
+        for (_, group) in Dictionary(grouping: keyed, by: { $0.publicKey }) where group.count > 1 {
+            // This path is the more dangerous of the two: the keeper is
+            // whoever was heard last, and our own row is routinely the
+            // quietest (we don't hear ourselves), so the local record would
+            // lose by default — at launch, before any of it is on screen.
+            if group.contains(where: { $0.num == localNodeNum }) {
+                log.warning("refusing to fold the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: self.localNodeNum)), privacy: .public) shares a public key with \(group.filter { $0.num != self.localNodeNum }.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0.num)) }.joined(separator: ", "), privacy: .public)")
+                continue
+            }
+            let keeper = group.max(by: {
+                ($0.lastHeard ?? .distantPast) < ($1.lastHeard ?? .distantPast)
+            })!
+            for old in group where old !== keeper { mergeNode(old, into: keeper) }
+        }
+        try? modelContext.save()
+    }
 
     private func scheduleSave() {
         guard !saveScheduled else { return }
@@ -238,14 +290,62 @@ actor MessageStore {
         let dupes = (try? modelContext.fetch(FetchDescriptor<NodeEntity>(
             predicate: #Predicate { $0.publicKey == key && $0.num != num }))) ?? []
         guard !dupes.isEmpty else { return }
-        for old in dupes { mergeNode(old, into: keeper) }
+        // Identity unknown (no MyInfo yet this session): refuse everything.
+        // A merge is irreversible and we cannot check whether we are a party
+        // to it, so wait — `setLocalNodeNum` sweeps once identity arrives.
+        guard localNodeNum > 0 else {
+            log.warning("deferring node merge: local node number not known yet")
+            return
+        }
+        // Refuse to merge anything the local radio is part of. A shared public
+        // key means "same radio" only if keys are unique per device, and they
+        // are not: duplicated keypairs shipped on cloned/low-entropy devices
+        // (meshtastic/firmware advisory GHSA-gq7v-jr8c-mfr7), and a config
+        // export/import copies security.private_key. From the key alone we
+        // cannot tell "me, renumbered" from "someone else carrying my key" —
+        // and both merge directions are destructive:
+        //   fold us into them  → the record every view calls "me" is deleted
+        //                        (SettingsView.swift:16 → "Your name: Not set")
+        //   fold them into us  → their messages are rewritten as ours
+        // So leave both rows alone and say so in the log.
+        if keeper.num == localNodeNum || dupes.contains(where: { $0.num == localNodeNum }) {
+            let others = dupes.filter { $0.num != localNodeNum }.map(\.num) + (keeper.num == localNodeNum ? [] : [keeper.num])
+            eventSink?("refused to merge my node with \(others.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", ")) (same public key)")
+            log.warning("refusing to merge the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: self.localNodeNum)), privacy: .public) shares a public key with \(others.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", "), privacy: .public)")
+            return
+        }
+        for old in dupes {
+            log.notice("merging renumbered node \(String(format: "!%08x", UInt32(truncatingIfNeeded: old.num)), privacy: .public) into \(String(format: "!%08x", UInt32(truncatingIfNeeded: keeper.num)), privacy: .public)")
+            mergeNode(old, into: keeper)
+        }
         try? modelContext.save()
+    }
+
+    /// Placeholder identity seeded by `NodeEntity.init` ("Node 0a1b2c3d").
+    static func isPlaceholderName(_ name: String) -> Bool {
+        name.isEmpty || name.hasPrefix("Node ")
     }
 
     private func mergeNode(_ old: NodeEntity, into keeper: NodeEntity) {
         // Custom identity follows the person.
         if keeper.customName.isEmpty { keeper.customName = old.customName }
         if keeper.iconData == nil { keeper.iconData = old.iconData }
+        // Mesh identity too (issue #4): a NodeInfo can carry a key and no
+        // names, leaving the keeper at its placeholder while the loser held
+        // the real name — the merge must not delete the only real name.
+        if Self.isPlaceholderName(keeper.longName), !Self.isPlaceholderName(old.longName) {
+            keeper.longName = old.longName
+            keeper.shortName = old.shortName
+        }
+        if keeper.batteryLevel < 0 { keeper.batteryLevel = old.batteryLevel }
+        if keeper.lastHeard == nil { keeper.lastHeard = old.lastHeard }
+        if !keeper.hasPosition, old.hasPosition {
+            keeper.hasPosition = true
+            keeper.latitude = old.latitude
+            keeper.longitude = old.longitude
+            keeper.precisionBits = old.precisionBits
+        }
+        eventSink?("merged node \(String(format: "!%08x", UInt32(truncatingIfNeeded: old.num))) → \(String(format: "!%08x", UInt32(truncatingIfNeeded: keeper.num)))")
         let oldNum = old.num
         let newNum = keeper.num
         let oldKey = ConversationEntity.dmKey(oldNum)
@@ -323,6 +423,13 @@ actor MessageStore {
         let convoKeys = Set(((try? modelContext.fetch(FetchDescriptor<ConversationEntity>())) ?? []).map(\.key))
         var removedNums: [Int64] = []
         for node in stale {
+            // Never prune the local radio. The firmware stamps our own entry
+            // with `last_heard = getValidTime(RTCQualityFromNet)` in every DB
+            // dump (firmware v2.7.15 PhoneAPI.cpp:643), but that returns 0
+            // when the radio's clock has no valid source — and Hops only
+            // accepts `lastHeard > 0`, so a GPS-less radio on a fresh boot
+            // leaves our own row with no lastHeard at all, i.e. prunable.
+            guard node.num != localNodeNum else { continue }
             guard node.customName.isEmpty, node.iconData == nil,
                   !convoKeys.contains(ConversationEntity.dmKey(node.num)) else { continue }
             removedNums.append(node.num)
@@ -1040,16 +1147,7 @@ actor MessageStore {
     func repairConversations() {
         dedupeAfterSync()
         repairFutureTimestamps()
-        // Fold ghost identities left by firmware renumbering: for every set
-        // of nodes sharing a public key, the most recently heard number wins.
-        let keyed = ((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? [])
-            .filter { !$0.publicKey.isEmpty }
-        for (_, group) in Dictionary(grouping: keyed, by: { $0.publicKey }) where group.count > 1 {
-            let keeper = group.max(by: {
-                ($0.lastHeard ?? .distantPast) < ($1.lastHeard ?? .distantPast)
-            })!
-            for old in group where old !== keeper { mergeNode(old, into: keeper) }
-        }
+        foldDuplicateKeyedNodes()
         // Backfill legacy boolean mutes into the notify-level field.
         let mutedDescriptor = FetchDescriptor<ConversationEntity>(
             predicate: #Predicate { $0.muted == true && $0.notifyLevelRaw == 0 }
@@ -1098,6 +1196,12 @@ actor MessageStore {
             for other in group where other !== keeper {
                 if keeper.iconData == nil { keeper.iconData = other.iconData }
                 if keeper.publicKey.isEmpty { keeper.publicKey = other.publicKey }
+                // A CloudKit copy can arrive fresher and emptier (issue #4).
+                if Self.isPlaceholderName(keeper.longName), !Self.isPlaceholderName(other.longName) {
+                    keeper.longName = other.longName
+                    keeper.shortName = other.shortName
+                }
+                if keeper.customName.isEmpty { keeper.customName = other.customName }
                 modelContext.delete(other)
             }
         }

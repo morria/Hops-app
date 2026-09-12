@@ -243,7 +243,14 @@ final class RadioManager: ObservableObject {
     func configure(container: ModelContainer) {
         let store = MessageStore(modelContainer: container)
         self.store = store
+        let localNum = myNodeNum
         Task {
+            // Before any maintenance pass: the store must know which record
+            // is us, so a renumber merge or a stale prune can't delete it.
+            await store.setLocalNodeNum(localNum)
+            await store.setEventSink { text in
+                Task { @MainActor in RadioManager.shared.noteAppEvent(text) }
+            }
             await store.repairConversations()
             await store.pruneTrails()
             await store.pruneCoverage()
@@ -284,6 +291,7 @@ final class RadioManager: ObservableObject {
         pairedPeripheralId = nil
         myNodeNum = 0
         defaults.set(0, forKey: Keys.myNodeNum)
+        Task { await store?.setLocalNodeNum(0) }
         defaults.set(false, forKey: Keys.loraReceived)
         loRa = LoRaSnapshot()
         state = .noRadio
@@ -498,6 +506,8 @@ final class RadioManager: ObservableObject {
         case .myInfo(let myInfo):
             myNodeNum = Int64(myInfo.myNodeNum)
             defaults.set(myNodeNum, forKey: Keys.myNodeNum)
+            let localNum = myNodeNum
+            Task { await store?.setLocalNodeNum(localNum) }
 
         case .metadata(let metadata):
             firmwareVersion = metadata.firmwareVersion
@@ -680,6 +690,9 @@ final class RadioManager: ObservableObject {
         case .telemetryApp:
             guard let telemetry = try? Telemetry(serializedBytes: decoded.payload) else { return }
             Task { await store.applyTelemetry(telemetry, from: fromNum) }
+
+        case .tracerouteApp:
+            handleTracerouteReply(packet, from: fromNum)
 
         case .waypointApp:
             guard let waypoint = try? Waypoint(serializedBytes: decoded.payload) else { return }
@@ -1206,6 +1219,106 @@ final class RadioManager: ObservableObject {
     }
     @Published private(set) var lastProbe: [Int64: ProbeRecord] = [:]
 
+    // MARK: - Traceroute (issue #1: text-only diagnostic, no map)
+
+    struct TraceHop: Identifiable, Equatable {
+        let num: Int64
+        let name: String
+        let snr: Float?       // dB at this hop, nil = unknown
+        var id: Int64 { num }
+    }
+    struct TraceRouteRecord: Equatable {
+        var sentAt: Date
+        var packetId: UInt32
+        var respondedAt: Date?
+        var towards: [TraceHop] = []   // you → … → target
+        var back: [TraceHop] = []      // target → … → you (empty if not reported)
+        var timedOut = false
+    }
+    @Published private(set) var lastTraceroute: [Int64: TraceRouteRecord] = [:]
+    private static let tracerouteTimeout: TimeInterval = 60
+
+    /// Ask the firmware for the path to `num`. One in flight per peer; the
+    /// reply is a RouteDiscovery on the same port with our packet id as
+    /// request_id. Rendered as a list in the node card — never on the map.
+    func traceRoute(to num: Int64) {
+        guard state == .connected, num > 0, num != myNodeNum else { return }
+        if let inFlight = lastTraceroute[num], inFlight.respondedAt == nil, !inFlight.timedOut,
+           Date().timeIntervalSince(inFlight.sentAt) < Self.tracerouteTimeout { return }
+        var decoded = DataMessage()
+        decoded.portnum = .tracerouteApp
+        decoded.payload = (try? RouteDiscovery().serializedData()) ?? Data()
+        decoded.wantResponse = true
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: num)
+        packet.wantAck = true
+        packet.decoded = decoded
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+        lastTraceroute[num] = TraceRouteRecord(sentAt: Date(), packetId: packet.id)
+        logTraffic(from: myNodeNum, port: "sent",
+                   summary: "→ traceroute \(String(format: "!%08x", UInt32(truncatingIfNeeded: num))) #\(String(format: "%08X", packet.id))")
+        let id = packet.id
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.tracerouteTimeout))
+            guard let self, var record = self.lastTraceroute[num],
+                  record.packetId == id, record.respondedAt == nil else { return }
+            record.timedOut = true
+            self.lastTraceroute[num] = record
+        }
+    }
+
+    private func handleTracerouteReply(_ packet: MeshPacket, from fromNum: Int64) {
+        guard let store,
+              let route = try? RouteDiscovery(serializedBytes: packet.decoded.payload) else { return }
+        let requestId = packet.decoded.requestID
+        guard requestId != 0,
+              let (target, record) = lastTraceroute.first(where: { $0.value.packetId == requestId }) else { return }
+        let myNum = myNodeNum
+        // Firmware convention: route = intermediate nodes; snr arrays have one
+        // entry per hop including the final one, scaled ×4, INT8_MIN = unknown.
+        func hops(_ nums: [UInt32], _ snrs: [Int32], start: Int64, end: Int64) -> [(Int64, Float?)] {
+            let chain = [start] + nums.map { Int64($0) } + [end]
+            return chain.enumerated().map { i, n in
+                let snr: Float? = i == 0 ? nil : (i - 1 < snrs.count && snrs[i - 1] != -128 ? Float(snrs[i - 1]) / 4 : nil)
+                return (n, snr)
+            }
+        }
+        let towardsRaw = hops(route.route, route.snrTowards, start: myNum, end: target)
+        let backRaw = route.routeBack.isEmpty && route.snrBack.isEmpty
+            ? [] : hops(route.routeBack, route.snrBack, start: target, end: myNum)
+        Task {
+            func named(_ raw: [(Int64, Float?)]) async -> [TraceHop] {
+                var out: [TraceHop] = []
+                for (n, snr) in raw {
+                    let name: String
+                    if n == myNum { name = "You" }
+                    else if let snap = await store.nodeSnapshot(num: n), !snap.shortName.isEmpty { name = snap.shortName }
+                    else { name = String(format: "!%08x", UInt32(truncatingIfNeeded: n)) }
+                    out.append(TraceHop(num: n, name: name, snr: snr))
+                }
+                return out
+            }
+            let towards = await named(towardsRaw)
+            let back = await named(backRaw)
+            await MainActor.run {
+                var updated = record
+                updated.respondedAt = Date()
+                updated.towards = towards
+                updated.back = back
+                self.lastTraceroute[target] = updated
+                let path = towards.map { hop -> String in
+                    if let s = hop.snr { return "\(hop.name) (\(String(format: "%.1f", s)) dB)" }
+                    return hop.name
+                }.joined(separator: " → ")
+                self.logTraffic(from: fromNum, port: "traceroute", summary: "route: \(path)")
+            }
+        }
+    }
+
     /// Unicast NodeInfo with want_response — the peer's FIRMWARE answers, no
     /// app required on their end. Proves the round trip that predicts whether
     /// a message would ack. Rate-limited: probes are cheap for us, congestion
@@ -1339,7 +1452,10 @@ final class RadioManager: ObservableObject {
     func setOwner(longName: String, shortName: String) {
         let long = MeshName.clampLong(longName.trimmingCharacters(in: .whitespaces))
         let short = MeshName.clampShort(shortName.trimmingCharacters(in: .whitespaces))
-        guard !long.isEmpty, !short.isEmpty, myNodeNum > 0, let store else { return }
+        // Only against the radio that answered MyInfo this session — a
+        // persisted myNodeNum from an earlier radio would rename the wrong
+        // record (issue #2).
+        guard !long.isEmpty, !short.isEmpty, myNodeNum > 0, state == .connected, let store else { return }
         var user = User()
         user.longName = long
         user.shortName = short

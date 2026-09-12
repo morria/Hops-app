@@ -201,11 +201,51 @@ struct NodeCardView: View {
                 Label("Probe Now", systemImage: "dot.radiowaves.left.and.right")
             }
             .disabled({ if case .checking = radio.presence[node.num] { return true }; return false }())
+
+            // Traceroute (issue #1): a plain list, never a map overlay.
+            if let trace = radio.lastTraceroute[node.num] {
+                if trace.respondedAt != nil {
+                    LabeledContent("Route there") {
+                        Text(routeText(trace.towards))
+                            .font(.footnote.monospacedDigit())
+                            .multilineTextAlignment(.trailing)
+                    }
+                    if !trace.back.isEmpty {
+                        LabeledContent("Route back") {
+                            Text(routeText(trace.back))
+                                .font(.footnote.monospacedDigit())
+                                .multilineTextAlignment(.trailing)
+                        }
+                    }
+                    LabeledContent("Traced", value: trace.sentAt.formatted(.relative(presentation: .named)))
+                } else if trace.timedOut {
+                    LabeledContent("Trace route", value: "No reply (60 s)")
+                } else {
+                    LabeledContent("Trace route") {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.mini)
+                            Text("Tracing…")
+                        }
+                    }
+                }
+            }
+            Button {
+                radio.traceRoute(to: node.num)
+            } label: {
+                Label("Trace Route", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+            }
+            .disabled(radio.lastTraceroute[node.num].map { $0.respondedAt == nil && !$0.timedOut } ?? false)
         } header: {
             Text("Reachability")
         } footer: {
-            Text("A probe asks their radio directly — it replies even without an app running. Any packet from them counts as the reply.")
+            Text("A probe asks their radio directly — it replies even without an app running. Any packet from them counts as the reply. Trace Route asks the mesh which radios relayed the request, with the signal at each hop.")
         }
+    }
+
+    private func routeText(_ hops: [RadioManager.TraceHop]) -> String {
+        hops.map { hop in
+            hop.snr.map { String(format: "%@ (%.1f dB)", hop.name, $0) } ?? hop.name
+        }.joined(separator: " → ")
     }
 
     // MARK: - Security
