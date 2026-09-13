@@ -15,11 +15,15 @@ struct DeviceConfigurationView: View {
     private var cfg: RadioManager.LinkConfigs {
         if let nodeNum, let c = radio.configsByNode[nodeNum] { return c }
         if nodeNum == nil, let c = radio.configsByNode[radio.myNodeNum] { return c }
-        return RadioManager.LinkConfigs(bluetooth: cfg.bluetooth, device: cfg.device,
-                                        display: cfg.display, position: cfg.position,
-                                        power: cfg.power, network: cfg.network,
-                                        lora: cfg.lora, telemetry: cfg.telemetry,
-                                        modules: cfg.modules)
+        // Fallback while the per-radio entry is missing (e.g. mid-reboot
+        // after a Save): the facade values. Must NOT read `cfg` here — that
+        // recursed until the stack overflowed (crash on Save, Sep 13).
+        return RadioManager.LinkConfigs(bluetooth: radio.bluetoothConfig, device: radio.deviceConfig,
+                                        display: radio.displayConfig, position: radio.positionConfig,
+                                        power: radio.powerConfig, network: radio.networkConfig,
+                                        lora: radio.loraConfig, security: radio.securityConfig,
+                                        telemetry: radio.telemetryConfig,
+                                        modules: radio.moduleConfigs)
     }
     private var target: Int64? { nodeNum }
     private var radioName: String {
