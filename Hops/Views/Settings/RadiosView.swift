@@ -269,7 +269,6 @@ struct RadioSuggestionsSection: View {
     @Query private var nodes: [NodeEntity]
     @State private var appliedSettings = false
     @State private var appliedName = false
-    @State private var appliedRole = false
 
     private var attached: RadioManager.AttachedRadio? { radio.attached.first { $0.nodeNum == nodeNum } }
     private var entry: MessageStore.RadioSnapshot? { radio.fleet.first { $0.nodeNum == nodeNum } }
@@ -302,9 +301,8 @@ struct RadioSuggestionsSection: View {
                 }
             }
 
-            let role = roleSuggestion
-            Section {
-                if let suggestion = nameSuggestion {
+            if let suggestion = nameSuggestion {
+                Section {
                     LabeledContent("Suggested name") {
                         Text("\(suggestion.long) (\(suggestion.short))")
                             .multilineTextAlignment(.trailing)
@@ -314,24 +312,11 @@ struct RadioSuggestionsSection: View {
                         appliedName = true
                     }
                     .disabled(appliedName)
+                } header: {
+                    Text("Suggestion")
+                } footer: {
+                    Text("Only a suggestion — any radio can carry any name.")
                 }
-                LabeledContent("Suggested role") {
-                    Text(role.label)
-                }
-                if let current = attached.roleRaw, current == role.raw || appliedRole {
-                    Text(appliedRole ? "Role sent" : "Already set")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Button("Apply Suggested Role") {
-                        radio.setDeviceRole(role.raw, via: nodeNum)
-                        appliedRole = true
-                    }
-                }
-            } header: {
-                Text("Suggestions")
-            } footer: {
-                Text(role.reason + " Only suggestions — any radio can run any configuration.")
             }
         } else {
             Section {
@@ -358,21 +343,4 @@ struct RadioSuggestionsSection: View {
         return (long, short)
     }
 
-    private var roleSuggestion: (raw: Int, label: String, reason: String) {
-        let tag = entry?.locationTag ?? "other"
-        let order = radio.fleet
-        let myIndex = order.firstIndex { $0.nodeNum == nodeNum } ?? order.count
-        let earlierSamePlace = order.prefix(myIndex).contains { $0.locationTag == tag && (tag == "home" || tag == "office") }
-        switch tag {
-        case "mobile":
-            return (1, "Client Mute", "A radio that moves shouldn't relay for others; it would waste airtime and confuse routes.")
-        case "home", "office":
-            if earlierSamePlace {
-                return (1, "Client Mute", "Another of your radios at this location already relays; a second one relaying doubles airtime.")
-            }
-            return (0, "Client", "A stationary radio can relay for its neighbours.")
-        default:
-            return (0, "Client", "The default role.")
-        }
-    }
 }

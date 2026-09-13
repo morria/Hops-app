@@ -2148,8 +2148,11 @@ final class RadioManager: ObservableObject {
     }
 
     func applyLoRaConfig(regionRaw: Int, presetRaw: Int, frequencySlot: Int, hopLimit: Int,
-                         metroPresetId: String? = nil) {
-        MetroPresetStore.shared.appliedPresetId = metroPresetId
+                         metroPresetId: String? = nil, via nodeNum: Int64? = nil) {
+        let targetLink = nodeNum.flatMap { link(forNodeNum: $0) }
+        if targetLink == nil || targetLink === transmitLink {
+            MetroPresetStore.shared.appliedPresetId = metroPresetId
+        }
         var lora = Config.LoRaConfig()
         lora.usePreset = true
         lora.region = Config.LoRaConfig.RegionCode(rawValue: regionRaw) ?? .us
@@ -2161,7 +2164,13 @@ final class RadioManager: ObservableObject {
         config.lora = lora
         var admin = AdminMessage()
         admin.setConfig = config
-        sendAdmin(admin)
+        sendAdmin(admin, via: targetLink)
+        if let targetLink, targetLink !== transmitLink {
+            targetLink.loRa = LoRaSnapshot(received: true, regionRaw: regionRaw, presetRaw: presetRaw,
+                                           frequencySlot: frequencySlot, hopLimit: hopLimit)
+            publishLinkConfigs()
+            return
+        }
         // Optimistic local mirror; the radio reboots after a LoRa write and the
         // re-sync will confirm.
         loRa = LoRaSnapshot(received: true, regionRaw: regionRaw, presetRaw: presetRaw,

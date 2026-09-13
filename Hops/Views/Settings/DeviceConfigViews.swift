@@ -239,6 +239,30 @@ struct DeviceConfigurationView: View {
     @State private var confirmRegenerate = false
     @State private var showSetKey = false
     @State private var newPrivateKey = ""
+    @State private var confirmTxOffSave = false
+    @State private var savedNote: String?
+    @AppStorage("deviceConfigShowAdvanced") private var showAdvanced = false
+
+    /// Anything on the form that differs from what the radio reported.
+    private var hasChanges: Bool {
+        guard cfg.device != nil else { return false }
+        if formTelemetry != (cfg.telemetry ?? ModuleConfig.TelemetryConfig()) { return true }
+        if formPosition != (cfg.position ?? Config.PositionConfig()) { return true }
+        if let d = formDevice, d != cfg.device { return true }
+        if formDisplay != (cfg.display ?? Config.DisplayConfig()) { return true }
+        if let pw = formPower, pw != cfg.power { return true }
+        if let nw = formNetwork, nw != cfg.network { return true }
+        if let lora = cfg.lora, lora.txEnabled != txEnabled { return true }
+        if formModules != cfg.modules { return true }
+        var bt = cfg.bluetooth ?? Config.BluetoothConfig()
+        bt.enabled = btEnabled
+        bt.mode = Config.BluetoothConfig.PairingMode(rawValue: btModeRaw) ?? .randomPin
+        if bt != (cfg.bluetooth ?? Config.BluetoothConfig()) { return true }
+        return false
+    }
+    private var stillLoading: Bool {
+        cfg.device == nil || cfg.position == nil || cfg.telemetry == nil || cfg.lora == nil
+    }
 
     private var fleetEntry: MessageStore.RadioSnapshot? {
         let num = nodeNum ?? radio.myNodeNum
@@ -265,9 +289,6 @@ struct DeviceConfigurationView: View {
                     .onChange(of: location) { _, tag in radio.setRadioLocation(num, tag: tag) }
                     LabeledContent("Node ID", value: String(format: "!%08x", UInt32(truncatingIfNeeded: num)))
                     if let fw = fleetEntry?.firmware, !fw.isEmpty { LabeledContent("Firmware", value: "v\(fw)") }
-                    if let attached = attachedEntry {
-                        LabeledContent("Status", value: attached.isTransmit ? "Attached · sending" : "Attached · receiving")
-                    }
                     if let security = cfg.security, security.publicKey.count == 32 {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("Encryption key")
@@ -277,37 +298,22 @@ struct DeviceConfigurationView: View {
                                 .foregroundStyle(.secondary)
                                 .textSelection(.enabled)
                         }
-                        Button("Regenerate Keys…") { confirmRegenerate = true }
-                            .confirmationDialog("Regenerate this radio's keys?", isPresented: $confirmRegenerate, titleVisibility: .visible) {
-                                Button("Regenerate", role: .destructive) { radio.setPrivateKey(Data(), via: nodeNum) }
-                            } message: {
-                                Text("The radio makes a new keypair and restarts. Everyone who has messaged this radio will see a key change and need to reset it before their direct messages get through again.")
-                            }
-                        Button("Set Private Key…") { showSetKey = true }
-                            .alert("Private key", isPresented: $showSetKey) {
-                                TextField("Base64, 32 bytes", text: $newPrivateKey)
-                                Button("Set", role: .destructive) {
-                                    if let data = Data(base64Encoded: newPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines)), data.count == 32 {
-                                        radio.setPrivateKey(data, via: nodeNum)
-                                    }
-                                    newPrivateKey = ""
-                                }
-                                Button("Cancel", role: .cancel) { newPrivateKey = "" }
-                            } message: {
-                                Text("Use this to give a replacement radio the same identity. The public key is derived by the radio; it restarts.")
-                            }
                     }
-                    Button("Forget & Revoke Keys…", role: .destructive) { confirmRevoke = true }
-                        .confirmationDialog("Lost or stolen?", isPresented: $confirmRevoke, titleVisibility: .visible) {
-                            Button("Forget and Rotate Channel Keys", role: .destructive) {
-                                radio.forgetAndRevoke(radio: nodeNum ?? radio.myNodeNum)
-                                dismiss()
-                            }
-                        } message: {
-                            Text("Forgets the radio and gives every channel with a custom key a new one, applied to your sending radio now. Your other radios will show as differing until you apply fleet settings. Anyone else on a rotated channel needs the new QR.")
+                    NavigationLink {
+                        MeshSetupView(isFirstRun: false, nodeNum: num)
+                    } label: {
+                        LabeledContent("Mesh setup") {
+                            let lora = cfg.lora
+                            Text(lora.map { "\(String(describing: $0.region).uppercased()) · slot \($0.channelNum)" } ?? "—")
                         }
+                    }
                 } header: {
-                    Text("This radio")
+                    if stillLoading {
+                        Label("Reading from \(radioName)…", systemImage: "arrow.triangle.2.circlepath")
+                            .textCase(nil)
+                    } else {
+                        Text("This radio")
+                    }
                 } footer: {
                     Label("Holds only its last 8–32 packets for you while you're not attached.", systemImage: "exclamationmark.triangle")
                 }
@@ -369,6 +375,13 @@ struct DeviceConfigurationView: View {
             }
 
             Section {
+                Toggle("Show advanced settings", isOn: $showAdvanced)
+            } footer: {
+                Text("Bluetooth, position, telemetry and module details. Very low power already covers what most people change here.")
+            }
+
+            if showAdvanced {
+            Section {
                 Toggle("Bluetooth Enabled", isOn: $btEnabled)
                 Picker("Pairing", selection: $btModeRaw) {
                     Text("Random PIN").tag(0)
@@ -388,11 +401,13 @@ struct DeviceConfigurationView: View {
                 Text("Careful: disabling Bluetooth or changing pairing disconnects Hops — undoing it needs the radio's buttons or another transport.")
             }
 
+            }   // advanced: Bluetooth
+
             Section("Display") {
                 Picker("Screen timeout", selection: $screenOnSecs) {
                     ForEach(Self.screenChoices, id: \.1) { label, value in Text(label).tag(value) }
                 }
-                Picker("Units", selection: $unitsRaw) {
+                Picker("Screen units", selection: $unitsRaw) {
                     Text("Metric").tag(0)
                     Text("Imperial").tag(1)
                 }
@@ -402,6 +417,7 @@ struct DeviceConfigurationView: View {
                 Toggle("Wake on tap or motion", isOn: $wakeOnTapOrMotion)
             }
 
+            if showAdvanced {
             Section {
                 Picker("GPS", selection: $gpsModeRaw) {
                     Text("Enabled").tag(1)
@@ -436,6 +452,7 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text("Battery updates come from device telemetry. To stop them entirely turn Device telemetry off and set the interval to Never. Every broadcast spends the whole mesh's airtime — 6 hours is plenty when it's on.")
             }
+            }   // advanced: Position, Telemetry
 
             Section {
                 Picker("Node info broadcast", selection: $nodeInfoSecs) {
@@ -449,11 +466,10 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Mesh")
             } footer: {
-                Text(cfg.device == nil
-                     ? "Reading current settings from the radio…"
-                     : "Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
+                Text("Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
             }
 
+            if showAdvanced {
             Section {
                 moduleToggle("Neighbor info", $neighborInfoOn)
                 moduleToggle("Range test", $rangeTestOn)
@@ -466,27 +482,8 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text("Each of these sends packets without you. A dimmed row means the radio hasn't reported that module yet.")
             }
+            }   // advanced: Modules
 
-            Section {
-                Button {
-                    if powerSaving { confirmSleepSave = true } else { save(); dismiss() }
-                } label: {
-                    Text("Save to Radio")
-                        .frame(maxWidth: .infinity)
-                        .font(.body.weight(.semibold))
-                }
-                .buttonStyle(.borderedProminent)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                .confirmationDialog("Sleep is on", isPresented: $confirmSleepSave, titleVisibility: .visible) {
-                    Button("Save and Let It Sleep", role: .destructive) { save(); dismiss() }
-                    Button("Turn Sleep Off, Then Save") { powerSaving = false; save(); dismiss() }
-                } message: {
-                    Text("After saving, this radio turns Bluetooth off and Hops can't reach it until you press its button.")
-                }
-            } footer: {
-                Text("Saves every section. The radio restarts itself and is back in about 20 seconds; Hops reattaches on its own.")
-            }
 
             Section {
                 let num = nodeNum ?? radio.myNodeNum
@@ -502,7 +499,35 @@ struct DeviceConfigurationView: View {
                         dismiss()
                     }
                 }
-                if fleetEntry != nil {
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("Reboot restarts the radio with Bluetooth on; it's back in about 20 seconds. Disconnect keeps the radio in your fleet but stops Hops from attaching until you connect again.")
+            }
+
+            if fleetEntry != nil {
+                Section {
+                    if cfg.security?.publicKey.count == 32 {
+                        Button("Regenerate Keys…") { confirmRegenerate = true }
+                            .confirmationDialog("Regenerate this radio's keys?", isPresented: $confirmRegenerate, titleVisibility: .visible) {
+                                Button("Regenerate", role: .destructive) { radio.setPrivateKey(Data(), via: nodeNum) }
+                            } message: {
+                                Text("The radio makes a new keypair and restarts. Everyone who has messaged this radio will see a key change and need to reset it before their direct messages get through again.")
+                            }
+                        Button("Set Private Key…") { showSetKey = true }
+                            .alert("Private key", isPresented: $showSetKey) {
+                                TextField("Base64, 32 bytes", text: $newPrivateKey)
+                                Button("Set", role: .destructive) {
+                                    if let data = Data(base64Encoded: newPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines)), data.count == 32 {
+                                        radio.setPrivateKey(data, via: nodeNum)
+                                    }
+                                    newPrivateKey = ""
+                                }
+                                Button("Cancel", role: .cancel) { newPrivateKey = "" }
+                            } message: {
+                                Text("Use this to give a replacement radio the same identity. The public key is derived by the radio; it restarts.")
+                            }
+                    }
                     Button("Forget This Radio…", role: .destructive) { confirmForget = true }
                         .confirmationDialog("Forget this radio?", isPresented: $confirmForget, titleVisibility: .visible) {
                             Button("Forget Radio", role: .destructive) {
@@ -512,15 +537,54 @@ struct DeviceConfigurationView: View {
                         } message: {
                             Text("Removes it from your fleet on every device. Messages stay. You can pair it again anytime.")
                         }
+                    Button("Forget & Revoke Keys…", role: .destructive) { confirmRevoke = true }
+                        .confirmationDialog("Lost or stolen?", isPresented: $confirmRevoke, titleVisibility: .visible) {
+                            Button("Forget and Rotate Channel Keys", role: .destructive) {
+                                radio.forgetAndRevoke(radio: nodeNum ?? radio.myNodeNum)
+                                dismiss()
+                            }
+                        } message: {
+                            Text("Forgets the radio and gives every channel with a custom key a new one, applied to your sending radio now. Your other radios will show as differing until you apply fleet settings. Anyone else on a rotated channel needs the new QR.")
+                        }
+                } header: {
+                    Text("Irreversible")
+                } footer: {
+                    Text("Each of these changes what other people see from this radio, or removes it. None can be undone from here.")
                 }
-            } header: {
-                Text("Connection")
-            } footer: {
-                Text("Reboot restarts the radio with Bluetooth on; it's back in about 20 seconds. Disconnect keeps the radio in your fleet but stops Hops from attaching until you connect again. Forget removes it from your fleet on every device.")
             }
         }
         .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(hasChanges ? "Save" : "Saved") { requestSave() }
+                    .fontWeight(.semibold)
+                    .disabled(!hasChanges)
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let savedNote {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text(savedNote).font(.footnote)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(.thinMaterial)
+            }
+        }
+        .confirmationDialog("Sleep is on", isPresented: $confirmSleepSave, titleVisibility: .visible) {
+            Button("Save and Let It Sleep", role: .destructive) { performSave() }
+            Button("Turn Sleep Off, Then Save") { powerSaving = false; performSave() }
+        } message: {
+            Text("After saving, this radio turns Bluetooth off and Hops can't reach it until you press its button.")
+        }
+        .confirmationDialog("Transmit is off", isPresented: $confirmTxOffSave, titleVisibility: .visible) {
+            Button("Save — Listen Only", role: .destructive) { performSave() }
+            Button("Turn Transmit On, Then Save") { txEnabled = true; performSave() }
+        } message: {
+            Text("This radio will only listen: nothing you send through it reaches the mesh, and nobody can confirm anything to it.")
+        }
         .onAppear {
             let num = nodeNum ?? radio.myNodeNum
             if let entry = radio.fleet.first(where: { $0.nodeNum == num }) {
@@ -645,6 +709,21 @@ struct DeviceConfigurationView: View {
     }
 
     // MARK: - Save
+
+    private func requestSave() {
+        if powerSaving { confirmSleepSave = true; return }
+        if !txEnabled, cfg.lora?.txEnabled == true { confirmTxOffSave = true; return }
+        performSave()
+    }
+
+    private func performSave() {
+        save()
+        savedNote = "Saved — \(radioName) is restarting, back in about 20 seconds."
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(25))
+            savedNote = nil
+        }
+    }
 
     private func save() {
         // Transactional: without begin/commit, the radio's save+reboot from

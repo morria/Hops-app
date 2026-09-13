@@ -60,15 +60,17 @@ struct SettingsView: View {
                 onMeshSection
                 notificationsSection
                 appSection
-                #if MESHSITES
-                meshsitesSection
-                #endif
-                dataSection
+                advancedSection
                 aboutSection
             }
             .environment(\.editMode, $radioEditMode)
             .sheet(isPresented: $showAddRadio) { PairingView(mode: .addRadio) }
             .navigationTitle("Settings")
+            .toolbar {
+                if radio.fleet.count > 1 {
+                    ToolbarItem(placement: .topBarTrailing) { EditButton() }
+                }
+            }
             .refreshable {
                 await radio.refreshDeviceStatus()
             }
@@ -102,32 +104,11 @@ struct SettingsView: View {
                         Label("Add Radio…", systemImage: "plus.circle")
                     }
                 }
-            } header: {
-                HStack {
-                    Text("Radios")
-                    Spacer()
-                    if radio.fleet.count > 1 {
-                        Button(radioEditMode == .active ? "Done" : "Reorder") {
-                            withAnimation { radioEditMode = radioEditMode == .active ? .inactive : .active }
-                        }
-                        .font(.caption)
-                        .textCase(nil)
-                    }
-                }
-            } footer: {
-                if radio.fleet.count > 1 {
-                    Text("The top radio that's in range sends and receives; every other radio in range only receives. Tap Reorder and drag to change which. Tap a radio for its configuration.")
-                } else if !radio.fleet.isEmpty {
-                    Text("Tap the radio for its configuration. Add more and drag them into the order you want to send from.")
-                }
-            }
-
-            if !radio.fleet.isEmpty {
-                Section {
+                if !radio.fleet.isEmpty {
                     NavigationLink {
                         MeshSetupView(isFirstRun: false)
                     } label: {
-                        LabeledContent("Mesh setup") {
+                        LabeledContent(radio.fleet.count > 1 ? "Mesh setup · \(sendingRadioName)" : "Mesh setup") {
                             Text(radio.loRa.received
                                  ? "\(radio.loRa.regionName) · \(radio.loRa.presetName)"
                                  : "—")
@@ -146,8 +127,14 @@ struct SettingsView: View {
                             }
                         }
                     }
-                } header: {
-                    Text(radio.fleet.count > 1 ? "Mesh · via \(sendingRadioName)" : "Mesh")
+                }
+            } header: {
+                Text("Radios")
+            } footer: {
+                if radio.fleet.count > 1 {
+                    Text("The top radio in range sends and receives; every other radio in range only receives. Use Edit to drag them into order. Tap a radio for its configuration.")
+                } else if !radio.fleet.isEmpty {
+                    Text("Tap the radio for its configuration. Add more and drag them into the order you want to send from.")
                 }
             }
         }
@@ -197,7 +184,13 @@ struct SettingsView: View {
             return "Out of range"
         }
         switch link.phase {
-        case .connected: return link.isTransmit ? "Sending & receiving" + (radio.firmwareVersion.isEmpty ? "" : " · v\(radio.firmwareVersion)") : "Receiving only"
+        case .connected:
+            var text = link.isTransmit ? "Sending & receiving" : "Receiving only"
+            if let c = radio.configsByNode[entry.nodeNum] {
+                if c.lora?.txEnabled == false { text = "Transmit off · listening only" }
+                if c.power?.isPowerSaving == true { text += " · sleeps (Bluetooth off)" }
+            }
+            return text
         case .syncing: return "Syncing…"
         case .connecting: return "Connecting…"
         case .bondLost: return "Needs re-pairing"
@@ -259,12 +252,13 @@ struct SettingsView: View {
     // MARK: - Channels
 
     private var onMeshSection: some View {
-        Section("On the Mesh") {
+        Section("Identity") {
             NavigationLink {
                 IdentityView()
             } label: {
                 MyNodeSummary(num: radio.myNodeNum) { myNode in
-                    LabeledContent("Your name", value: myNode.map { "\($0.longName) (\($0.shortName))" } ?? "Not set")
+                    LabeledContent(radio.fleet.count > 1 ? "Your name on \(sendingRadioName)" : "Your name",
+                                   value: myNode.map { "\($0.longName) (\($0.shortName))" } ?? "Not set")
                 }
                 .id(radio.myNodeNum)
             }
@@ -288,7 +282,7 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Notify me about")
+            Text("Notifications")
         } footer: {
             Text("Per-conversation control (mute, mentions only) is a long-press on the conversation in Chats. Turning notifications off entirely lives in iOS Settings, like any app.")
         }
@@ -340,14 +334,13 @@ struct SettingsView: View {
     @AppStorage("nodeMaxAgeDays") private var nodeMaxAgeDays = 90
     @AppStorage("sequenceTrailerEnabled") private var sequenceTrailerEnabled = true
 
-    private var dataSection: some View {
+    private var advancedSection: some View {
         Section {
             NavigationLink {
                 MeshTrafficLogView()
             } label: {
                 TrafficSummaryRow()
             }
-            Toggle("Sequence numbers on sends", isOn: $sequenceTrailerEnabled)
             Picker("Remove unheard nodes after", selection: $nodeMaxAgeDays) {
                 Text("7 days").tag(7)
                 Text("30 days").tag(30)
@@ -358,10 +351,21 @@ struct SettingsView: View {
             .onChange(of: nodeMaxAgeDays) {
                 radio.applyNodeRetention()
             }
+            Toggle("Sequence numbers on sends", isOn: $sequenceTrailerEnabled)
+            #if MESHSITES
+            Toggle("Meshsites (experimental)", isOn: $meshsitesEnabled)
+            if meshsitesEnabled {
+                NavigationLink {
+                    MySiteView()
+                } label: {
+                    Label("Mesh Site", systemImage: "house")
+                }
+            }
+            #endif
         } header: {
-            Text("Data")
+            Text("Advanced")
         } footer: {
-            Text("Nodes you've renamed, given a photo, or messaged are always kept.")
+            Text("Renamed, photographed, or messaged nodes are always kept. Meshsites are tiny pages served by nearby nodes over direct radio contact.")
         }
     }
 
@@ -469,6 +473,8 @@ struct IdentityView: View {
 
 struct MeshSetupView: View {
     let isFirstRun: Bool
+    /// Which fleet radio to write; nil = the sending radio.
+    var nodeNum: Int64? = nil
 
     @EnvironmentObject private var radio: RadioManager
     @StateObject private var presets = MetroPresetStore.shared
@@ -614,7 +620,7 @@ struct MeshSetupView: View {
                                           presetRaw: preset.presetRaw,
                                           frequencySlot: preset.frequencySlot,
                                           hopLimit: preset.hopLimit,
-                                          metroPresetId: preset.id)
+                                          metroPresetId: preset.id, via: nodeNum)
                     confirming = nil
                     dismiss()
                 }
