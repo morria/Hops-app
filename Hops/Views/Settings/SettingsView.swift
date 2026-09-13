@@ -146,11 +146,6 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    NavigationLink {
-                        RadiosView()
-                    } label: {
-                        Text("Manage radios…")
-                    }
                 } header: {
                     Text(radio.fleet.count > 1 ? "Mesh · via \(sendingRadioName)" : "Mesh")
                 }

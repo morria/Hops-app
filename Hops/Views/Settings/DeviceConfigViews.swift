@@ -232,8 +232,33 @@ struct DeviceConfigurationView: View {
         lowPowerNote = "Firmware defaults restored for GPS, position, telemetry and node info. Tap Save to Radio to apply."
     }
 
+    @State private var nickname = ""
+    @State private var location = "other"
+
     var body: some View {
         Form {
+            if let num = nodeNum ?? (radio.fleet.isEmpty ? nil : radio.myNodeNum),
+               radio.fleet.contains(where: { $0.nodeNum == num }) {
+                Section {
+                    TextField("Nickname (e.g. Home upstairs)", text: $nickname)
+                        .onSubmit { radio.renameRadio(num, nickname: nickname) }
+                    Picker("Location", selection: $location) {
+                        Text("Home").tag("home")
+                        Text("Office").tag("office")
+                        Text("Mobile").tag("mobile")
+                        Text("Other").tag("other")
+                    }
+                    .onChange(of: location) { _, tag in radio.setRadioLocation(num, tag: tag) }
+                    NavigationLink {
+                        RadioDetailView(nodeNum: num)
+                    } label: {
+                        Text("Fleet settings, suggestions & forget")
+                    }
+                } header: {
+                    Text("This radio")
+                }
+            }
+
             Section {
                 Toggle("Very low power", isOn: veryLowPower)
                     .disabled(cfg.device == nil)
@@ -418,6 +443,11 @@ struct DeviceConfigurationView: View {
         .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
+            let num = nodeNum ?? radio.myNodeNum
+            if let entry = radio.fleet.first(where: { $0.nodeNum == num }) {
+                nickname = entry.nickname
+                location = entry.locationTag
+            }
             radio.requestAllModuleConfigs(via: target)
             radio.requestConfig(.deviceConfig, via: target)
             radio.requestConfig(.powerConfig, via: target)
@@ -426,6 +456,12 @@ struct DeviceConfigurationView: View {
             syncAll()
         }
         .onChange(of: cfg) { syncAll() }
+        .onDisappear {
+            let num = nodeNum ?? radio.myNodeNum
+            if let entry = radio.fleet.first(where: { $0.nodeNum == num }), entry.nickname != nickname {
+                radio.renameRadio(num, nickname: nickname)
+            }
+        }
     }
 
     private func moduleToggle(_ title: String, _ value: Binding<Bool?>) -> some View {
