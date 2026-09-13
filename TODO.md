@@ -4,6 +4,19 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+198. [x] Settings design pass. Main screen: Radios / Identity /
+         Notifications / App / Advanced; fleet rows show state + battery
+         only (no firmware), badge "Transmit off · listening only" and
+         "sleeps (Bluetooth off)"; system Edit button reorders; Mesh setup
+         and Your name name the sending radio. Device Configuration: Save
+         pinned in the toolbar, enabled only when the form differs from the
+         radio, restart banner instead of dismiss; Transmit-off gets a
+         consequence dialog like Sleep; Bluetooth/Position/Telemetry/
+         Modules fold under Show advanced (Very low power covers the common
+         case); Mesh setup per radio; one "Reading from …" header while
+         config loads; Status row and the suggested role removed; keys,
+         Forget, Forget & Revoke grouped under Irreversible at the end.
+
 197. [x] Settings lists every fleet radio inline in priority order — name,
          what it's doing (Sending & receiving / Receiving only / Out of
          range / Disconnected by you), battery — with Add Radio beneath and
