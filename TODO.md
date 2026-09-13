@@ -42,6 +42,10 @@ Working list from on-device testing. Items stay here until resolved.
          Bluetooth, Serial, WiFi, and the device's screen"; recovery is the
          user button or a reset. Removed from Very low power; now its own
          "Sleep between packets" switch with that warning.
+         Correction 2: "never" intervals are now INT32_MAX (2147483647),
+         not UINT32_MAX — firmware NodeDB clamps intervals to MAX_INTERVAL
+         (= INT32_MAX) on boot, so the larger value read back smaller and
+         the telemetry/position items un-ticked after each reconnect.
 
 194. [x] Node-info preload before DMs (fleet phase 2, ships alone). The
          radio tells us what it knows — its node-DB dump at connect and

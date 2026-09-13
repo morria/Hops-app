@@ -7,7 +7,11 @@ import MeshtasticProtobufs
 /// in its recommended state, so any manual change switches it off.
 enum LowPowerProfile {
     /// An interval the radio will never reach — the firmware's "off".
-    static let never: UInt32 = 4_294_967_295
+    /// INT32_MAX, not UINT32_MAX: NodeDB clamps every interval to
+    /// MAX_INTERVAL (= INT32_MAX) on boot, so a larger value is rewritten
+    /// and read back smaller — which made the checklist un-tick itself
+    /// after every reconnect. 68 years is off.
+    static let never: UInt32 = 2_147_483_647
     /// Node info still goes out — every 4 hours (firmware floor is 1 h).
     static let nodeInfoSecs: UInt32 = 4 * 3600
 
