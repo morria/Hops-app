@@ -116,6 +116,11 @@ struct RadiosView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
+            if entry.lastBattery >= 0 {
+                Text(entry.lastBattery > 100 ? "Power" : "\(entry.lastBattery)%")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
             if attached != nil {
                 Circle().fill(attached?.phase == .connected ? Color.green : Color.orange).frame(width: 8, height: 8)
             }
@@ -148,6 +153,7 @@ struct RadioDetailView: View {
     let nodeNum: Int64
     @EnvironmentObject private var radio: RadioManager
     @Environment(\.dismiss) private var dismiss
+    @Query private var nodes: [NodeEntity]
     @State private var nickname = ""
     @State private var location = "other"
     @State private var confirmForget = false
@@ -155,6 +161,14 @@ struct RadioDetailView: View {
 
     private var entry: MessageStore.RadioSnapshot? { radio.fleet.first { $0.nodeNum == nodeNum } }
     private var attached: RadioManager.AttachedRadio? { radio.attached.first { $0.nodeNum == nodeNum } }
+
+    /// Live from the node record (telemetry lands there first), else the
+    /// fleet row's last known value.
+    private var batteryLevel: Int? {
+        if let live = nodes.first(where: { $0.num == nodeNum })?.batteryLevel, live >= 0 { return live }
+        if let last = entry?.lastBattery, last >= 0 { return last }
+        return nil
+    }
 
     var body: some View {
         Form {
@@ -172,7 +186,16 @@ struct RadioDetailView: View {
                 Text("Location only shapes suggestions — you can run any radio in any configuration.")
             }
 
-            Section("Details") {
+            Section {
+                LabeledContent("Battery") {
+                    if let battery = batteryLevel {
+                        Label(battery > 100 ? "Plugged in" : "\(battery)%",
+                              systemImage: battery > 100 ? "powerplug" : battery > 60 ? "battery.100" : battery > 25 ? "battery.50" : "battery.25")
+                            .foregroundStyle(battery <= 25 && battery <= 100 ? .red : .primary)
+                    } else {
+                        Text("—").foregroundStyle(.secondary)
+                    }
+                }
                 LabeledContent("Node ID", value: String(format: "!%08x", UInt32(truncatingIfNeeded: nodeNum)))
                 if let fw = entry?.firmware, !fw.isEmpty { LabeledContent("Firmware", value: "v\(fw)") }
                 if let attached {
@@ -180,19 +203,13 @@ struct RadioDetailView: View {
                 } else if let seen = entry?.lastSeenAt {
                     LabeledContent("Last attached", value: seen.formatted(.relative(presentation: .named)))
                 }
-                if let battery = entry?.lastBattery, battery >= 0 {
-                    LabeledContent("Battery", value: battery > 100 ? "Plugged in" : "\(battery)%")
-                }
+            } header: {
+                Text("Details")
+            } footer: {
+                Label("Holds only its last 8–32 packets for you while you're not attached.", systemImage: "exclamationmark.triangle")
             }
 
             RadioSuggestionsSection(nodeNum: nodeNum)
-
-            Section {
-                Text("While you're not attached, this radio keeps only its last 8 packets (classic ESP32) or 32 (nRF52, ESP32-S3) for you — a few minutes of a busy mesh. A DM sent to it in the morning may be gone by lunch, and the sender still sees \"delivered\".")
-                Text("Keep another device — the Book, a Mac — attached to a stationary radio and its messages reach you through iCloud.")
-            } header: {
-                Text("When you're away")
-            }
 
             Section {
                 Button("Forget This Radio…", role: .destructive) { confirmForget = true }

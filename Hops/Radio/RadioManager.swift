@@ -1106,7 +1106,10 @@ final class RadioManager: ObservableObject {
             guard let telemetry = try? Telemetry(serializedBytes: decoded.payload) else { return }
             if isMine(fromNum), case .deviceMetrics(let metrics) = telemetry.variant, metrics.hasBatteryLevel {
                 let battery = Int(metrics.batteryLevel)
-                Task { await store.upsertRadio(nodeNum: fromNum, firmware: nil, publicKey: nil, battery: battery) }
+                Task {
+                    await store.upsertRadio(nodeNum: fromNum, firmware: nil, publicKey: nil, battery: battery)
+                    await self.reloadFleet()
+                }
             }
             Task { await store.applyTelemetry(telemetry, from: fromNum) }
 
