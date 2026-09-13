@@ -134,7 +134,7 @@ final class AppModel: ObservableObject {
 
     func openConversation(_ key: String, scrollTo packetId: Int64 = 0) {
         RadioManager.shared.noteAppEvent("open requested: \(key) packet \(packetId)")
-        if key.hasPrefix("game-"), let sid = key.split(separator: "Not read yet").last.flatMap({ Int64($0) }) {
+        if key.hasPrefix("game-"), let sid = key.split(separator: "-").last.flatMap({ Int64($0) }) {
             pendingGameSessionId = sid
             selectedTab = 4
             return

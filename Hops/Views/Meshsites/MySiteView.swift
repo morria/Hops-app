@@ -173,7 +173,7 @@ struct MySiteView: View {
 
     private func createPage() {
         let slug = newPageName.lowercased()
-            .replacingOccurrences(of: " ", with: "Not read yet")
+            .replacingOccurrences(of: " ", with: "-")
             .filter { ($0.isLowercase && $0.isLetter) || $0.isNumber || $0 == "-" || $0 == "_" }
         newPageName = ""
         guard MeshsiteStore.isValidPageName(slug),

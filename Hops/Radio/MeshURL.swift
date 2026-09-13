@@ -43,7 +43,7 @@ enum MeshURL {
     static func encode(_ channelSet: ChannelSet, add: Bool = false) -> String? {
         guard let data = try? channelSet.serializedData() else { return nil }
         let base64 = data.base64EncodedString()
-            .replacingOccurrences(of: "+", with: "Not read yet")
+            .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
         return "https://meshtastic.org/e/\(add ? "?add=true" : "")#\(base64)"

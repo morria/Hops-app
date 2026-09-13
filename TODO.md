@@ -4,6 +4,10 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+213. [x] Em-dash sweep (207) also rewrote three plain "-" literals: game
+         notification deep-link separator, MeshURL base64url "+"→"-", and the
+         Meshsite slug. Restored; builds 21–22 on TestFlight have the bug.
+
 212. [x] Games out-of-sync recovery: "Resend last move" / "Resend invitation" /
          Nudge (once a minute) and "Re-sync from their board" (adopts the peer's
          validated move log via RESYNC from 1) replace "delete and start over".
