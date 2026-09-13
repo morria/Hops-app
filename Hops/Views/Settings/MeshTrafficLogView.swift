@@ -94,7 +94,7 @@ struct MeshTrafficLogView: View {
             if entry.snr != 0 { line += String(format: "  snr=%.1f", entry.snr) }
             return line
         }
-        let header = "Hops Mesh Traffic — node \(String(format: "!%08x", UInt32(truncatingIfNeeded: radio.myNodeNum))), firmware \(radio.firmwareVersion), \(traffic.meshPacketsHeard) heard"
+        let header = "Hops Mesh Traffic - node \(String(format: "!%08x", UInt32(truncatingIfNeeded: radio.myNodeNum))), firmware \(radio.firmwareVersion), \(traffic.meshPacketsHeard) heard"
         return ([header] + lines).joined(separator: "\n")
     }
 

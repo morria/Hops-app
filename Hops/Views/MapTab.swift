@@ -523,7 +523,7 @@ struct MapTab: View {
                             legendKey(.yellow, "3–4")
                             legendKey(.orange, "5+")
                         }
-                        Text("Expected hops from a spot to you — built from every node and signal your radio has heard")
+                        Text("Expected hops from a spot to you - built from every node and signal your radio has heard")
                             .foregroundStyle(.secondary)
                     }
                     .font(.caption2)
@@ -626,7 +626,7 @@ struct MapTab: View {
                             .buttonStyle(.borderedProminent)
                             .padding(.top, 4)
                         } else {
-                            Text("Carry your radio around — whenever it hears the mesh (even with your phone in your pocket), Hops records signal quality and paints it here. Green is strong, red is weak.")
+                            Text("Carry your radio around - whenever it hears the mesh (even with your phone in your pocket), Hops records signal quality and paints it here. Green is strong, red is weak.")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                                 .multilineTextAlignment(.center)
@@ -903,7 +903,7 @@ struct WaypointComposerView: View {
                         }
                     }
                 } footer: {
-                    Text("Broadcast on your primary channel — anyone on the mesh sees it on their map.")
+                    Text("Broadcast on your primary channel - anyone on the mesh sees it on their map.")
                 }
             }
             .navigationTitle("Drop Waypoint")

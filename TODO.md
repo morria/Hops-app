@@ -4,6 +4,47 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+212. [x] Games out-of-sync recovery: "Resend last move" / "Resend invitation" /
+         Nudge (once a minute) and "Re-sync from their board" (adopts the peer's
+         validated move log via RESYNC from 1) replace "delete and start over".
+
+210. [x] Games: my move shows on the board immediately (committed log + pending
+         move), before the other phone confirms it.
+211. [x] Games tab badge: count of invitations and your-turn games.
+
+209. [ ] Add Radio stuck on "Connecting to your radio" (reported 2026-09-13; logs
+         pending). Now: after 20 s the screen explains the usual blockers (radio
+         held by another phone/iPad/Meshtastic app, dismissed PIN) with Start
+         Over; Cancel drops the pending link instead of leaving it spinning.
+
+208. [x] Pairing "Nearby radios" re-sorted on every advertisement, so radios
+         with similar signal swapped places constantly. RSSI is smoothed and the
+         list is ordered by 10 dB band (with hysteresis), then name.
+
+205. [x] Settings › Mesh setup row shows the applied config's name when the
+         radio is fully on it (falls back to region · preset).
+206. [x] "NYC Mesh - Legacy (LongFast)" retired from the mesh setup list
+         (bundled + filtered if a cached remote manifest still has it).
+207. [x] No em dashes in user-facing strings; plain hyphens instead.
+
+204. [x] Settings: Meshsites and Games both live under one "Experimental" section.
+
+203. [x] New game invite list: pinned DM threads and renamed nodes first
+         ("Favorites & named"), then everyone else by last heard.
+
+200. [x] GitHub #5 — primary channel label goes stale on preset switch and isn't
+         the hashed name. `setPrimaryChannelName(ifUnnamed:)` writes a one-shot
+         customName override, never revisited, never sent to the radio. Derive
+         the display name instead: `name.isEmpty ? presetDisplayName : name`.
+201. [x] GitHub #6 — show the effective primary channel name and its hash byte
+         (xorHash(name) ^ xorHash(psk)) in Mesh Setup; count undecodable packets
+         and, when packets are heard but none decode, say "hearing the mesh but
+         can't decode any of it" in the Mesh traffic row (informational).
+202. [x] GitHub #7 — gap pill unfurls to one row per missing message (position
+         between neighbours, from, recoverable, asked-at). Fix: one TOO_OLD marks
+         the whole gap unrecoverable; NACK batch silently caps at 8; per-seq
+         requestedAt persisted so "asked 2m ago" survives relaunch.
+
 199. [x] Games over the mesh — plan in docs/GAMES.md. Experimental › Games
          toggle adds a Games tab; per game: New Game (pick a node) or
          continue. Own port (425), every move app-acknowledged with a state

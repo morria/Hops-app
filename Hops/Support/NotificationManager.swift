@@ -119,7 +119,7 @@ final class NotificationManager: NSObject {
         let who = String(format: "!%08x", UInt32(truncatingIfNeeded: from))
         let summary = fields.map { "\($0.0)=\(MeshsitesManager.sanitizeDisplay($0.1))" }.joined(separator: ", ")
         var body = "\(who) on \(path)"
-        if !summary.isEmpty { body += " — \(summary)" }
+        if !summary.isEmpty { body += " - \(summary)" }
         content.body = body.count > 160 ? String(body.prefix(159)) + "…" : body
         content.sound = .default
         content.threadIdentifier = "meshsite-replies"

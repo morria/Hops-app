@@ -83,7 +83,7 @@ final class MeshsitesManager: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .notConnected: return "Not connected to a radio."
-            case .timeout: return "No response — the site's radio may be out of range."
+            case .timeout: return "No response - the site's radio may be out of range."
             case .deadAir(let diagnosis): return diagnosis
             case .requestTooLarge: return "Form input is too long to send over the mesh."
             case .badResponse: return "The site sent an unreadable response."
@@ -95,7 +95,7 @@ final class MeshsitesManager: ObservableObject {
                 case 1: return "Page not found."
                 case 2: return "The page is too large for the mesh."
                 case 3: return "The site rejected the request."
-                case 5: return "The site is busy — try again in a moment."
+                case 5: return "The site is busy - try again in a moment."
                 case 6: return "This site needs a newer version of Hops."
                 default: return "The site reported an error."
                 }
@@ -124,7 +124,7 @@ final class MeshsitesManager: ObservableObject {
             if !transmitted {
                 return "No confirmation the request ever left your radio. Check the connection to your radio and try again."
             }
-            return "The request was transmitted, but the site never answered. Its server may be offline — or its radio can't decrypt requests from you (if its node card shows a key warning, use Reset Encryption Key)."
+            return "The request was transmitted, but the site never answered. Its server may be offline - or its radio can't decrypt requests from you (if its node card shows a key warning, use Reset Encryption Key)."
         }
     }
     private var pending: [UInt16: Pending] = [:]

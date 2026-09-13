@@ -233,7 +233,7 @@ final class RadioManager: ObservableObject {
             return region == .unset ? "Not set" : String(describing: region).uppercased()
         }
         var presetName: String {
-            guard received else { return "—" }
+            guard received else { return "Not read yet" }
             let preset = Config.LoRaConfig.ModemPreset(rawValue: presetRaw) ?? .longFast
             switch preset {
             case .longFast: return "LongFast"
@@ -292,6 +292,7 @@ final class RadioManager: ObservableObject {
 
     private let defaults: UserDefaults
     private enum Keys {
+        static let resendAskedAt = "resendAskedAt"
         static let peripheralId = "pairedPeripheralId"   // pre-fleet single radio
         static let fleetPeripherals = "fleetPeripherals" // nodeNum → peripheral id, this device
         static let myNodeNum = "myNodeNum"
@@ -330,6 +331,7 @@ final class RadioManager: ObservableObject {
     init(transport: any RadioTransport, defaults: UserDefaults = .standard) {
         self.central = transport
         self.defaults = defaults
+        resendAskedAt = (defaults.dictionary(forKey: Keys.resendAskedAt) as? [String: Double]) ?? [:]
         myNodeNum = Int64(defaults.integer(forKey: Keys.myNodeNum))
         firmwareVersion = defaults.string(forKey: Keys.firmware) ?? ""
         lastSyncedAt = defaults.object(forKey: Keys.lastSynced) as? Date
@@ -426,6 +428,7 @@ final class RadioManager: ObservableObject {
 
     func beginPairingScan() {
         discovered = []
+        discoveryBands = [:]
         pairingInProgress = true
         pairingPeripheralId = nil
         pairedNodeNum = 0
@@ -448,6 +451,22 @@ final class RadioManager: ObservableObject {
         links[id] = link
         central.connectDiscovered(id: id)
         armWatchdog(link)
+        refreshFacade()
+    }
+
+    /// Abandon an add-radio attempt that hasn't completed: drop the pending
+    /// link and its connect so nothing keeps spinning behind the sheet.
+    func cancelPairing() {
+        pairingInProgress = false
+        central.stopScan()
+        if let id = pairingPeripheralId, !fleetPeripherals.values.contains(id) {
+            links[id]?.watchdog?.cancel()
+            links[id] = nil
+            pendingPeripherals.remove(id)
+            central.forget(id)
+        }
+        pairingPeripheralId = nil
+        pairedNodeNum = 0
         refreshFacade()
     }
 
@@ -571,12 +590,7 @@ final class RadioManager: ObservableObject {
 
         case .discovered(let device):
             guard pairingInProgress, !wantedPeripheralIds.contains(device.id) else { return }
-            if let index = discovered.firstIndex(where: { $0.id == device.id }) {
-                discovered[index].rssi = device.rssi
-            } else {
-                discovered.append(device)
-            }
-            discovered.sort { $0.rssi > $1.rssi }
+            noteDiscovered(device)
 
         case .linkReady(let id):
             let link = links[id] ?? RadioLink(id: id)
@@ -617,7 +631,7 @@ final class RadioManager: ObservableObject {
 
         case .writeStalled(let id, let pending):
             logTraffic(from: links[id]?.nodeNum ?? myNodeNum, port: "ble",
-                       summary: "Write to radio stalled — \(pending) queued, pump reset")
+                       summary: "Write to radio stalled - \(pending) queued, pump reset")
 
         case .frame(let id, let data):
             guard let link = links[id] else { return }
@@ -728,14 +742,7 @@ final class RadioManager: ObservableObject {
             requestStoreForwardHistoryIfUseful()
             announcePresenceIfDue()
             Task { await self.computeDrift(link) }
-            // Friendly default name for a blank primary channel: the applied
-            // metro's name ("NYC Mesh"), handled store-side only when unnamed.
-            if let id = MetroPresetStore.shared.appliedPresetId,
-               let preset = MetroPresetStore.shared.allPresets.first(where: { $0.id == id }),
-               let store {
-                let shortName = preset.name.components(separatedBy: " (").first ?? preset.name
-                Task { await store.setPrimaryChannelName(ifUnnamed: shortName) }
-            }
+            if link === transmitLink { refreshPrimaryChannelLabel() }
             // Node DB is deliberately deferred: on a big mesh it can take minutes and
             // messages must never wait behind it.
             Task { @MainActor [weak link] in
@@ -936,7 +943,7 @@ final class RadioManager: ObservableObject {
                 rotated.append(ch.name.isEmpty ? "channel \(ch.index)" : ch.name)
             }
             if !rotated.isEmpty {
-                noteAppEvent("rotated keys on \(rotated.joined(separator: ", ")) — re-share the QR")
+                noteAppEvent("rotated keys on \(rotated.joined(separator: ", ")) - re-share the QR")
             }
             for link in links.values where link.phase == .connected { await computeDrift(link) }
         }
@@ -1019,6 +1026,7 @@ final class RadioManager: ObservableObject {
                 }
             }
             if isPrimary { refreshFacade() } else { publishLinkConfigs() }
+            if isPrimary, case .lora = config.payloadVariant { refreshPrimaryChannelLabel() }
 
         case .moduleConfig(let moduleConfig):
             if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
@@ -1087,10 +1095,12 @@ final class RadioManager: ObservableObject {
         let hops = packet.hopStart > 0 && packet.hopStart >= packet.hopLimit
             ? Int(packet.hopStart - packet.hopLimit) : -1
         guard case .decoded(let decoded) = packet.payloadVariant else {
+            if !isMine(fromNum) { TrafficMonitor.shared.noteUndecodable() }
             logTraffic(from: fromNum, port: "encrypted", summary: "Undecodable (no matching channel key)",
                        snr: packet.rxSnr, hopsAway: hops)
             return
         }
+        if !isMine(fromNum) { TrafficMonitor.shared.noteDecoded() }
         if decoded.portnum == .textMessageApp, fromNum != myNodeNum {
             TrafficMonitor.shared.noteTextMessage()
         }
@@ -1130,7 +1140,7 @@ final class RadioManager: ObservableObject {
             if let pending = pendingOwner, pending.packetId == decoded.requestID {
                 pendingOwner = nil
                 if errorRaw != 0 {
-                    log.error("set_owner NAK (\(String(describing: routing.errorReason))) — restoring previous names")
+                    log.error("set_owner NAK (\(String(describing: routing.errorReason))) - restoring previous names")
                     Task {
                         await store.renameNode(num: myNodeNum, longName: pending.previousLong,
                                                shortName: pending.previousShort)
@@ -1280,6 +1290,7 @@ final class RadioManager: ObservableObject {
                                         frequencySlot: Int(lora.channelNum),
                                         hopLimit: Int(lora.hopLimit))
                     persistLoRa()
+                    refreshPrimaryChannelLabel()
                 default: break
                 }
                 publishLinkConfigs()
@@ -1546,7 +1557,7 @@ final class RadioManager: ObservableObject {
             sendAdmin(favorite)
             link.knownPeers.insert(peer)
         }
-        noteAppEvent("preloaded \(user.id) onto the radio\(snapshot.publicKey.count == 32 ? " with key" : " (no key)")\(acked ? "" : " — no ack, sending anyway")")
+        noteAppEvent("preloaded \(user.id) onto the radio\(snapshot.publicKey.count == 32 ? " with key" : " (no key)")\(acked ? "" : ", no ack, sending anyway")")
     }
 
     private func awaitAdminAck(_ packetId: UInt32, timeout: TimeInterval) async -> Bool {
@@ -1768,6 +1779,14 @@ final class RadioManager: ObservableObject {
     static func resendKey(conversationKey: String, sender: Int64) -> String { "\(conversationKey)/\(sender)" }
     private static let resendTimeout: TimeInterval = 45
 
+    /// When each missing seq was last asked for, persisted so "asked 2m ago"
+    /// survives a relaunch (#7). Key: conversation/sender/seq.
+    @Published private(set) var resendAskedAt: [String: Double] = [:]
+    static func askedKey(conversationKey: String, sender: Int64, seq: Int) -> String { "\(conversationKey)/\(sender)/\(seq)" }
+    func resendAskedAt(conversationKey: String, sender: Int64, seq: Int) -> Date? {
+        resendAskedAt[Self.askedKey(conversationKey: conversationKey, sender: sender, seq: seq)].map { Date(timeIntervalSince1970: $0) }
+    }
+
     /// "Ask to resend": NACK the sender for the missing sequence numbers.
     func requestResend(from sender: Int64, conversationKey: String, seqs: [Int]) {
         guard !seqs.isEmpty else { return }
@@ -1776,17 +1795,26 @@ final class RadioManager: ObservableObject {
             resendRequests[key] = ResendRequest(sentAt: Date(), packetId: 0, nakError: -2)
             return
         }
-        var frame = Data([0x01])
+        var header = Data([0x01])
         if conversationKey.hasPrefix("ch-"), let index = UInt8(conversationKey.dropFirst(3)) {
-            frame.append(contentsOf: [1, index])
+            header.append(contentsOf: [1, index])
         } else {
-            frame.append(contentsOf: [0, 0])
+            header.append(contentsOf: [0, 0])
         }
-        let batch = seqs.prefix(8)
-        frame.append(UInt8(batch.count))
-        frame.append(contentsOf: batch.map { UInt8($0 & 0xFF) })
-        let packetId = sendReliability(to: sender, payload: frame)
-        resendRequests[key] = ResendRequest(sentAt: Date(), packetId: packetId)
+        // The NACK frame carries at most 8 seqs; larger gaps go out as
+        // several frames in one tap instead of silently truncating (#7).
+        var packetId: UInt32 = 0
+        for start in stride(from: 0, to: seqs.count, by: 8) {
+            let batch = seqs[start..<min(start + 8, seqs.count)]
+            var frame = header
+            frame.append(UInt8(batch.count))
+            frame.append(contentsOf: batch.map { UInt8($0 & 0xFF) })
+            packetId = sendReliability(to: sender, payload: frame)
+        }
+        let now = Date()
+        for seq in seqs { resendAskedAt[Self.askedKey(conversationKey: conversationKey, sender: sender, seq: seq)] = now.timeIntervalSince1970 }
+        defaults.set(resendAskedAt, forKey: Keys.resendAskedAt)
+        resendRequests[key] = ResendRequest(sentAt: now, packetId: packetId)
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(Self.resendTimeout))
             guard let self, var request = self.resendRequests[key], request.packetId == packetId,
@@ -2411,6 +2439,51 @@ final class RadioManager: ObservableObject {
         }
     }
 
+    /// Keeps the primary channel's label equal to the name the firmware
+    /// hashes (#5): the preset display name when the channel name is blank.
+    private func refreshPrimaryChannelLabel() {
+        guard let store else { return }
+        let display = ChannelIdentity.presetDisplayName(presetRaw: loRa.presetRaw,
+                                                        usePreset: loraConfig?.usePreset ?? true)
+        let stale = Set(MetroPresetStore.shared.allPresets.map {
+            $0.name.components(separatedBy: " (").first ?? $0.name
+        })
+        Task { await store.refreshPrimaryChannel(presetDisplayName: display, staleOverrides: stale) }
+    }
+
+    // MARK: - Nearby radios (pairing list)
+
+    /// Signal band per discovered radio: RSSI ÷ 10, adopted with hysteresis
+    /// so a radio sitting on a boundary doesn't flip. The list is ordered by
+    /// band, then name, so radios with similar signal keep their places
+    /// instead of swapping on every advertisement (TODO 208).
+    private var discoveryBands: [UUID: Int] = [:]
+
+    private func noteDiscovered(_ device: BLECentral.Discovered) {
+        if let index = discovered.firstIndex(where: { $0.id == device.id }) {
+            let smoothed = Int((Double(discovered[index].rssi) * 0.7 + Double(device.rssi) * 0.3).rounded())
+            discovered[index].rssi = smoothed
+            let band = discoveryBands[device.id] ?? Self.band(smoothed)
+            let next: Int
+            if smoothed <= 10 * band - 3 { next = Self.band(smoothed) }        // fell well into a lower band
+            else if smoothed >= 10 * (band + 1) + 3 { next = Self.band(smoothed) }  // rose well into a higher one
+            else { next = band }
+            guard next != band else { return }
+            discoveryBands[device.id] = next
+        } else {
+            discovered.append(device)
+            discoveryBands[device.id] = Self.band(device.rssi)
+        }
+        discovered.sort { a, b in
+            let ba = discoveryBands[a.id] ?? Self.band(a.rssi), bb = discoveryBands[b.id] ?? Self.band(b.rssi)
+            if ba != bb { return ba > bb }
+            if a.name != b.name { return a.name < b.name }
+            return a.id.uuidString < b.id.uuidString
+        }
+    }
+
+    private static func band(_ rssi: Int) -> Int { Int((Double(rssi) / 10).rounded(.down)) }
+
     private func persistLoRa() {
         defaults.set(true, forKey: Keys.loraReceived)
         defaults.set(loRa.regionRaw, forKey: Keys.region)
@@ -2597,6 +2670,15 @@ final class TrafficMonitor: ObservableObject {
         willChange()
         textMessagesHeard += 1
     }
+
+    /// Packets from other nodes we could / couldn't decrypt (#6). "Heard
+    /// plenty, decoded none" is the channel-mismatch signature.
+    private(set) var decodedPacketsHeard = 0
+    private(set) var undecodablePacketsHeard = 0
+    func noteDecoded() { willChange(); decodedPacketsHeard += 1 }
+    func noteUndecodable() { willChange(); undecodablePacketsHeard += 1 }
+    /// True once enough has been heard to be sure it isn't just quiet.
+    var isIsolated: Bool { decodedPacketsHeard == 0 && undecodablePacketsHeard >= 5 }
 
     func append(from: Int64, port: String, summary: String, snr: Float, hopsAway: Int) {
         willChange()

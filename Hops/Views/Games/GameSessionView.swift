@@ -10,6 +10,7 @@ struct GameSessionView: View {
     @EnvironmentObject private var radio: RadioManager
     @Environment(\.dismiss) private var dismiss
     @State private var showResign = false
+    @State private var showResync = false
     @State private var nudged = false
     @State private var now = Date()
     private let ticker = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
@@ -28,7 +29,6 @@ struct GameSessionView: View {
                 } else if session.phase != .declined {
                     GameBoardView(context: boardContext)
                         .padding(.horizontal)
-                        .opacity(session.phase == .waiting ? 0.75 : 1)
                 }
                 if session.drawOffered, record.isActive {
                     Button("Accept draw") { coordinator.acceptDraw(session) }
@@ -46,7 +46,16 @@ struct GameSessionView: View {
                     if [.waiting, .inviting, .theirTurn].contains(session.phase) {
                         Button {
                             nudged = coordinator.nudge(session)
-                        } label: { Label("Nudge", systemImage: "hand.wave") }
+                        } label: {
+                            Label(session.phase == .waiting ? "Resend last move"
+                                  : session.phase == .inviting ? "Resend invitation" : "Nudge",
+                                  systemImage: "arrow.clockwise")
+                        }
+                    }
+                    if record.isActive || record.outOfSync {
+                        Button {
+                            showResync = true
+                        } label: { Label("Re-sync from their board", systemImage: "arrow.triangle.2.circlepath") }
                     }
                     if record.isActive {
                         Button { coordinator.offerDraw(session) } label: { Label("Offer draw", systemImage: "equal") }
@@ -63,13 +72,18 @@ struct GameSessionView: View {
         .confirmationDialog("Resign this game?", isPresented: $showResign, titleVisibility: .visible) {
             Button("Resign", role: .destructive) { coordinator.resign(session) }
         }
+        .confirmationDialog("Re-sync from their board?", isPresented: $showResync, titleVisibility: .visible) {
+            Button("Adopt their moves", role: .destructive) { coordinator.resyncFromPeer(session) }
+        } message: {
+            Text("Your copy of this game will be replaced by the other phone's move list. Use this when the boards no longer match.")
+        }
         .onAppear { coordinator.markSeen(session) }
         .onChange(of: session.needsAttention) { _, needs in if needs { coordinator.markSeen(session) } }
         .onReceive(ticker) { now = $0 }
     }
 
     private var boardContext: GameBoardContext {
-        GameBoardContext(engine: record.engine(), myPlayer: session.myPlayer,
+        GameBoardContext(engine: record.engineWithPending(), myPlayer: session.myPlayer,
                          interactive: session.phase == .myTurn && record.result == nil,
                          privateData: session.privateData,
                          onMove: { coordinator.play($0, in: session) },
@@ -100,7 +114,7 @@ struct GameSessionView: View {
         case .inviting: return "Waiting for \(peerName) to accept"
         case .invited: return "\(peerName) invites you to play"
         case .myTurn: return "Your turn"
-        case .waiting: return "Move sent — waiting for agreement"
+        case .waiting: return "Move sent - waiting for agreement"
         case .theirTurn: return "\(peerName)'s turn"
         case .finished: return session.resultText ?? "Game over"
         case .declined: return "Declined"
@@ -109,7 +123,8 @@ struct GameSessionView: View {
 
     private var detail: String? {
         var parts: [String] = []
-        if record.outOfSync { parts.append("Out of sync — the boards differ. Delete and start a new game.") }
+        if record.adoptingPeerLog { parts.append("Asked for their board - waiting for their moves.") }
+        else if record.outOfSync { parts.append("Out of sync - the boards differ. Use Re-sync from their board in the menu.") }
         if let nak = record.lastNak, session.phase == .myTurn { parts.append(nak.text) }
         switch session.phase {
         case .waiting, .inviting:
@@ -123,9 +138,9 @@ struct GameSessionView: View {
                 parts.append("Sent \(at.formatted(.relative(presentation: .named))). Resends automatically.")
             }
             if session.phase == .inviting, now.timeIntervalSince(session.createdAt) > 24 * 60 * 60 {
-                parts.append("No answer in a day — they may not have Games turned on.")
+                parts.append("No answer in a day - they may not have Games turned on.")
             }
-            if nudged { parts.append("Nudged.") }
+            if nudged { parts.append("Resent.") }
         case .theirTurn:
             parts.append("You'll get a notification when they move.")
         case .myTurn where session.kind.needsPrivateSetup && session.privateData.isEmpty:

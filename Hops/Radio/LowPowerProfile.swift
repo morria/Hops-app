@@ -37,7 +37,7 @@ enum LowPowerProfile {
             out.append(Check(id: id, label: label, detail: detail, satisfied: ok ?? false))
         }
         add("devtel", "Battery & device telemetry off",
-            "device_telemetry_enabled = false, device_update_interval = never — this is where battery notices come from",
+            "device_telemetry_enabled = false, device_update_interval = never - this is where battery notices come from",
             telemetry.map { !$0.deviceTelemetryEnabled && $0.deviceUpdateInterval >= never })
         add("envtel", "Environment, power and air-quality telemetry off",
             "environment_measurement_enabled, power_measurement_enabled, air_quality_enabled = false",
@@ -45,7 +45,7 @@ enum LowPowerProfile {
         // A radio with no GPS chip reports NOT_PRESENT after boot even if
         // we wrote DISABLED — both mean the receiver is off.
         add("gps", "GPS disabled",
-            "gps_mode = DISABLED — the receiver is powered down",
+            "gps_mode = DISABLED - the receiver is powered down",
             position.map { $0.gpsMode == .disabled || $0.gpsMode == .notPresent })
         add("pos", "Position broadcasts off",
             "fixed_position = false, position_broadcast_secs = never, smart broadcast off",

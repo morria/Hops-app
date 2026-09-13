@@ -157,18 +157,18 @@ enum ScreenshotMode {
         }
 
         _ = message(mesh, "Anyone getting good SNR from the Presidio side today?", from: 0xB2C3D4, minutesAgo: 95, outgoing: false, status: .received)
-        _ = message(mesh, "Yes — solid copy from the overlook, 2 hops.", from: 0, minutesAgo: 90, outgoing: true, status: .sentToMesh)
+        _ = message(mesh, "Yes - solid copy from the overlook, 2 hops.", from: 0, minutesAgo: 90, outgoing: true, status: .sentToMesh)
         _ = message(mesh, "New solar node going up on Twin Peaks this weekend 🎉", from: 0xC3D4E5, minutesAgo: 12, outgoing: false, status: .received)
         mesh.unreadCount = 1
 
-        let hike = message(sam, "Trailhead at 9 — bring the antenna?", from: 0xA1B2C3, minutesAgo: 40, outgoing: false, status: .received)
+        let hike = message(sam, "Trailhead at 9 - bring the antenna?", from: 0xA1B2C3, minutesAgo: 40, outgoing: false, status: .received)
         _ = message(sam, "On my way, ETA 15. Yes to the antenna.", from: 0, minutesAgo: 35, outgoing: true, status: .deliveredToRadio)
         _ = message(sam, "👍", from: 0xA1B2C3, minutesAgo: 33, outgoing: false, status: .received, replyId: hike.packetId, isEmoji: true)
         _ = message(sam, "Meet at the bench by the overlook instead", from: 0, minutesAgo: 3, outgoing: true, status: .relayed)
         sam.unreadCount = 0
 
         _ = message(family, "We're at the campsite, radio on all evening", from: 0xC3D4E5, minutesAgo: 500, outgoing: false, status: .received)
-        _ = message(family, "Copy that — check in at 8?", from: 0, minutesAgo: 490, outgoing: true, status: .sentToMesh)
+        _ = message(family, "Copy that - check in at 8?", from: 0, minutesAgo: 490, outgoing: true, status: .sentToMesh)
 
         _ = message(kat, "Heading up the coast, will be out of range til Sunday", from: 0xC3D4E5, minutesAgo: 2000, outgoing: false, status: .received)
 

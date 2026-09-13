@@ -75,7 +75,7 @@ struct DeviceConfigurationView: View {
 
     private static let rebroadcastChoices: [(String, Int)] = [
         ("All packets", 0),
-        ("All — skip decoding", 1),
+        ("All - skip decoding", 1),
         ("Local only", 2),
         ("Known nodes only", 3),
         ("Never relay", 4),
@@ -277,7 +277,7 @@ struct DeviceConfigurationView: View {
                     } label: {
                         LabeledContent("Mesh setup") {
                             let lora = cfg.lora
-                            Text(lora.map { "\(String(describing: $0.region).uppercased()) · slot \($0.channelNum)" } ?? "—")
+                            Text(lora.map { "\(String(describing: $0.region).uppercased()) · slot \($0.channelNum)" } ?? "Not read yet")
                         }
                     }
                 } header: {
@@ -304,7 +304,7 @@ struct DeviceConfigurationView: View {
                         .foregroundStyle(battery <= 25 ? Color.red : Color.secondary)
                         .fixedSize()
                     } else {
-                        Text("—").foregroundStyle(.secondary)
+                        Text("Not read yet").foregroundStyle(.secondary)
                     }
                 }
                 ForEach(checks) { check in
@@ -339,7 +339,7 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text(txEnabled
                      ? "lora.tx_enabled. Off makes the radio listen only: no acks, no node info, and nothing you send from this radio leaves it."
-                     : "Transmit is OFF — this radio only listens. Nothing sent through it reaches the mesh, and other radios can't confirm anything to it.")
+                     : "Transmit is OFF - this radio only listens. Nothing sent through it reaches the mesh, and other radios can't confirm anything to it.")
             }
 
             Section {
@@ -359,7 +359,7 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Bluetooth")
             } footer: {
-                Text("Careful: disabling Bluetooth or changing pairing disconnects Hops — undoing it needs the radio's buttons or another transport.")
+                Text("Careful: disabling Bluetooth or changing pairing disconnects Hops - undoing it needs the radio's buttons or another transport.")
             }
 
             Section("Display") {
@@ -408,7 +408,7 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Telemetry")
             } footer: {
-                Text("Battery updates come from device telemetry. To stop them entirely turn Device telemetry off and set the interval to Never. Every broadcast spends the whole mesh's airtime — 6 hours is plenty when it's on.")
+                Text("Battery updates come from device telemetry. To stop them entirely turn Device telemetry off and set the interval to Never. Every broadcast spends the whole mesh's airtime - 6 hours is plenty when it's on.")
             }
 
             Section {
@@ -535,7 +535,7 @@ struct DeviceConfigurationView: View {
             Text("After saving, this radio turns Bluetooth off and Hops can't reach it until you press its button.")
         }
         .confirmationDialog("Transmit is off", isPresented: $confirmTxOffSave, titleVisibility: .visible) {
-            Button("Save — Listen Only", role: .destructive) { performSave() }
+            Button("Save - Listen Only", role: .destructive) { performSave() }
             Button("Turn Transmit On, Then Save") { txEnabled = true; performSave() }
         } message: {
             Text("This radio will only listen: nothing you send through it reaches the mesh, and nobody can confirm anything to it.")
@@ -673,7 +673,7 @@ struct DeviceConfigurationView: View {
 
     private func performSave() {
         save()
-        savedNote = "Saved — \(radioName) is restarting, back in about 20 seconds."
+        savedNote = "Saved - \(radioName) is restarting, back in about 20 seconds."
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(25))
             savedNote = nil

@@ -26,7 +26,7 @@ enum GameNakReason: UInt8 {
     var text: String {
         switch self {
         case .unknownSession: return "They don't have this game"
-        case .wrongPrevHash: return "Out of sync — boards differ"
+        case .wrongPrevHash: return "Out of sync - boards differ"
         case .illegalMove: return "They rejected the move as illegal"
         case .notYourTurn: return "They say it isn't your turn"
         case .gameOver: return "They say the game is over"
@@ -51,6 +51,9 @@ struct GameSessionRecord: Equatable {
     var privateData = Data()
     var lastNak: GameNakReason?
     var outOfSync = false
+    /// The user asked to adopt the peer's log: the next SYNC from seq 1
+    /// replaces ours instead of appending.
+    var adoptingPeerLog = false
 
     /// Committed moves.
     var seq: Int { moves.count / kind.moveSize }
@@ -82,6 +85,14 @@ struct GameSessionRecord: Equatable {
     }
 
     var isActive: Bool { [.myTurn, .waiting, .theirTurn].contains(phase) }
+
+    /// What the board shows: the committed log with my in-flight move on
+    /// top, so a move appears the moment it's played, not when it's agreed.
+    func engineWithPending() -> any GameEngine {
+        var engine = engine()
+        if let pending, (try? engine.apply(pending)) != nil { return engine }
+        return engine
+    }
 
     /// Who played the last committed move (by replaying up to it).
     var lastMoveWasTheirs: Bool {
@@ -250,6 +261,16 @@ enum GameLogic {
         }
     }
 
+    /// "Re-sync from their board": ask for the whole log and adopt it.
+    /// Neither side is authoritative; the user picks theirs.
+    static func requestFullResync(_ r: inout GameSessionRecord) -> GameFrame? {
+        guard r.isActive || r.outOfSync else { return nil }
+        r.adoptingPeerLog = true
+        r.pending = nil
+        if r.phase == .waiting { r.phase = .myTurn }
+        return .resync(session: r.id, fromSeq: 1)
+    }
+
     static func accept(_ r: inout GameSessionRecord) -> GameFrame? {
         guard r.phase == .invited else { return nil }
         r.settleTurn()
@@ -341,8 +362,17 @@ enum GameLogic {
 
         case .resync(_, let fromSeq):
             out.replies = syncFrames(r, from: Int(fromSeq))
+            if out.replies.isEmpty, fromSeq == 1 {
+                // Nothing to send back: an empty log is still an answer.
+                out.replies = [.sync(session: r.id, fromSeq: 1, moves: Data())]
+            }
 
         case .sync(_, let fromSeq, let moves):
+            if r.adoptingPeerLog, fromSeq == 1 {
+                // Wholesale replacement: their log becomes ours (validated).
+                r.moves = Data(); r.pending = nil; r.adoptingPeerLog = false
+                r.outOfSync = false; r.lastNak = nil; out.changed = true
+            }
             // Adopt moves we're missing, one at a time, each validated.
             var next = Int(fromSeq)
             var offset = 0
@@ -360,7 +390,7 @@ enum GameLogic {
             if out.changed {
                 r.outOfSync = false
                 r.settleTurn()
-                out.replies = [.ack(session: r.id, seq: UInt16(r.seq), stateHash: r.currentHash)]
+                out.replies = r.seq > 0 ? [.ack(session: r.id, seq: UInt16(r.seq), stateHash: r.currentHash)] : []
                 if r.phase == .myTurn { out.events = [.yourTurn] }
                 if r.phase == .finished { out.events = [.finished] }
             }

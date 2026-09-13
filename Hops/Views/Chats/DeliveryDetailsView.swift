@@ -60,7 +60,7 @@ struct DeliveryDetailsView: View {
 
                 Section {
                     Text(isDM
-                         ? "How direct delivery works: your radio hands the message to nearby nodes, which rebroadcast it hop by hop until the destination radio hears it and sends an acknowledgment back along the mesh. Acknowledgments travel the same unreliable path — a missing ack doesn't always mean a missing message."
+                         ? "How direct delivery works: your radio hands the message to nearby nodes, which rebroadcast it hop by hop until the destination radio hears it and sends an acknowledgment back along the mesh. Acknowledgments travel the same unreliable path - a missing ack doesn't always mean a missing message."
                          : "How channel delivery works: the message is broadcast hop by hop to everyone sharing the channel key. Broadcasts carry no per-person receipts, so \"Sent to mesh\" is the strongest confirmation a channel message can have.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -98,11 +98,11 @@ struct DeliveryDetailsView: View {
         case .waitingForPeer:
             return "Held until their radio is next heard on the mesh, then sent automatically."
         case .sending:
-            return "Transmitted by your radio. Waiting for the mesh to confirm — this can take a few minutes over long paths."
+            return "Transmitted by your radio. Waiting for the mesh to confirm - this can take a few minutes over long paths."
         case .relayed:
             return "Another node rebroadcast it, so it's traveling the mesh. Their radio hasn't confirmed receipt yet."
         case .deliveredToRadio:
-            return "Their radio acknowledged receipt directly. It's on their device — this confirms delivery, not that they've read it."
+            return "Their radio acknowledged receipt directly. It's on their device - this confirms delivery, not that they've read it."
         case .sentToMesh:
             return "Accepted onto the channel. Channel broadcasts don't carry per-person receipts, so this is full confirmation for a channel message."
         case .failed:

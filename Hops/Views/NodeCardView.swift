@@ -238,7 +238,7 @@ struct NodeCardView: View {
         } header: {
             Text("Reachability")
         } footer: {
-            Text("A probe asks their radio directly — it replies even without an app running. Any packet from them counts as the reply. Trace Route asks the mesh which radios relayed the request, with the signal at each hop.")
+            Text("A probe asks their radio directly - it replies even without an app running. Any packet from them counts as the reply. Trace Route asks the mesh which radios relayed the request, with the signal at each hop.")
         }
     }
 
@@ -254,7 +254,7 @@ struct NodeCardView: View {
         Section {
             if node.keyChanged {
                 Label {
-                    Text("This node's encryption key changed since it was first seen. Verify with the owner before trusting messages — a changed key can mean a reflashed radio, or an impersonator.")
+                    Text("This node's encryption key changed since it was first seen. Verify with the owner before trusting messages - a changed key can mean a reflashed radio, or an impersonator.")
                         .font(.footnote)
                 } icon: {
                     Image(systemName: "exclamationmark.shield.fill")
@@ -299,7 +299,7 @@ struct NodeCardView: View {
                         node.keyChanged = false
                     }
                 } message: {
-                    Text("Forgets the pinned key so the next announcement from this node is trusted. Do this only when you know why the key changed — for example, the owner reflashed their radio. Until it re-announces, messages fall back to channel encryption.")
+                    Text("Forgets the pinned key so the next announcement from this node is trusted. Do this only when you know why the key changed - for example, the owner reflashed their radio. Until it re-announces, messages fall back to channel encryption.")
                 }
             }
         } header: {

@@ -707,7 +707,7 @@ struct ChatsListView: View {
         ContentUnavailableView {
             Label("No conversations yet", systemImage: "bubble.left.and.bubble.right")
         } description: {
-            Text("Channels you join and people you message appear here.\nMesh messages are text only, up to ~200 characters — that's LoRa.")
+            Text("Channels you join and people you message appear here.\nMesh messages are text only, up to ~200 characters - that's LoRa.")
         } actions: {
             Button("New Message") { showCompose = true }
                 .buttonStyle(.borderedProminent)

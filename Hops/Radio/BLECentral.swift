@@ -304,7 +304,7 @@ final class BLELink: NSObject {
         let serial = writeSerial
         central.queue.asyncAfter(deadline: .now() + Self.writeStallSeconds) {
             guard self.writing, self.writeSerial == serial, !self.writeQueue.isEmpty else { return }
-            self.central.log.error("TORADIO write stalled; \(self.writeQueue.count) queued — resetting pump")
+            self.central.log.error("TORADIO write stalled; \(self.writeQueue.count) queued - resetting pump")
             self.central.emit(.writeStalled(self.id, pending: self.writeQueue.count))
             self.writing = false
             self.writeAttempts = 0

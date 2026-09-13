@@ -99,7 +99,7 @@ final class MeshsiteStore: ObservableObject {
         Self.coordWrite(root.appendingPathComponent("index.md"), Data("""
         # My Meshsite
 
-        Welcome! This page is served straight from my radio — no internet.
+        Welcome! This page is served straight from my radio - no internet.
 
         * Edit these pages in Hops › Settings › Meshsites › Mesh Site
         * Or in iCloud Drive › Hops › Meshsite from any device
@@ -112,7 +112,7 @@ final class MeshsiteStore: ObservableObject {
         Self.coordWrite(root.appendingPathComponent("guestbook.md"), Data("""
         # Guestbook
 
-        Leave a note — it lands in my Form Replies.
+        Leave a note - it lands in my Form Replies.
 
         [form post /thanks]
         [field name Your name]
@@ -274,7 +274,7 @@ final class MeshsiteStore: ObservableObject {
                                         fields: [(String, String)]) -> Int {
         var text = readText(url) ?? ""
         let stamp = stampFormatter.string(from: Date())
-        var entry = "## \(stamp) — \(oneLine(fromLabel)) → \(oneLine(path))\n\n"
+        var entry = "## \(stamp) - \(oneLine(fromLabel)) → \(oneLine(path))\n\n"
         if fields.isEmpty {
             entry += "* (no fields)\n"
         } else {

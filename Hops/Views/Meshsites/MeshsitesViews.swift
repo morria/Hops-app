@@ -51,7 +51,7 @@ struct MeshsitesListView: View {
                             avatar(for: RadioManager.shared.myNodeNum, fallback: mySiteName)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(mySiteName)
-                                Text("This phone — served by you")
+                                Text("This phone - served by you")
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                             }
@@ -292,7 +292,7 @@ struct MeshsiteBrowserView: View {
                     Spacer()
                     ProgressView()
                     Text(manager.transfer?.totalChunks == nil
-                         ? "Requesting over the mesh — this takes a moment."
+                         ? "Requesting over the mesh - this takes a moment."
                          : "First packet in; decoding as the rest arrive.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
@@ -323,7 +323,7 @@ struct MeshsiteBrowserView: View {
                         if loading {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
-                                Text(manager.transfer.map { "More on the way — \($0.receivedChunks) of \($0.totalChunks ?? 0) packets" } ?? "Loading…")
+                                Text(manager.transfer.map { "More on the way - \($0.receivedChunks) of \($0.totalChunks ?? 0) packets" } ?? "Loading…")
                                     .font(.footnote)
                                     .foregroundStyle(.secondary)
                             }

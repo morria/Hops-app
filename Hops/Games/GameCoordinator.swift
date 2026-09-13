@@ -125,10 +125,19 @@ final class GameCoordinator: ObservableObject {
         autoMoveIfNeeded(entity)
     }
 
-    /// "Nudge": resend whatever this game is waiting on, at most every 15 min.
+    /// Adopt the other phone's move log (out-of-sync recovery).
+    func resyncFromPeer(_ entity: GameSessionEntity) {
+        var r = entity.record
+        guard let frame = GameLogic.requestFullResync(&r) else { return }
+        entity.apply(r)
+        save()
+        send(frame, for: entity)
+    }
+
+    /// "Resend": whatever this game is waiting on, at most once a minute.
     @discardableResult
     func nudge(_ entity: GameSessionEntity) -> Bool {
-        if let last = entity.lastNudgeAt, Date().timeIntervalSince(last) < 15 * 60 { return false }
+        if let last = entity.lastNudgeAt, Date().timeIntervalSince(last) < 60 { return false }
         let frames = GameLogic.resendFrames(entity.record)
         guard !frames.isEmpty else { return false }
         entity.lastNudgeAt = Date()
@@ -267,7 +276,7 @@ final class GameCoordinator: ObservableObject {
         let body: String
         switch event {
         case .invited: body = "invites you to play \(entity.kind.title)"
-        case .yourTurn: body = "made a move in \(entity.kind.title) — your turn"
+        case .yourTurn: body = "made a move in \(entity.kind.title) - your turn"
         case .finished: body = "\(entity.kind.title): \(entity.resultText ?? "game over")"
         case .drawOffered: body = "offers a draw in \(entity.kind.title)"
         case .accepted: body = "accepted your \(entity.kind.title) invitation"

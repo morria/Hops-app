@@ -170,6 +170,28 @@ final class GameProtocolTests: XCTestCase {
         XCTAssertTrue(b.record.outOfSync)
     }
 
+    func testResyncFromPeerAdoptsTheirLog() {
+        var (a, b) = pair()
+        a.play(4); deliverAll(from: &a, to: &b); deliverAll(from: &b, to: &a)
+        b.play(0); deliverAll(from: &b, to: &a); deliverAll(from: &a, to: &b)
+        // A's copy diverges (same length, different move).
+        a.record.moves = Data([4, 1])
+        a.record.outOfSync = true
+        a.outbox.append(GameLogic.requestFullResync(&a.record)!)
+        XCTAssertTrue(a.record.adoptingPeerLog)
+        deliverAll(from: &a, to: &b)
+        guard case .sync(_, 1, _)? = b.outbox.first else { return XCTFail("expected SYNC from 1, got \(b.outbox)") }
+        deliverAll(from: &b, to: &a)
+        XCTAssertEqual(a.record.moves, b.record.moves)
+        XCTAssertFalse(a.record.outOfSync)
+        XCTAssertFalse(a.record.adoptingPeerLog)
+        XCTAssertEqual(a.record.phase, .myTurn)
+        XCTAssertEqual(a.record.currentHash, b.record.currentHash)
+        deliverAll(from: &a, to: &b)   // A's ack of seq 2: harmless duplicate
+        a.play(8); deliverAll(from: &a, to: &b); deliverAll(from: &b, to: &a)
+        XCTAssertEqual(a.record.seq, 3); XCTAssertEqual(b.record.seq, 3)
+    }
+
     func testFullGameToWin() {
         var (a, b) = pair()
         for (mover, move) in [(0, UInt8(0)), (1, 3), (0, 1), (1, 4), (0, 2)] {

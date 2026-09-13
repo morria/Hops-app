@@ -56,3 +56,39 @@ final class ProtocolHelperTests: XCTestCase {
     }
     #endif
 }
+
+final class ChannelIdentityTests: XCTestCase {
+    /// The stock LongFast + default key channel hashes to 8 — the `ch=8`
+    /// every default Meshtastic radio logs.
+    func testDefaultLongFastHashIsEight() {
+        XCTAssertEqual(ChannelIdentity.hash(name: "", presetRaw: 0, psk: Data([1])), 0x08)
+        XCTAssertEqual(ChannelIdentity.effectiveName(name: "", presetRaw: 0), "LongFast")
+    }
+
+    func testNamedPrimaryChangesTheHash() {
+        let blank = ChannelIdentity.hash(name: "", presetRaw: 0, psk: Data([1]))
+        let named = ChannelIdentity.hash(name: "NYC", presetRaw: 0, psk: Data([1]))
+        XCTAssertNotEqual(blank, named)
+        XCTAssertEqual(ChannelIdentity.effectiveName(name: "NYC", presetRaw: 0), "NYC")
+        XCTAssertEqual(ChannelIdentity.effectiveName(name: "", presetRaw: 4), "MediumFast")
+        XCTAssertEqual(ChannelIdentity.effectiveName(name: "", presetRaw: 0, usePreset: false), "Custom")
+    }
+
+    func testKeyExpansion() {
+        XCTAssertEqual(ChannelIdentity.expandedKey(Data([1])), Data(ChannelIdentity.defaultPSK))
+        XCTAssertEqual(ChannelIdentity.expandedKey(Data([2]))?.last, 0x02)
+        XCTAssertEqual(ChannelIdentity.expandedKey(Data()), Data())
+        XCTAssertEqual(ChannelIdentity.expandedKey(Data([0])), Data())
+        XCTAssertNil(ChannelIdentity.expandedKey(Data([11])))
+        XCTAssertNil(ChannelIdentity.expandedKey(Data(repeating: 0, count: 5)))
+        XCTAssertNil(ChannelIdentity.hash(name: "", presetRaw: 0, psk: Data(repeating: 0, count: 5)))
+    }
+
+    func testGapItemsCarryPerMessageState() {
+        let items = MessageStore.gapItems("3,x4,5")
+        XCTAssertEqual(items.map(\.seq), [3, 4, 5])
+        XCTAssertEqual(items.map(\.unrecoverable), [false, true, false])
+        XCTAssertEqual(MessageStore.gapSeq("x12"), 12)
+        XCTAssertNil(MessageStore.gapSeq("x"))
+    }
+}

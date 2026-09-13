@@ -15,7 +15,7 @@ struct ChannelsView: View {
         List {
             Section("This radio's channels") {
                 if channels.filter({ $0.isActive }).isEmpty {
-                    Text("No channels yet — they appear after the first sync.")
+                    Text("No channels yet - they appear after the first sync.")
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(channels.filter { $0.isActive }) { channel in
@@ -49,7 +49,7 @@ struct ChannelsView: View {
                 Button {
                     showScanner = true
                 } label: {
-                    Label("Join a Mesh — Scan QR Code", systemImage: "qrcode.viewfinder")
+                    Label("Join a Mesh - Scan QR Code", systemImage: "qrcode.viewfinder")
                 }
                 Button {
                     importFromPasteboard()
@@ -62,7 +62,7 @@ struct ChannelsView: View {
                     Label("Share My Channels", systemImage: "square.and.arrow.up")
                 }
             } footer: {
-                Text("A channel QR code or meshtastic.org link is how a mesh community shares its working setup — channels, keys, and radio settings together.")
+                Text("A channel QR code or meshtastic.org link is how a mesh community shares its working setup - channels, keys, and radio settings together.")
             }
         }
         .navigationTitle("Channels")

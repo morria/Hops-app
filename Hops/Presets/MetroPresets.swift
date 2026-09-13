@@ -66,7 +66,11 @@ final class MetroPresetStore: ObservableObject {
     }
 
     /// Community presets followed by the user's own saved configurations.
-    var allPresets: [MetroPreset] { manifest.presets + customPresets }
+    /// Retired entries a cached remote manifest may still carry (TODO 206).
+    static let retiredPresetIds: Set<String> = ["nyc-legacy"]
+    var allPresets: [MetroPreset] {
+        manifest.presets.filter { !Self.retiredPresetIds.contains($0.id) } + customPresets
+    }
 
     func isCustom(_ preset: MetroPreset) -> Bool {
         preset.id.hasPrefix("custom-")
@@ -78,7 +82,7 @@ final class MetroPresetStore: ObservableObject {
                                  frequencySlot: frequencySlot, hopLimit: hopLimit,
                                  source: nil, updated: nil, channelIconAsset: nil,
                                  latitude: nil, longitude: nil, radiusKm: nil)
-        preset.summary = "\(preset.presetName), slot \(frequencySlot), hop limit \(hopLimit) — your saved configuration."
+        preset.summary = "\(preset.presetName), slot \(frequencySlot), hop limit \(hopLimit) - your saved configuration."
         customPresets.append(preset)
         persistCustom()
         return preset

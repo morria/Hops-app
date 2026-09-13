@@ -45,7 +45,7 @@ struct LoRaSettingsView: View {
                 }
                 Stepper("Hop limit: \(hopLimit)", value: $hopLimit, in: 1...7)
             } footer: {
-                Text("Everyone on a mesh must share region, preset, and slot. Slot 0 derives the default from the channel name. Prefer a metro preset when one fits — this screen is for going off-book.")
+                Text("Everyone on a mesh must share region, preset, and slot. Slot 0 derives the default from the channel name. Prefer a metro preset when one fits - this screen is for going off-book.")
             }
             Section {
                 Button {

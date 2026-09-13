@@ -140,8 +140,8 @@ struct GamesListView: View {
         switch session.phase {
         case .inviting: return "Invitation sent · \(session.updatedAt.formatted(.relative(presentation: .named)))"
         case .invited: return "Invites you to play"
-        case .myTurn: return session.drawOffered ? "Draw offered — your turn" : "Your turn"
-        case .waiting: return "Move sent — waiting for agreement"
+        case .myTurn: return session.drawOffered ? "Draw offered - your turn" : "Your turn"
+        case .waiting: return "Move sent - waiting for agreement"
         case .theirTurn: return "Their turn · \(session.updatedAt.formatted(.relative(presentation: .named)))"
         case .finished: return session.resultText ?? "Finished"
         case .declined: return "Declined"
@@ -162,6 +162,7 @@ struct NewGameSheet: View {
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var radio: RadioManager
     @Query(sort: \NodeEntity.longName) private var nodes: [NodeEntity]
+    @Query private var conversations: [ConversationEntity]
     @State private var searchText = ""
     @State private var iMoveFirst = true
     @State private var peer: NodeEntity?
@@ -170,6 +171,25 @@ struct NewGameSheet: View {
         let query = searchText.lowercased()
         return nodes.filter { !radio.isMine($0.num) && $0.isMessageable }
             .filter { query.isEmpty || $0.displayName.lowercased().contains(query) || $0.shortName.lowercased().contains(query) }
+    }
+
+    /// Pinned DM threads and renamed nodes: the people you actually play
+    /// with, ahead of the whole node list (TODO 203).
+    private var pinnedNums: Set<Int64> {
+        Set(conversations.filter { $0.kind == .directMessage && $0.pinned }.map(\.peerNum))
+    }
+    private var favorites: [NodeEntity] {
+        candidates.filter { pinnedNums.contains($0.num) || !$0.customName.isEmpty }
+            .sorted { a, b in
+                let pa = pinnedNums.contains(a.num), pb = pinnedNums.contains(b.num)
+                if pa != pb { return pa }
+                return a.displayName.localizedCaseInsensitiveCompare(b.displayName) == .orderedAscending
+            }
+    }
+    private var others: [NodeEntity] {
+        let favored = Set(favorites.map(\.num))
+        return candidates.filter { !favored.contains($0.num) }
+            .sorted { ($0.lastHeard ?? .distantPast) > ($1.lastHeard ?? .distantPast) }
     }
 
     var body: some View {
@@ -186,30 +206,13 @@ struct NewGameSheet: View {
                 } footer: {
                     Text(firstMoveFooter)
                 }
-                Section("Invite") {
-                    ForEach(candidates) { node in
-                        Button {
-                            guard let session = GameCoordinator.shared.invite(kind: kind, peer: node.num,
-                                                                              iMoveFirst: iMoveFirst) else { return }
-                            dismiss()
-                            onCreated(session)
-                        } label: {
-                            HStack(spacing: 12) {
-                                MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
-                                               dimmed: !node.isOnline, imageData: node.iconData)
-                                VStack(alignment: .leading) {
-                                    Text(node.displayName)
-                                    if let heard = node.lastHeard {
-                                        Text("Heard \(heard.formatted(.relative(presentation: .named)))")
-                                            .font(.caption).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                if !favorites.isEmpty {
+                    Section("Favorites & named") {
+                        ForEach(favorites) { node in inviteRow(node) }
                     }
+                }
+                Section(favorites.isEmpty ? "Invite" : "Everyone else") {
+                    ForEach(others) { node in inviteRow(node) }
                 }
             }
             .navigationTitle("New Game")
@@ -219,6 +222,35 @@ struct NewGameSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
             }
         }
+    }
+
+    private func inviteRow(_ node: NodeEntity) -> some View {
+        Button {
+            guard let session = GameCoordinator.shared.invite(kind: kind, peer: node.num,
+                                                              iMoveFirst: iMoveFirst) else { return }
+            dismiss()
+            onCreated(session)
+        } label: {
+            HStack(spacing: 12) {
+                MonogramAvatar(text: node.monogram, isChannel: false, size: 36,
+                               dimmed: !node.isOnline, imageData: node.iconData)
+                VStack(alignment: .leading) {
+                    HStack(spacing: 4) {
+                        Text(node.displayName)
+                        if pinnedNums.contains(node.num) {
+                            Image(systemName: "pin.fill").font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let heard = node.lastHeard {
+                        Text("Heard \(heard.formatted(.relative(presentation: .named)))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var firstMoveFooter: String {

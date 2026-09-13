@@ -53,7 +53,7 @@ struct RadiosView: View {
             } header: {
                 Text("Your radios, in order")
             } footer: {
-                Text("Drag to reorder. Each radio is its own identity on the mesh; people reply to the one they heard from. A radio you're not attached to keeps only its last 8–32 packets for you — keep another device attached to a stationary radio and its messages reach you through iCloud.")
+                Text("Drag to reorder. Each radio is its own identity on the mesh; people reply to the one they heard from. A radio you're not attached to keeps only its last 8–32 packets for you - keep another device attached to a stationary radio and its messages reach you through iCloud.")
             }
         }
         .navigationTitle("Radios")
@@ -183,7 +183,7 @@ struct RadioDetailView: View {
                 }
                 .onChange(of: location) { _, tag in radio.setRadioLocation(nodeNum, tag: tag) }
             } footer: {
-                Text("Location only shapes suggestions — you can run any radio in any configuration.")
+                Text("Location only shapes suggestions - you can run any radio in any configuration.")
             }
 
             Section {
@@ -196,7 +196,7 @@ struct RadioDetailView: View {
                         .foregroundStyle(battery <= 25 ? Color.red : Color.secondary)
                         .fixedSize()
                     } else {
-                        Text("—").foregroundStyle(.secondary)
+                        Text("Not read yet").foregroundStyle(.secondary)
                     }
                 }
                 LabeledContent("Node ID", value: String(format: "!%08x", UInt32(truncatingIfNeeded: nodeNum)))
@@ -221,7 +221,7 @@ struct RadioDetailView: View {
                 .disabled(attached?.phase != .connected)
             } footer: {
                 Text(attached?.phase == .connected
-                     ? "Power, Bluetooth, display, position, telemetry, relay and transmit — for this radio only."
+                     ? "Power, Bluetooth, display, position, telemetry, relay and transmit - for this radio only."
                      : "Attach this radio to change its configuration.")
             }
 
@@ -278,7 +278,7 @@ struct RadioSuggestionsSection: View {
             if !attached.isTransmit {
                 Section {
                     if attached.drift.isEmpty || appliedSettings {
-                        Label(appliedSettings ? "Fleet settings sent — the radio restarts" : "Matches the fleet",
+                        Label(appliedSettings ? "Fleet settings sent - the radio restarts" : "Matches the fleet",
                               systemImage: "checkmark.circle")
                             .foregroundStyle(.green)
                     } else {
@@ -315,7 +315,7 @@ struct RadioSuggestionsSection: View {
                 } header: {
                     Text("Suggestion")
                 } footer: {
-                    Text("Only a suggestion — any radio can carry any name.")
+                    Text("Only a suggestion - any radio can carry any name.")
                 }
             }
         } else {

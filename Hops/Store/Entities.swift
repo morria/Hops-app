@@ -240,10 +240,15 @@ final class ChannelEntity {
         self.psk = psk
     }
 
+    /// What the firmware substitutes for a blank primary name — the modem
+    /// preset's display name. Kept current by RadioManager as LoRa config
+    /// arrives, so the label always equals the name being hashed (#5).
+    nonisolated(unsafe) static var primaryDefaultName = "LongFast"
+
     var displayName: String {
         if !customName.isEmpty { return customName }
         if !name.isEmpty { return name }
-        return roleRaw == 1 ? "Public" : "Channel \(index)"
+        return roleRaw == 1 ? Self.primaryDefaultName : "Channel \(index)"
     }
 
     static let reservedNames: Set<String> = ["admin", "gpio", "serial", "mqtt"]
@@ -345,6 +350,7 @@ final class GameSessionEntity {
     var privateData: Data = Data()
     var lastNakRaw: Int = 0
     var outOfSync: Bool = false
+    var adoptingPeerLog: Bool = false
     var createdAt: Date = Date()
     var updatedAt: Date = Date()
     /// When the frame in flight was last sent (resend backoff).
@@ -386,6 +392,7 @@ final class GameSessionEntity {
         r.privateData = privateData
         r.lastNak = GameNakReason(rawValue: UInt8(clamping: lastNakRaw))
         r.outOfSync = outOfSync
+        r.adoptingPeerLog = adoptingPeerLog
         return r
     }
 
@@ -404,6 +411,7 @@ final class GameSessionEntity {
         privateData = r.privateData
         lastNakRaw = Int(r.lastNak?.rawValue ?? 0)
         outOfSync = r.outOfSync
+        adoptingPeerLog = r.adoptingPeerLog
         updatedAt = Date()
     }
 
@@ -415,8 +423,8 @@ final class GameSessionEntity {
             let winner: Player = resultRaw == 1 ? .one : .two
             let mine = winner == myPlayer
             switch GameEndReason(rawValue: UInt8(clamping: endReasonRaw)) {
-            case .resign?: return mine ? "You won — they resigned" : "You resigned"
-            case .abandon?: return mine ? "You won — they left" : "You left"
+            case .resign?: return mine ? "You won - they resigned" : "You resigned"
+            case .abandon?: return mine ? "You won - they left" : "You left"
             default: return mine ? "You won" : "You lost"
             }
         default: return nil

@@ -472,52 +472,87 @@ struct ConversationView: View {
     }
 
     /// A detected sequence gap: messages from this sender didn't arrive.
-    /// Tap asks their app to resend (port 423); "x" prefix = sender no
-    /// longer has them.
+    /// Collapsed: the count and one Ask button. Tap to unfurl one row per
+    /// missing message — where it fell, whether it's still recoverable, and
+    /// when it was asked for (#7). Items: "12" askable, "x12" sender no
+    /// longer has it.
+    @State private var expandedGaps: Set<Int64> = []
+
     @ViewBuilder
     private func gapPill(_ gap: MessageEntity) -> some View {
-        let unrecoverable = gap.text.hasPrefix("x")
-        let count = gap.text.split(separator: ",").count
+        let items = MessageStore.gapItems(gap.text)
+        let askable = items.filter { !$0.unrecoverable }.map(\.seq)
+        let allUnrecoverable = askable.isEmpty
         let sender = gap.fromNum
+        let expanded = expandedGaps.contains(gap.packetId)
+        let request = radio.resendRequests[RadioManager.resendKey(conversationKey: conversationKey, sender: sender)]
         VStack(spacing: 4) {
-            Label(
-                count == 1 ? "A message didn't arrive" : "\(count) messages didn't arrive",
-                systemImage: "questionmark.bubble"
-            )
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            if unrecoverable {
-                Text("They can't be recovered — the sender no longer has them.")
+            Button {
+                withAnimation(.snappy) {
+                    if expanded { expandedGaps.remove(gap.packetId) } else { expandedGaps.insert(gap.packetId) }
+                }
+            } label: {
+                HStack(spacing: 4) {
+                    Label(
+                        items.count == 1 ? "A message didn't arrive" : "\(items.count) messages didn't arrive",
+                        systemImage: "questionmark.bubble"
+                    )
+                    Image(systemName: "chevron.down")
+                        .font(.caption2)
+                        .rotationEffect(.degrees(expanded ? 180 : 0))
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+
+            if expanded {
+                let (before, after) = gapNeighbours(gap)
+                VStack(spacing: 6) {
+                    ForEach(items, id: \.seq) { item in
+                        gapRow(item, sender: sender, before: before, after: after, request: request)
+                    }
+                }
+                .padding(8)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.horizontal, 24)
+            }
+
+            if allUnrecoverable {
+                Text(items.count == 1 ? "It can't be recovered - the sender no longer has it."
+                                      : "They can't be recovered - the sender no longer has them.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            } else if let request, request.inFlight {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.mini)
+                    Text(request.delivered ? "Their radio has the request - waiting for their app…" : "Asking their radio…")
+                }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
             } else {
-                let request = radio.resendRequests[RadioManager.resendKey(conversationKey: conversationKey, sender: sender)]
-                if let request, request.inFlight {
-                    HStack(spacing: 6) {
-                        ProgressView().controlSize(.mini)
-                        Text(request.delivered ? "Their radio has the request — waiting for their app…" : "Asking their radio…")
-                    }
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                } else {
-                    if let request, let reason = resendOutcome(request) {
-                        Text(reason)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    Button(request == nil ? "Ask to Resend" : "Ask Again") {
-                        let seqs = gap.text.split(separator: ",").compactMap { Int($0) }
-                        radio.requestResend(from: sender, conversationKey: conversationKey, seqs: seqs)
-                    }
-                    .font(.caption)
-                    .buttonStyle(.bordered)
-                    .controlSize(.mini)
-                    if request == nil {
-                        Text("Only works with Hops users in direct radio range.")
-                            .font(.caption2)
-                            .foregroundStyle(.tertiary)
-                    }
+                if let request, let reason = resendOutcome(request) {
+                    Text(reason)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                let asked = askable.contains { radio.resendAskedAt(conversationKey: conversationKey, sender: sender, seq: $0) != nil }
+                Button(asked ? "Ask Again" : "Ask to Resend") {
+                    radio.requestResend(from: sender, conversationKey: conversationKey, seqs: askable)
+                }
+                .font(.caption)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                if !asked {
+                    Text("Only works with Hops users in direct radio range.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                if askable.count < items.count {
+                    Text("\(items.count - askable.count) of these the sender no longer has.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
             }
         }
@@ -525,13 +560,63 @@ struct ConversationView: View {
         .padding(.vertical, 6)
     }
 
+    /// One missing message: where it fell and its state.
+    @ViewBuilder
+    private func gapRow(_ item: (seq: Int, unrecoverable: Bool), sender: Int64,
+                        before: Date?, after: Date?, request: RadioManager.ResendRequest?) -> some View {
+        let askedAt = radio.resendAskedAt(conversationKey: conversationKey, sender: sender, seq: item.seq)
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(gapPosition(before: before, after: after))
+                    .font(.caption)
+                    .foregroundStyle(item.unrecoverable ? .tertiary : .primary)
+                Text(item.unrecoverable ? "Sender no longer has it"
+                     : askedAt.map { "Asked \(SettingsView.compactAgo($0))" } ?? "Not asked yet")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            if !item.unrecoverable, !(request?.inFlight ?? false) {
+                let stale = askedAt.map { Date().timeIntervalSince($0) > 45 } ?? true
+                Button(askedAt == nil ? "Ask" : "Again") {
+                    radio.requestResend(from: sender, conversationKey: conversationKey, seqs: [item.seq])
+                }
+                .font(.caption2)
+                .buttonStyle(.bordered)
+                .controlSize(.mini)
+                .disabled(!stale)
+            }
+        }
+    }
+
+    /// The received messages either side of the gap row in this transcript.
+    private func gapNeighbours(_ gap: MessageEntity) -> (Date?, Date?) {
+        let real = messages.filter { $0.portNum != MessageStore.gapPortNum }
+        let before = real.last { $0.timestamp < gap.timestamp }?.timestamp
+        let after = real.first { $0.timestamp > gap.timestamp }?.timestamp
+        return (before, after)
+    }
+
+    private func gapPosition(before: Date?, after: Date?) -> String {
+        let f = Date.FormatStyle(date: .omitted, time: .shortened)
+        switch (before, after) {
+        case let (b?, a?):
+            let sameDay = Calendar.current.isDate(b, inSameDayAs: a)
+            return sameDay ? "Between \(b.formatted(f)) and \(a.formatted(f))"
+                           : "Between \(b.formatted(date: .abbreviated, time: .shortened)) and \(a.formatted(date: .abbreviated, time: .shortened))"
+        case let (nil, a?): return "Before \(a.formatted(f))"
+        case let (b?, nil): return "After \(b.formatted(f))"
+        default: return "Position unknown"
+        }
+    }
+
     private func resendOutcome(_ request: RadioManager.ResendRequest) -> String? {
         if request.nakError == -2 { return "Not connected to your radio." }
         if request.nakError > 0 { return "Couldn't reach their radio: \(RoutingFailure.short(code: request.nakError, isDM: true))." }
         if request.timedOut {
             return request.delivered
-                ? "Their radio got the request but their app didn't answer — they may not be using Hops."
-                : "No reply in 45 s — they may be out of direct range or not using Hops."
+                ? "Their radio got the request but their app didn't answer - they may not be using Hops."
+                : "No reply in 45 s - they may be out of direct range or not using Hops."
         }
         return nil
     }
@@ -903,7 +988,7 @@ struct MessageBubble: View {
                 Button(role: .destructive) {
                     onDeleteQueued()
                 } label: {
-                    Label("Delete — Don't Send", systemImage: "trash")
+                    Label("Delete - Don't Send", systemImage: "trash")
                 }
             } else if message.status == .failed {
                 Button(role: .destructive) {
@@ -923,10 +1008,10 @@ struct MessageBubble: View {
                 statusText("Waiting for radio…", color: .secondary)
             case .waitingForPeer:
                 statusText(message.heldRetryCount > 0
-                           ? "Waiting for their radio — tried \(message.heldRetryCount)×, sends when it's heard again"
-                           : "Waiting for their radio — sends when it's heard", color: .secondary)
+                           ? "Waiting for their radio - tried \(message.heldRetryCount)×, sends when it's heard again"
+                           : "Waiting for their radio - sends when it's heard", color: .secondary)
             case .sending:
-                statusText(stale ? "Still sending — mesh delivery can take a few minutes" : "Sending…",
+                statusText(stale ? "Still sending - mesh delivery can take a few minutes" : "Sending…",
                            color: .secondary)
             case .relayed:
                 statusText("Relayed", color: .secondary)
@@ -936,7 +1021,7 @@ struct MessageBubble: View {
                 statusText("Sent to mesh", color: .secondary)
             case .failed:
                 Button(action: onRetry) {
-                    statusText(failureText + " — Retry", color: .red)
+                    statusText(failureText + " - Retry", color: .red)
                 }
             case .received:
                 EmptyView()

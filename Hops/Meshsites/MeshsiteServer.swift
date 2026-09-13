@@ -226,7 +226,7 @@ final class MeshsiteServer: ObservableObject {
         let store = MeshsiteStore.shared
         guard store.ready else {
             // Never claim a POST was recorded before the store can record it.
-            sendError(to: from, id: id, code: 4, message: "Server is starting — try again")
+            sendError(to: from, id: id, code: 4, message: "Server is starting - try again")
             return
         }
         let markdown: String
@@ -239,7 +239,7 @@ final class MeshsiteServer: ObservableObject {
                 sendError(to: from, id: id, code: 3)
                 return
             case .syncing:
-                sendError(to: from, id: id, code: 4, message: "Page is syncing — try again")
+                sendError(to: from, id: id, code: 4, message: "Page is syncing - try again")
                 return
             case .found(let md):
                 markdown = md
@@ -250,7 +250,7 @@ final class MeshsiteServer: ObservableObject {
                 fromLabel: String(format: "!%08x", UInt32(truncatingIfNeeded: from)),
                 path: path, fields: fields)
             guard recorded else {
-                sendError(to: from, id: id, code: 4, message: "Server is starting — try again")
+                sendError(to: from, id: id, code: 4, message: "Server is starting - try again")
                 return
             }
             // TODO 191: optional push when a reader submits a form.
@@ -365,7 +365,7 @@ final class MeshsiteServer: ObservableObject {
         case .syncing:
             return "# Syncing\n\nThis page hasn't downloaded from iCloud yet.\n\n=> / Home\n"
         case .notFound:
-            return "# Not found\n\nNo page at \(path) — readers will get “Page not found.”\n\n=> / Home\n"
+            return "# Not found\n\nNo page at \(path) - readers will get “Page not found.”\n\n=> / Home\n"
         case .badRequest:
             return "# Bad link\n\n\(path) isn't a valid page path.\n\n=> / Home\n"
         }

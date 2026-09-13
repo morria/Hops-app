@@ -23,16 +23,26 @@ private struct TrafficSummaryRow: View {
     @ObservedObject private var traffic = TrafficMonitor.shared
 
     var body: some View {
-        LabeledContent("Mesh traffic") {
-            Text(description)
-                .foregroundStyle(traffic.meshPacketsHeard == 0 ? .orange : .secondary)
-                .multilineTextAlignment(.trailing)
+        VStack(alignment: .leading, spacing: 4) {
+            LabeledContent("Mesh traffic") {
+                Text(description)
+                    .foregroundStyle(traffic.meshPacketsHeard == 0 || traffic.isIsolated ? .orange : .secondary)
+                    .multilineTextAlignment(.trailing)
+            }
+            if traffic.isIsolated {
+                Text("Hearing the mesh but unable to decode any of it - your primary channel's name or key doesn't match the radios in range. Compare the channel hash in Mesh Setup.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 
     private var description: String {
         if traffic.meshPacketsHeard == 0 {
             return "None heard since launch"
+        }
+        if traffic.isIsolated {
+            return "\(traffic.undecodablePacketsHeard) heard · none decodable"
         }
         // Compact on purpose — "15 seconds ago" wraps the row.
         var text = "\(traffic.meshPacketsHeard) pkts · \(traffic.textMessagesHeard) msgs"
@@ -61,7 +71,6 @@ struct SettingsView: View {
                 notificationsSection
                 appSection
                 #if MESHSITES
-                meshsitesSection
                 experimentalSection
                 #endif
                 advancedSection
@@ -113,9 +122,7 @@ struct SettingsView: View {
                         MeshSetupView(isFirstRun: false)
                     } label: {
                         LabeledContent(radio.fleet.count > 1 ? "Mesh setup · \(sendingRadioName)" : "Mesh setup") {
-                            Text(radio.loRa.received
-                                 ? "\(radio.loRa.regionName) · \(radio.loRa.presetName)"
-                                 : "—")
+                            Text(meshSetupValue)
                         }
                     }
                     if let mismatch = presetMismatch {
@@ -222,7 +229,7 @@ struct SettingsView: View {
         }
     }
 
-    fileprivate static func compactAgo(_ date: Date) -> String {
+    static func compactAgo(_ date: Date) -> String {
         let seconds = max(0, Int(Date().timeIntervalSince(date)))
         if seconds < 60 { return "\(seconds)s ago" }
         if seconds < 3600 { return "\(seconds / 60)m ago" }
@@ -232,6 +239,17 @@ struct SettingsView: View {
 
     /// The applied metro preset, when the radio's current LoRa config has drifted
     /// from it (e.g. preset values were corrected after it was applied).
+    /// The applied config's name when the radio is fully on it; otherwise
+    /// the raw region and modem preset (TODO 205).
+    private var meshSetupValue: String {
+        guard radio.loRa.received else { return "Not read yet" }
+        if presetMismatch == nil, let id = MetroPresetStore.shared.appliedPresetId,
+           let preset = MetroPresetStore.shared.allPresets.first(where: { $0.id == id }) {
+            return preset.name
+        }
+        return "\(radio.loRa.regionName) · \(radio.loRa.presetName)"
+    }
+
     private var presetMismatch: MetroPreset? {
         guard radio.loRa.received,
               let id = MetroPresetStore.shared.appliedPresetId,
@@ -314,23 +332,6 @@ struct SettingsView: View {
 
     #if MESHSITES
     @AppStorage("meshsitesEnabled") private var meshsitesEnabled = false
-
-    private var meshsitesSection: some View {
-        Section {
-            Toggle("Meshsites", isOn: $meshsitesEnabled)
-            if meshsitesEnabled {
-                NavigationLink {
-                    MySiteView()
-                } label: {
-                    Label("Mesh Site", systemImage: "house")
-                }
-            }
-        } header: {
-            Text("Meshsites")
-        } footer: {
-            Text("Tiny pages served by nearby radios over direct contact — no internet, no relays. Turn it on to browse them and to host your own.")
-        }
-    }
     #endif
 
     // MARK: - Experimental
@@ -339,11 +340,21 @@ struct SettingsView: View {
 
     private var experimentalSection: some View {
         Section {
+            #if MESHSITES
+            Toggle("Meshsites", isOn: $meshsitesEnabled)
+            if meshsitesEnabled {
+                NavigationLink {
+                    MySiteView()
+                } label: {
+                    Label("Mesh Site", systemImage: "house")
+                }
+            }
+            #endif
             Toggle("Games", isOn: $gamesEnabled)
         } header: {
             Text("Experimental")
         } footer: {
-            Text("Two-player games with another Hops user over the mesh — chess, checkers, and more. Adds a Games tab. Each move is confirmed by both phones before it counts.")
+            Text("Meshsites: tiny pages served by nearby radios over direct contact - browse them and host your own. Games: two-player games with another Hops user over the mesh; each move is confirmed by both phones before it counts. Each adds a tab.")
         }
     }
 
@@ -388,7 +399,7 @@ struct SettingsView: View {
             Link(destination: URL(string: "https://meshtastic.org")!) {
                 Text("Meshtastic Project")
             }
-            Text("Hops is an independent client for Meshtastic® radios. Meshtastic® is a registered trademark of Meshtastic LLC. For device administration — modules, firmware, remote nodes — use the official Meshtastic app; both work with the same radio.")
+            Text("Hops is an independent client for Meshtastic® radios. Meshtastic® is a registered trademark of Meshtastic LLC. For device administration - modules, firmware, remote nodes - use the official Meshtastic app; both work with the same radio.")
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -515,7 +526,7 @@ struct MeshSetupView: View {
             if isFirstRun {
                 Section {
                     Label {
-                        Text("Your radio's region isn't set, so it can't transmit yet. Pick your local mesh — one tap configures everything.")
+                        Text("Your radio's region isn't set, so it can't transmit yet. Pick your local mesh - one tap configures everything.")
                     } icon: {
                         Image(systemName: "dot.radiowaves.left.and.right")
                             .foregroundStyle(.orange)
@@ -582,7 +593,7 @@ struct MeshSetupView: View {
                     Label("Custom LoRa Settings", systemImage: "dot.radiowaves.left.and.right")
                 }
             } footer: {
-                Text("Region, modem preset, frequency slot, and hop limit — for going off-book. Save the result as a preset above to get back easily.")
+                Text("Region, modem preset, frequency slot, and hop limit - for going off-book. Save the result as a preset above to get back easily.")
             }
             if radio.loRa.received {
                 Section("Current radio settings") {
@@ -592,6 +603,8 @@ struct MeshSetupView: View {
                                    value: radio.loRa.frequencySlot > 0 ? "\(radio.loRa.frequencySlot)" : "Default (0)")
                     LabeledContent("Hop limit", value: "\(radio.loRa.hopLimit)")
                 }
+                ChannelIdentitySection(presetRaw: radio.loRa.presetRaw,
+                                       usePreset: radio.loraConfig?.usePreset ?? true)
             }
         }
         .navigationTitle("Mesh Setup")
@@ -689,5 +702,49 @@ struct PresetConfirmView: View {
         }
         .navigationTitle(preset.name)
         .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+
+/// The primary channel as the firmware hashes it (#6): the effective name
+/// (preset display name when blank) and the one-byte channel hash. Two
+/// radios can only read each other when this byte matches.
+struct ChannelIdentitySection: View {
+    let presetRaw: Int
+    let usePreset: Bool
+    @Query(filter: #Predicate<ChannelEntity> { $0.index == 0 }) private var primary: [ChannelEntity]
+
+    var body: some View {
+        Section {
+            let name = primary.first?.name ?? ""
+            let psk = primary.first?.psk ?? Data()
+            LabeledContent("Primary channel", value: ChannelIdentity.effectiveName(name: name, presetRaw: presetRaw, usePreset: usePreset))
+            LabeledContent("Key", value: keyLabel(psk))
+            if let hash = ChannelIdentity.hash(name: name, presetRaw: presetRaw, psk: psk, usePreset: usePreset) {
+                LabeledContent("Channel hash", value: String(format: "0x%02X", hash))
+            } else {
+                LabeledContent("Channel hash", value: "invalid key")
+            }
+        } header: {
+            Text("Channel identity")
+        } footer: {
+            Text(name.isEmpty
+                 ? "A blank primary name is hashed as the modem preset's name. Radios in range must share this name and key to read you - compare the hash byte with a neighbour to check."
+                 : "This primary is explicitly named, so only radios using the same name and key can read you. Clear the name in Channels to use the preset default.")
+        }
+    }
+
+    private var name: String { primary.first?.name ?? "" }
+
+    private func keyLabel(_ psk: Data) -> String {
+        switch psk.count {
+        case 0: return "None (unencrypted)"
+        case 1:
+            let i = Int(psk[psk.startIndex])
+            return i == 0 ? "None (unencrypted)" : i == 1 ? "Default" : "Default #\(i)"
+        case 16: return "Custom 128-bit"
+        case 32: return "Custom 256-bit"
+        default: return "Invalid (\(psk.count) bytes)"
+        }
     }
 }

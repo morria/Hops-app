@@ -9,6 +9,9 @@ struct RootView: View {
     @AppStorage("meshsitesEnabled") private var meshsitesEnabled = false
     #endif
     @AppStorage("gamesEnabled") private var gamesEnabled = false
+    /// Games waiting on you: invitations and your-turn sessions (tab badge).
+    @Query(filter: #Predicate<GameSessionEntity> { $0.phaseRaw == "invited" || $0.phaseRaw == "myTurn" })
+    private var gamesWaiting: [GameSessionEntity]
 
     /// Tab tags in on-screen order — tags are stable ids, not positions.
     private var orderedTabTags: [Int] {
@@ -37,6 +40,7 @@ struct RootView: View {
             if gamesEnabled {
                 GamesListView()
                 .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
+                .badge(gamesWaiting.count)
                 .tag(4)
             }
             MapTab()
@@ -107,7 +111,7 @@ struct StatusCapsule: View {
         switch radio.state {
         case .connected: return nil
         case .connecting: return "Connecting…"
-        case .syncing: return catchingUp ? "Catching up — last synced \(lastSyncText)" : "Syncing…"
+        case .syncing: return catchingUp ? "Catching up - last synced \(lastSyncText)" : "Syncing…"
         case .offline: return "Radio not in range"
         case .bluetoothOff: return "Bluetooth is off"
         case .bondLost: return "Radio needs re-pairing"

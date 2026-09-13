@@ -657,9 +657,6 @@ actor MessageStore {
         try? modelContext.save()
     }
 
-    /// Give the (blank-named) primary channel a friendly local name from the
-    /// applied metro preset — e.g. "NYC Mesh". Never overrides a mesh-set name
-    /// or one the user chose.
     /// Local mirror of a set_owner: what the user just asked the radio to
     /// call them (RadioManager reverts on NAK; the next NodeInfo confirms).
     func renameNode(num: Int64, longName: String, shortName: String) {
@@ -669,13 +666,19 @@ actor MessageStore {
         try? modelContext.save()
     }
 
-    func setPrimaryChannelName(ifUnnamed name: String) {
+    /// The primary channel's label follows the radio's modem preset (#5):
+    /// a blank name is hashed as the preset's display name, so that is what
+    /// we show. Also drops the old one-shot metro override ("NYC") that
+    /// earlier builds wrote into `customName` — it was never the hashed name.
+    func refreshPrimaryChannel(presetDisplayName: String, staleOverrides: Set<String>) {
+        ChannelEntity.primaryDefaultName = presetDisplayName
         let zero: Int32 = 0
         guard let entity = try? modelContext.fetch(
             FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == zero })
-        ).first, entity.customName.isEmpty, entity.name.isEmpty else { return }
-        entity.customName = name
-        if let convo = fetchConversation(key: ConversationEntity.channelKey(0)) {
+        ).first else { return }
+        if staleOverrides.contains(entity.customName) { entity.customName = "" }
+        if let convo = fetchConversation(key: ConversationEntity.channelKey(0)),
+           convo.title != entity.displayName {
             convo.title = entity.displayName
         }
         try? modelContext.save()
@@ -1128,11 +1131,10 @@ actor MessageStore {
             predicate: #Predicate { $0.conversationKey == convoKey
                                     && $0.fromNum == sender && $0.portNum == port }))) ?? []
         for gap in gaps {
-            var seqs = gap.text.split(separator: ",").compactMap { Int($0.hasPrefix("x") ? $0.dropFirst() : $0[...]) }
-            guard seqs.contains(seq) else { continue }
-            seqs.removeAll { $0 == seq }
-            if seqs.isEmpty { modelContext.delete(gap) }
-            else { gap.text = (gap.text.hasPrefix("x") ? "x" : "") + seqs.map(String.init).joined(separator: ",") }
+            let items = gap.text.split(separator: ",").map(String.init)
+            let kept = items.filter { Self.gapSeq($0) != seq }
+            guard kept.count != items.count else { continue }
+            if kept.isEmpty { modelContext.delete(gap) } else { gap.text = kept.joined(separator: ",") }
         }
     }
 
@@ -1215,11 +1217,24 @@ actor MessageStore {
         let gaps = (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
             predicate: #Predicate { $0.conversationKey == convoKey
                                     && $0.fromNum == sender && $0.portNum == port }))) ?? []
-        for gap in gaps
-        where gap.text.split(separator: ",").compactMap({ Int($0.hasPrefix("x") ? $0.dropFirst() : $0[...]) }).contains(seq) {
-            if !gap.text.hasPrefix("x") { gap.text = "x" + gap.text }
+        for gap in gaps {
+            // Per-message: only this seq hardens; its siblings stay askable (#7).
+            let items = gap.text.split(separator: ",").map(String.init)
+            guard items.contains(where: { Self.gapSeq($0) == seq }) else { continue }
+            gap.text = items.map { Self.gapSeq($0) == seq && !$0.hasPrefix("x") ? "x" + $0 : $0 }
+                .joined(separator: ",")
         }
         try? modelContext.save()
+    }
+
+    /// One gap-row item: "12" (askable) or "x12" (sender no longer has it).
+    static func gapSeq(_ item: String) -> Int? {
+        Int(item.hasPrefix("x") ? String(item.dropFirst()) : item)
+    }
+    static func gapItems(_ text: String) -> [(seq: Int, unrecoverable: Bool)] {
+        text.split(separator: ",").compactMap { item in
+            gapSeq(String(item)).map { ($0, item.hasPrefix("x")) }
+        }
     }
 
     /// A gray transcript note for non-text sends (e.g. "Send My Node Info").

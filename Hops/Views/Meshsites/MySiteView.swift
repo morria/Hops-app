@@ -66,7 +66,7 @@ struct MySiteView: View {
                         .foregroundStyle(.secondary)
                     }
                 } else {
-                    Label("Paused — radio disconnected", systemImage: "pause.circle")
+                    Label("Paused - radio disconnected", systemImage: "pause.circle")
                         .foregroundStyle(.orange)
                 }
             }
@@ -134,9 +134,9 @@ struct MySiteView: View {
             Text("Pages")
         } footer: {
             if store.usingICloud {
-                Text("Files live in iCloud Drive › Hops › Meshsite — edit them from any device. Names starting with “_” are private and never served.")
+                Text("Files live in iCloud Drive › Hops › Meshsite - edit them from any device. Names starting with “_” are private and never served.")
             } else {
-                Text("iCloud is unavailable — pages are stored only on this device.")
+                Text("iCloud is unavailable - pages are stored only on this device.")
             }
         }
     }
@@ -173,7 +173,7 @@ struct MySiteView: View {
 
     private func createPage() {
         let slug = newPageName.lowercased()
-            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: " ", with: "Not read yet")
             .filter { ($0.isLowercase && $0.isLetter) || $0.isNumber || $0 == "-" || $0 == "_" }
         newPageName = ""
         guard MeshsiteStore.isValidPageName(slug),
@@ -300,9 +300,9 @@ struct PageEditorView: View {
         HStack(spacing: 6) {
             Image(systemName: overBudget ? "exclamationmark.triangle.fill" : "gauge.with.dots.needle.33percent")
             if text.isEmpty {
-                Text("Empty — this page won't be served")
+                Text("Empty - this page won't be served")
             } else if overBudget {
-                Text("Too big to serve — trim \(compressedBytes - MeshsiteStore.maxCompressedBytes) compressed bytes")
+                Text("Too big to serve - trim \(compressedBytes - MeshsiteStore.maxCompressedBytes) compressed bytes")
             } else {
                 Text("\(compressedBytes) of \(MeshsiteStore.maxCompressedBytes) bytes on the wire")
             }
@@ -356,7 +356,7 @@ struct MeshsiteRepliesView: View {
                 ContentUnavailableView {
                     Label("No replies yet", systemImage: "tray")
                 } description: {
-                    Text("When a visitor submits a form on your site, it lands here — and in iCloud Drive › Hops › Meshsite › _replies.md.")
+                    Text("When a visitor submits a form on your site, it lands here - and in iCloud Drive › Hops › Meshsite › _replies.md.")
                 }
             } else {
                 ScrollView {
