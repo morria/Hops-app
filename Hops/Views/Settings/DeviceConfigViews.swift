@@ -184,6 +184,46 @@ struct DeviceConfigurationView: View {
         lowPowerNote = "Set. Tap Save to Radio to apply."
     }
 
+    /// One checklist item flipped by hand: on = its recommended state, off =
+    /// the firmware default where one exists (some items have no "on" to go
+    /// back to, and simply stay).
+    private func setCheck(_ id: String, _ on: Bool) {
+        lowPowerNote = "Tap Save to Radio to apply."
+        switch id {
+        case "devtel":
+            deviceTelemetryEnabled = !on
+            deviceInterval = on ? Self.never : 1800
+        case "envtel":
+            if on { envEnabled = false; powerEnabled = false; airEnabled = false }
+        case "gps":
+            gpsModeRaw = on ? Config.PositionConfig.GpsMode.disabled.rawValue : Config.PositionConfig.GpsMode.enabled.rawValue
+        case "pos":
+            if on { fixedPosition = false; broadcastSecs = Self.never; smartEnabled = false }
+            else { broadcastSecs = 900; smartEnabled = true }
+        case "nodeinfo":
+            nodeInfoSecs = on ? Int(LowPowerProfile.nodeInfoSecs) : 10800
+        case "powersave":
+            powerSaving = on
+        case "screen":
+            screenOnSecs = on ? 30 : 60
+        case "led":
+            ledHeartbeatDisabled = on
+        case "wifi":
+            wifiEnabled = !on
+        case "modules":
+            if on {
+                if neighborInfoOn != nil { neighborInfoOn = false }
+                if rangeTestOn != nil { rangeTestOn = false }
+                if storeForwardOn != nil { storeForwardOn = false }
+                if detectionSensorOn != nil { detectionSensorOn = false }
+                if paxcounterOn != nil { paxcounterOn = false }
+                if mqttOn != nil { mqttOn = false }
+            }
+        default:
+            break
+        }
+    }
+
     private func restoreDefaultsToForm() {
         powerSaving = false; screenOnSecs = 60; ledHeartbeatDisabled = false
         deviceTelemetryEnabled = true; deviceInterval = 1800
@@ -199,7 +239,7 @@ struct DeviceConfigurationView: View {
                 Toggle("Very low power", isOn: veryLowPower)
                     .disabled(cfg.device == nil)
                 NavigationLink {
-                    LowPowerChecklistView(checks: checks)
+                    LowPowerChecklistView(checks: checks, set: setCheck)
                 } label: {
                     LabeledContent("What it changes") {
                         Text("\(checks.filter(\.satisfied).count) of \(checks.count)")
@@ -508,16 +548,17 @@ struct DeviceConfigurationView: View {
 /// radio (or the unsaved form) already has it.
 struct LowPowerChecklistView: View {
     let checks: [LowPowerProfile.Check]
+    let set: (String, Bool) -> Void
 
     var body: some View {
         List {
             Section {
                 ForEach(checks) { check in
-                    Label(check.label, systemImage: check.satisfied ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(check.satisfied ? Color.primary : Color.secondary)
+                    Toggle(check.label, isOn: Binding(get: { check.satisfied },
+                                                      set: { set(check.id, $0) }))
                 }
             } footer: {
-                Text("All of these must be in place for Very low power to show as on.")
+                Text("All of these must be on for Very low power to show as on. Changes apply when you tap Save to Radio.")
             }
         }
         .navigationTitle("Very Low Power")
