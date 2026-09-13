@@ -600,7 +600,7 @@ struct ChatsListView: View {
         // Every known node is findable — routers, repeaters, and sensors
         // included. isMessageable gates the compose picker, not discovery.
         let matchingNodes = searchNodes(query).filter { node in
-            node.num != radio.myNodeNum
+            !radio.isMine(node.num)
                 && !existingDMKeys.contains(ConversationEntity.dmKey(node.num))
         }
         let matchingMessages = searchMessages(query)
@@ -672,7 +672,7 @@ struct ChatsListView: View {
             sortBy: [SortDescriptor(\.lastHeard, order: .reverse)]
         )
         let nodes = (try? modelContext.fetch(descriptor)) ?? []
-        return nodes.filter { $0.num != radio.myNodeNum }
+        return nodes.filter { !radio.isMine($0.num) }
     }
 
     private func nodeRow(_ node: NodeEntity) -> some View {
@@ -853,6 +853,6 @@ struct ComposePickerView: View {
 
     /// Nodes that can actually answer: not our own radio, not router/repeater/sensor roles.
     private var messageableNodes: [NodeEntity] {
-        nodes.filter { $0.num != radio.myNodeNum && $0.isMessageable }
+        nodes.filter { !radio.isMine($0.num) && $0.isMessageable }
     }
 }

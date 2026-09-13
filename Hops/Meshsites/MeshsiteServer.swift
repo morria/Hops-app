@@ -80,6 +80,9 @@ final class MeshsiteServer: ObservableObject {
     }
     private var cache: [String: CachedResponse] = [:]   // "requester/id"
     private var active: [Int64: [UInt8]] = [:]          // requester → in-flight request
+    /// Which of the owner's radios each requester reached us through — the
+    /// reply must leave through the same one (docs/MULTI_RADIO.md §1.6).
+    private var activeVia: [Int64: Int64] = [:]
     private var ackWaiters: [UInt32: CheckedContinuation<Bool, Never>] = [:]
     private var beaconTimer: Timer?
     private var nextBeaconGap: TimeInterval = 300
@@ -115,7 +118,16 @@ final class MeshsiteServer: ObservableObject {
         guard !name.isEmpty else { return }
         var frame = Data([0x01, 0x01])
         frame.append(Data(name.utf8))
-        RadioManager.shared.sendMeshsites(to: Int64(UInt32.max), payload: frame, wantAck: false)
+        // One site, every attached radio: each beacons on its own primary
+        // channel so readers near any of them find it.
+        let radios = RadioManager.shared.attachedNodeNums
+        if radios.isEmpty {
+            RadioManager.shared.sendMeshsites(to: Int64(UInt32.max), payload: frame, wantAck: false)
+        } else {
+            for num in radios {
+                RadioManager.shared.sendMeshsites(to: Int64(UInt32.max), payload: frame, wantAck: false, via: num)
+            }
+        }
         lastBeaconAt = Date()
         // 285 ± 15 so the 15 s tick granularity still lands within the
         // spec's 300 ± 30 s window.
@@ -143,8 +155,9 @@ final class MeshsiteServer: ObservableObject {
 
     // MARK: - Requests
 
-    func handleRequest(from: Int64, bytes: [UInt8]) {
+    func handleRequest(from: Int64, bytes: [UInt8], via: Int64 = 0) {
         guard MeshsitesManager.enabled, Self.serving else { return }
+        if via > 0 { activeVia[from] = via }
         MeshsiteStore.shared.startIfNeeded()
         guard bytes.count >= 4 else { return }   // id unparseable → silent
         let version = bytes[1]
@@ -299,7 +312,7 @@ final class MeshsiteServer: ObservableObject {
     private func sendFrames(_ frames: [Data], to requester: Int64, wantAck: Bool) async -> Bool {
         for (index, frame) in frames.enumerated() {
             let packetId = RadioManager.shared.sendMeshsites(to: requester, payload: frame,
-                                                             wantAck: wantAck)
+                                                             wantAck: wantAck, via: activeVia[requester])
             // Pace: chunk n+1 after n's ack or 8 s; nothing after the last.
             // A NAK means the peer is gone — stop wasting airtime.
             if wantAck, index < frames.count - 1 {
@@ -317,7 +330,7 @@ final class MeshsiteServer: ObservableObject {
             while !bytes.isEmpty, String(bytes: bytes, encoding: .utf8) == nil { bytes.removeLast() }
             frame.append(Data(bytes))
         }
-        RadioManager.shared.sendMeshsites(to: requester, payload: frame, wantAck: false)
+        RadioManager.shared.sendMeshsites(to: requester, payload: frame, wantAck: false, via: activeVia[requester])
     }
 
     private func pruneCache() {

@@ -135,7 +135,7 @@ struct MapTab: View {
     }
 
     private var placedNodes: [NodeEntity] {
-        let others = nodes.filter { $0.num != radio.myNodeNum && passesFilters($0) }
+        let others = nodes.filter { !radio.isMine($0.num) && passesFilters($0) }
         guard others.count > Self.annotationCap else { return others }
         return Array(others.sorted { ($0.lastHeard ?? .distantPast) > ($1.lastHeard ?? .distantPast) }
             .prefix(Self.annotationCap))
@@ -375,7 +375,7 @@ struct MapTab: View {
         if mode == .coverage {
             let dayAgo = Date().addingTimeInterval(-24 * 60 * 60)
             reachSnapshot = nodes
-                .filter { $0.num != radio.myNodeNum && ($0.lastHeard ?? .distantPast) > dayAgo }
+                .filter { !radio.isMine($0.num) && ($0.lastHeard ?? .distantPast) > dayAgo }
                 .map { ReachPoint(id: $0.num, coordinate: $0.coordinate, hops: $0.hopsAway) }
             var descriptor = FetchDescriptor<CoverageSampleEntity>()
             descriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]

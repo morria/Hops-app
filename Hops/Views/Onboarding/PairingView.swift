@@ -4,9 +4,15 @@ import SwiftData
 /// Guided first run: find the radio → pair → watch it sync → name yourself →
 /// pick your mesh → start messaging. Every state explains itself.
 struct PairingView: View {
+    enum Mode { case onboarding, addRadio }
+    var mode: Mode = .onboarding
+
     @EnvironmentObject private var radio: RadioManager
     @AppStorage("onboardingComplete") private var onboardingComplete = false
+    @Environment(\.dismiss) private var dismiss
     @Query private var nodes: [NodeEntity]
+    @State private var newNickname = ""
+    @State private var newLocation = "other"
 
     @State private var showTips = false
     @State private var longName = ""
@@ -18,6 +24,12 @@ struct PairingView: View {
     }
 
     private var phase: Phase {
+        if mode == .addRadio {
+            // The fleet may already be connected; only the new radio counts.
+            if radio.state == .bluetoothOff { return .bluetoothOff }
+            guard radio.pairingPeripheralId != nil else { return .scanning }
+            return radio.pairedNodeNum > 0 && radio.pairingPhase == .connected ? .ready : .connecting
+        }
         switch radio.state {
         case .bluetoothOff: return .bluetoothOff
         case .noRadio: return .scanning
@@ -42,11 +54,16 @@ struct PairingView: View {
                 case .bluetoothOff: bluetoothOffView
                 case .scanning: scanView
                 case .connecting: connectingView
-                case .ready: readyView
+                case .ready: mode == .addRadio ? AnyView(addedView) : AnyView(readyView)
                 }
             }
-            .navigationTitle("Welcome to Hops")
+            .navigationTitle(mode == .addRadio ? "Add Radio" : "Welcome to Hops")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                if mode == .addRadio {
+                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                }
+            }
         }
         .onAppear {
             if phase == .scanning { radio.beginPairingScan() }
@@ -146,16 +163,18 @@ struct PairingView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 32)
-                Button("Use Without a Radio") {
-                    onboardingComplete = true
-                    radio.finishOnboarding()
+                if mode == .onboarding {
+                    Button("Use Without a Radio") {
+                        onboardingComplete = true
+                        radio.finishOnboarding()
+                    }
+                    .font(.subheadline)
+                    Text("Messages you write sync via iCloud and transmit through your other device's radio.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 40)
                 }
-                .font(.subheadline)
-                Text("Messages you write sync via iCloud and transmit through your other device's radio.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 40)
             }
             .padding(.vertical, 10)
         }
@@ -164,17 +183,22 @@ struct PairingView: View {
     // MARK: - Connecting / syncing
 
     private var connectingView: some View {
-        VStack(spacing: 28) {
+        let phase = mode == .addRadio ? radio.pairingPhase : nil
+        let syncingOrDone = mode == .addRadio
+            ? (phase == .syncing || phase == .connected)
+            : (radio.state == .syncing || radio.state == .connected)
+        let connectingNow = mode == .addRadio
+            ? (phase == .connecting || phase == .armed)
+            : (radio.state == .connecting || radio.state == .offline)
+        let done = mode == .addRadio ? phase == .connected : radio.state == .connected
+        let syncing = mode == .addRadio ? phase == .syncing : radio.state == .syncing
+        return VStack(spacing: 28) {
             Spacer()
             VStack(spacing: 12) {
-                step(done: radio.state == .syncing || radio.state == .connected,
-                     active: radio.state == .connecting || radio.state == .offline,
-                     label: "Connecting to your radio")
-                step(done: radio.state == .connected,
-                     active: radio.state == .syncing,
-                     label: "Syncing channels & mesh")
+                step(done: syncingOrDone, active: connectingNow, label: "Connecting to your radio")
+                step(done: done, active: syncing, label: "Syncing channels & mesh")
             }
-            if radio.state == .offline {
+            if radio.state == .offline || phase == .armed {
                 Text("Radio out of reach — move closer and Hops will retry automatically.")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
@@ -277,6 +301,52 @@ struct PairingView: View {
                 longName = ""
                 shortName = ""
                 _ = node // fields start blank; placeholder guides
+            }
+        }
+    }
+
+    // MARK: - Added (add-radio mode)
+
+    private var addedView: some View {
+        Form {
+            Section {
+                Label {
+                    Text("Radio added")
+                        .font(.headline)
+                } icon: {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                }
+                LabeledContent("Node ID", value: String(format: "!%08x", UInt32(truncatingIfNeeded: radio.pairedNodeNum)))
+            }
+            Section {
+                TextField("Nickname (e.g. Office)", text: $newNickname)
+                    .onSubmit { radio.renameRadio(radio.pairedNodeNum, nickname: newNickname) }
+                Picker("Location", selection: $newLocation) {
+                    Text("Home").tag("home")
+                    Text("Office").tag("office")
+                    Text("Mobile").tag("mobile")
+                    Text("Other").tag("other")
+                }
+                .onChange(of: newLocation) { _, tag in radio.setRadioLocation(radio.pairedNodeNum, tag: tag) }
+            } footer: {
+                Text("It joins your fleet at the bottom of the order. Drag it up in Radios to make it the one that sends when attached.")
+            }
+            RadioSuggestionsSection(nodeNum: radio.pairedNodeNum)
+            Section {
+                Button {
+                    if !newNickname.trimmingCharacters(in: .whitespaces).isEmpty {
+                        radio.renameRadio(radio.pairedNodeNum, nickname: newNickname)
+                    }
+                    dismiss()
+                } label: {
+                    Text("Done")
+                        .frame(maxWidth: .infinity)
+                        .font(.body.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
             }
         }
     }

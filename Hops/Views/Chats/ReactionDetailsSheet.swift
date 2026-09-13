@@ -44,7 +44,7 @@ struct ReactionDetailsSheet: View {
     }
 
     private func name(for num: Int64) -> String {
-        if num == RadioManager.shared.myNodeNum { return "You" }
+        if RadioManager.shared.isMine(num) { return "You" }
         return node(for: num)?.displayName ?? String(format: "!%08x", UInt32(truncatingIfNeeded: num))
     }
 

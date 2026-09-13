@@ -99,7 +99,7 @@ struct MeshTrafficLogView: View {
     }
 
     private func name(for num: Int64) -> String {
-        if num == radio.myNodeNum { return "You" }
+        if radio.isMine(num) { return num == radio.myNodeNum ? "You" : "You (\(radio.fleet.first { $0.nodeNum == num }?.displayName ?? String(format: "!%08x", UInt32(truncatingIfNeeded: num))))" }
         if let short = namesByNum[num], !short.trimmingCharacters(in: .whitespaces).isEmpty {
             return short
         }

@@ -97,6 +97,9 @@ final class MessageEntity {
     /// Send-when-heard cycles this message has been through — a released
     /// hold that times out re-holds itself (capped) instead of failing.
     var heldRetryCount: Int = 0
+    /// Which of the owner's radios sent or heard this (fleet, TODO 193).
+    /// 0 = unknown (rows written before fleets existed).
+    var viaNodeNum: Int64 = 0
 
     var status: MessageStatus {
         get { MessageStatus(rawValue: statusRaw) ?? .received }
@@ -120,6 +123,36 @@ final class MessageEntity {
         self.read = outgoing
         self.portNum = portNum
         // seqNum stays -1 unless the reliability layer assigns/parses one.
+    }
+}
+
+// MARK: - Radio (one of the owner's radios — the fleet, docs/MULTI_RADIO.md)
+
+@Model
+final class RadioEntity {
+    var nodeNum: Int64 = 0
+    var publicKey: Data = Data()
+    var nickname: String = ""
+    /// "home" / "office" / "mobile" / "other" — drives role suggestions.
+    var locationTag: String = "other"
+    var hwModelRaw: Int32 = 0
+    var firmware: String = ""
+    var addedAt: Date = Date()
+    var lastSeenAt: Date?
+    var lastBattery: Int = -1
+    /// Owner's sort order; lower = higher priority. The highest attached
+    /// radio is the transmit radio.
+    var priority: Int = 0
+
+    init(nodeNum: Int64, nickname: String, priority: Int) {
+        self.nodeNum = nodeNum
+        self.nickname = nickname
+        self.priority = priority
+        self.addedAt = Date()
+    }
+
+    var displayName: String {
+        nickname.isEmpty ? String(format: "Radio !%08x", UInt32(truncatingIfNeeded: nodeNum)) : nickname
     }
 }
 

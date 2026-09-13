@@ -83,13 +83,24 @@ struct SettingsView: View {
                     .font(.title2)
                     .foregroundStyle(stateColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(myNode?.displayName ?? "Meshtastic radio")
+                    Text(radio.fleet.count > 1
+                         ? (radio.fleet.first { $0.nodeNum == radio.myNodeNum }?.displayName ?? myNode?.displayName ?? "Meshtastic radio")
+                         : (myNode?.displayName ?? "Meshtastic radio"))
                         .font(.headline)
                     Text(radio.firmwareVersion.isEmpty
                          ? stateDescription
                          : "\(stateDescription) · v\(radio.firmwareVersion)")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
+                    let others = radio.attached.filter { !$0.isTransmit && $0.phase == .connected }
+                    if !others.isEmpty {
+                        Text("Also hearing: " + others.map { link in
+                            radio.fleet.first { $0.nodeNum == link.nodeNum }?.displayName
+                                ?? String(format: "!%08x", UInt32(truncatingIfNeeded: link.nodeNum))
+                        }.joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
                 if let battery = myNode?.batteryLevel, battery >= 0 {
@@ -151,13 +162,12 @@ struct SettingsView: View {
                 }
             }
 
-            Button("Forget This Radio…", role: .destructive) {
-                showForgetConfirm = true
-            }
-            .confirmationDialog("Forget this radio?", isPresented: $showForgetConfirm, titleVisibility: .visible) {
-                Button("Forget Radio", role: .destructive) { radio.forgetRadio() }
-            } message: {
-                Text("Messages stay on this phone. You can pair again anytime.")
+            NavigationLink {
+                RadiosView()
+            } label: {
+                LabeledContent("Radios") {
+                    Text(radio.fleet.isEmpty ? "None" : "\(radio.fleet.count)")
+                }
             }
         }
     }

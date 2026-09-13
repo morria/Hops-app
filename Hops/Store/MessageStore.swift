@@ -28,7 +28,12 @@ actor MessageStore {
     // battery all blink to "Not set" while the radio stays connected.
     // RadioManager pushes this on launch and whenever MyInfo arrives.
 
-    private var localNodeNum: Int64 = 0
+    /// Every node number that is one of the owner's radios (the fleet).
+    /// Empty until RadioManager has told us; `localNodeNum` is kept as
+    /// "any known local" for the older guards.
+    private var localNodeNums: Set<Int64> = []
+    private var localNodeNum: Int64 { localNodeNums.first ?? 0 }
+    private func isLocal(_ num: Int64) -> Bool { localNodeNums.contains(num) }
 
     /// Breadcrumbs for Mesh Traffic (port "app"): merges and refusals are
     /// invisible otherwise (issue #2).
@@ -36,12 +41,103 @@ actor MessageStore {
     func setEventSink(_ sink: @escaping @Sendable (String) -> Void) { eventSink = sink }
 
     func setLocalNodeNum(_ num: Int64) {
-        let wasUnknown = localNodeNum <= 0
-        localNodeNum = num
-        // Merges are refused while we don't know which record is us, so
+        setLocalNodeNums(num > 0 ? localNodeNums.union([num]) : [])
+    }
+
+    func setLocalNodeNums(_ nums: Set<Int64>) {
+        let wasUnknown = localNodeNums.isEmpty
+        localNodeNums = nums.filter { $0 > 0 }
+        // Merges are refused while we don't know which records are us, so
         // anything that arrived during that window is still unfolded. Now we
         // know: sweep once.
-        if wasUnknown, num > 0 { foldDuplicateKeyedNodes() }
+        if wasUnknown, !localNodeNums.isEmpty { foldDuplicateKeyedNodes() }
+    }
+
+    // MARK: - Fleet radios (docs/MULTI_RADIO.md)
+
+    struct RadioSnapshot: Sendable, Equatable, Identifiable {
+        let nodeNum: Int64
+        let nickname: String
+        let locationTag: String
+        let priority: Int
+        let firmware: String
+        let lastSeenAt: Date?
+        let lastBattery: Int
+        let publicKey: Data
+        var id: Int64 { nodeNum }
+        var displayName: String {
+            nickname.isEmpty ? String(format: "Radio !%08x", UInt32(truncatingIfNeeded: nodeNum)) : nickname
+        }
+    }
+
+    private func snapshot(_ r: RadioEntity) -> RadioSnapshot {
+        RadioSnapshot(nodeNum: r.nodeNum, nickname: r.nickname, locationTag: r.locationTag,
+                      priority: r.priority, firmware: r.firmware, lastSeenAt: r.lastSeenAt,
+                      lastBattery: r.lastBattery, publicKey: r.publicKey)
+    }
+
+    /// Every node number in the store (tests, diagnostics).
+    func allNodeNums() -> Set<Int64> {
+        Set(((try? modelContext.fetch(FetchDescriptor<NodeEntity>())) ?? []).map(\.num))
+    }
+
+    /// The fleet in priority order.
+    func radios() -> [RadioSnapshot] {
+        var d = FetchDescriptor<RadioEntity>()
+        d.sortBy = [SortDescriptor(\.priority), SortDescriptor(\.addedAt)]
+        return ((try? modelContext.fetch(d)) ?? []).map(snapshot)
+    }
+
+    /// Creates the radio on first sight (MyInfo of a never-seen node),
+    /// otherwise refreshes what the session learned. Returns the row.
+    @discardableResult
+    func upsertRadio(nodeNum: Int64, firmware: String?, publicKey: Data?, battery: Int?) -> RadioSnapshot {
+        let existing = (try? modelContext.fetch(FetchDescriptor<RadioEntity>(
+            predicate: #Predicate { $0.nodeNum == nodeNum }))) ?? []
+        let radio: RadioEntity
+        if let first = existing.first {
+            radio = first
+            // CloudKit can hand back a duplicate row; keep the earliest.
+            for dupe in existing.dropFirst() { modelContext.delete(dupe) }
+        } else {
+            let count = ((try? modelContext.fetchCount(FetchDescriptor<RadioEntity>())) ?? 0)
+            radio = RadioEntity(nodeNum: nodeNum, nickname: count == 0 ? "My radio" : "", priority: count)
+            modelContext.insert(radio)
+            eventSink?("new fleet radio \(String(format: "!%08x", UInt32(truncatingIfNeeded: nodeNum)))")
+        }
+        if let firmware, !firmware.isEmpty { radio.firmware = firmware }
+        if let publicKey, publicKey.count == 32 { radio.publicKey = publicKey }
+        if let battery, battery >= 0 { radio.lastBattery = battery }
+        radio.lastSeenAt = Date()
+        try? modelContext.save()
+        return snapshot(radio)
+    }
+
+    func updateRadio(nodeNum: Int64, nickname: String? = nil, locationTag: String? = nil) {
+        guard let radio = (try? modelContext.fetch(FetchDescriptor<RadioEntity>(
+            predicate: #Predicate { $0.nodeNum == nodeNum })))?.first else { return }
+        if let nickname { radio.nickname = String(nickname.prefix(40)) }
+        if let locationTag { radio.locationTag = locationTag }
+        try? modelContext.save()
+    }
+
+    /// New priority order = the array order given.
+    func reorderRadios(_ nodeNums: [Int64]) {
+        let all = (try? modelContext.fetch(FetchDescriptor<RadioEntity>())) ?? []
+        for radio in all {
+            if let index = nodeNums.firstIndex(of: radio.nodeNum) { radio.priority = index }
+            else { radio.priority = nodeNums.count }
+        }
+        try? modelContext.save()
+    }
+
+    func deleteRadio(nodeNum: Int64) {
+        for radio in (try? modelContext.fetch(FetchDescriptor<RadioEntity>(
+            predicate: #Predicate { $0.nodeNum == nodeNum }))) ?? [] {
+            modelContext.delete(radio)
+        }
+        localNodeNums.remove(nodeNum)
+        try? modelContext.save()
     }
 
     /// Fold ghost identities left by firmware renumbering: for every set of
@@ -56,8 +152,9 @@ actor MessageStore {
             // whoever was heard last, and our own row is routinely the
             // quietest (we don't hear ourselves), so the local record would
             // lose by default — at launch, before any of it is on screen.
-            if group.contains(where: { $0.num == localNodeNum }) {
-                log.warning("refusing to fold the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: self.localNodeNum)), privacy: .public) shares a public key with \(group.filter { $0.num != self.localNodeNum }.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0.num)) }.joined(separator: ", "), privacy: .public)")
+            if let mine = group.first(where: { self.isLocal($0.num) }) {
+                let mineNum = mine.num
+                log.warning("refusing to fold the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: mineNum)), privacy: .public) shares a public key with \(group.filter { $0.num != mineNum }.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0.num)) }.joined(separator: ", "), privacy: .public)")
                 continue
             }
             let keeper = group.max(by: {
@@ -226,6 +323,7 @@ actor MessageStore {
     /// True when this num has ever authored one of OUR outgoing rows — i.e.
     /// it's another of the user's own radios (multi-device iCloud).
     private func isOwnSender(_ num: Int64) -> Bool {
+        if isLocal(num) { return true }   // one of the owner's other radios
         var descriptor = FetchDescriptor<MessageEntity>(
             predicate: #Predicate { $0.outgoing == true && $0.fromNum == num })
         descriptor.fetchLimit = 1
@@ -293,7 +391,7 @@ actor MessageStore {
         // Identity unknown (no MyInfo yet this session): refuse everything.
         // A merge is irreversible and we cannot check whether we are a party
         // to it, so wait — `setLocalNodeNum` sweeps once identity arrives.
-        guard localNodeNum > 0 else {
+        guard !localNodeNums.isEmpty else {
             log.warning("deferring node merge: local node number not known yet")
             return
         }
@@ -308,10 +406,11 @@ actor MessageStore {
         //                        (SettingsView.swift:16 → "Your name: Not set")
         //   fold them into us  → their messages are rewritten as ours
         // So leave both rows alone and say so in the log.
-        if keeper.num == localNodeNum || dupes.contains(where: { $0.num == localNodeNum }) {
-            let others = dupes.filter { $0.num != localNodeNum }.map(\.num) + (keeper.num == localNodeNum ? [] : [keeper.num])
+        if isLocal(keeper.num) || dupes.contains(where: { isLocal($0.num) }) {
+            let mineNum = isLocal(keeper.num) ? keeper.num : (dupes.first { isLocal($0.num) }?.num ?? 0)
+            let others = (dupes.map(\.num) + [keeper.num]).filter { $0 != mineNum }
             eventSink?("refused to merge my node with \(others.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", ")) (same public key)")
-            log.warning("refusing to merge the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: self.localNodeNum)), privacy: .public) shares a public key with \(others.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", "), privacy: .public)")
+            log.warning("refusing to merge the local radio: !\(String(format: "%08x", UInt32(truncatingIfNeeded: mineNum)), privacy: .public) shares a public key with \(others.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", "), privacy: .public)")
             return
         }
         for old in dupes {
@@ -429,7 +528,7 @@ actor MessageStore {
             // when the radio's clock has no valid source — and Hops only
             // accepts `lastHeard > 0`, so a GPS-less radio on a fresh boot
             // leaves our own row with no lastHeard at all, i.e. prunable.
-            guard node.num != localNodeNum else { continue }
+            guard !isLocal(node.num) else { continue }
             guard node.customName.isEmpty, node.iconData == nil,
                   !convoKeys.contains(ConversationEntity.dmKey(node.num)) else { continue }
             removedNums.append(node.num)
@@ -582,6 +681,22 @@ actor MessageStore {
         try? modelContext.save()
     }
 
+    struct ChannelSnapshot: Sendable, Equatable {
+        let index: Int32
+        let name: String
+        let psk: Data
+        let roleRaw: Int32
+    }
+
+    /// The fleet-wide channel list (what the transmit radio dumped).
+    func channelSettings() -> [ChannelSnapshot] {
+        var d = FetchDescriptor<ChannelEntity>()
+        d.sortBy = [SortDescriptor(\.index)]
+        return ((try? modelContext.fetch(d)) ?? [])
+            .filter { $0.roleRaw != 0 }
+            .map { ChannelSnapshot(index: $0.index, name: $0.name, psk: $0.psk, roleRaw: $0.roleRaw) }
+    }
+
     func activeChannelIndices() -> [Int32] {
         let channels = (try? modelContext.fetch(FetchDescriptor<ChannelEntity>())) ?? []
         return channels.filter { $0.isActive }.map { $0.index }
@@ -663,7 +778,8 @@ actor MessageStore {
     }
 
     func ingestTextMessage(packet: MeshPacket, myNum: Int64,
-                           trustedRxWindow: ClosedRange<Date>? = nil) -> InboundMessage? {
+                           trustedRxWindow: ClosedRange<Date>? = nil,
+                           viaNodeNum: Int64 = 0) -> InboundMessage? {
         let packetId = Int64(packet.id)
         // Dedupe: the radio echoes our own sends back, and reconnect drains can overlap.
         if let existing = try? modelContext.fetch(
@@ -677,9 +793,10 @@ actor MessageStore {
         let fromNum = Int64(packet.from)
         let toNum = Int64(packet.to)
         let outgoing = fromNum == myNum
-        // Heard over RF from one of OUR other radios (second device, same
-        // iCloud store): not incoming mail. The sending device's outgoing row
-        // arrives via CloudKit; ingesting here would ring the user's own bell.
+        // Heard over RF from one of OUR other radios (fleet, or a second
+        // device on the same iCloud store): not incoming mail. The sending
+        // side's outgoing row arrives via CloudKit or was written locally;
+        // ingesting here would ring the user's own bell.
         if !outgoing, isOwnSender(fromNum) { return nil }
         let isBroadcast = packet.to == UInt32.max
         let isDM = !isBroadcast
@@ -719,6 +836,7 @@ actor MessageStore {
             portNum: Int32(packet.decoded.portnum.rawValue)
         )
         message.seqNum = inboundSeq
+        message.viaNodeNum = viaNodeNum
         modelContext.insert(message)
         if !outgoing, !isTapback, inboundSeq >= 0 {
             trackSequence(sender: fromNum, convoKey: key, seq: inboundSeq, near: message.timestamp)
@@ -768,6 +886,7 @@ actor MessageStore {
     struct RoutingOutcome: Sendable {
         let statusRaw: Int
         let isChannel: Bool
+        let toNum: Int64
     }
 
     /// Routing ack/nak handling: correlate on requestID. Returns the resulting
@@ -799,7 +918,8 @@ actor MessageStore {
         syncLastStatus(message)
         try? modelContext.save()
         return RoutingOutcome(statusRaw: message.statusRaw,
-                              isChannel: message.toNum == Int64(UInt32.max))
+                              isChannel: message.toNum == Int64(UInt32.max),
+                              toNum: message.toNum)
     }
 
     /// Packet ids this device actually handed to its radio this session. The
@@ -816,7 +936,8 @@ actor MessageStore {
     /// the caller re-holds them (fresh packet id) rather than failing — one
     /// heard packet promised nothing about the peer still listening.
     @discardableResult
-    func sweepStaleSending(olderThan interval: TimeInterval = 300) -> [Int64] {
+    func sweepStaleSending(olderThan interval: TimeInterval = 300,
+                           attachedRadios: Set<Int64> = []) -> [Int64] {
         let cutoff = Date().addingTimeInterval(-interval)
         let strayCutoff = Date().addingTimeInterval(-3600)
         let sendingRaw = MessageStatus.sending.rawValue
@@ -829,6 +950,11 @@ actor MessageStore {
             // died mid-send and never swept its own) as the safety net.
             guard locallyTransmitted.contains(message.packetId)
                     || message.timestamp < strayCutoff else { continue }
+            // Sent through a fleet radio we're no longer attached to: its
+            // ack is waiting in that radio's queue, not lost. Leave it until
+            // we're back on that radio (an hour-old stray still fails).
+            if message.viaNodeNum > 0, !attachedRadios.isEmpty, !attachedRadios.contains(message.viaNodeNum),
+               message.timestamp >= strayCutoff { continue }
             if releasedHolds.remove(message.packetId) != nil, message.heldRetryCount < 3 {
                 reholds.append(message.packetId)
                 continue
@@ -857,6 +983,7 @@ actor MessageStore {
     func persistOutgoing(packetId: Int64, myNum: Int64, destination: MessageDestinationRef,
                          text: String, isEmoji: Bool, replyId: Int64, connected: Bool,
                          holdForPeer: Bool = false) -> OutgoingRecord {
+        // The sending radio is the identity in `myNum`; remember it per row.
         let key: String
         let toNum: Int64
         let channel: Int32
@@ -893,6 +1020,7 @@ actor MessageStore {
             convo.seqCounter = (convo.seqCounter + 1) & 0x1F
             message.seqNum = convo.seqCounter
         }
+        message.viaNodeNum = myNum
         modelContext.insert(message)
         if !holdForPeer && connected { locallyTransmitted.insert(packetId) }
         // Stamp the conversation we hold directly — a re-fetch can miss a row

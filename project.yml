@@ -66,6 +66,20 @@ targets:
             NSUbiquitousContainerIsDocumentScopePublic: true
             NSUbiquitousContainerName: Hops
             NSUbiquitousContainerSupportedFolderLevels: Any
+  HopsTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: HopsTests
+    dependencies:
+      - target: Hops
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.w2asm.hops.tests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG MESHSITES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/Hops.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Hops
+        BUNDLE_LOADER: $(TEST_HOST)
   HopsWidgets:
     type: app-extension
     platform: iOS
@@ -87,10 +101,13 @@ schemes:
     build:
       targets:
         Hops: all
+        HopsTests: [test]
     run:
       config: Debug
     test:
       config: Debug
+      targets:
+        - HopsTests
     profile:
       config: Release
     analyze:

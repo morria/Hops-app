@@ -174,8 +174,8 @@ final class MeshsitesManager: ObservableObject {
         case 0x01: handleBeacon(from: from, bytes: bytes)
         case 0x02:
             // Someone is requesting a page from OUR site (server side).
-            if to == RadioManager.shared.myNodeNum {
-                MeshsiteServer.shared.handleRequest(from: from, bytes: bytes)
+            if RadioManager.shared.isMine(to) {
+                MeshsiteServer.shared.handleRequest(from: from, bytes: bytes, via: to)
             }
         case 0x03: handleChunk(from: from, bytes: bytes)
         case 0x04: handleError(from: from, bytes: bytes)
@@ -185,7 +185,7 @@ final class MeshsitesManager: ObservableObject {
     }
 
     private func handleBeacon(from: Int64, bytes: [UInt8]) {
-        guard from != RadioManager.shared.myNodeNum else { return }  // our own site
+        guard !RadioManager.shared.isMine(from) else { return }  // our own site
         guard bytes.count >= 3, bytes[1] >= 1 else { return }
         let nameBytes = bytes[2...]
         guard nameBytes.count <= 40,

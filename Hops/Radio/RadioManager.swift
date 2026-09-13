@@ -8,7 +8,7 @@ import MeshtasticProtobufs
 @MainActor
 final class RadioManager: ObservableObject {
 
-    static let shared = RadioManager()
+    static let shared = RadioManager(transport: BLECentral())
 
     enum State: Equatable {
         case bluetoothOff
@@ -21,12 +21,28 @@ final class RadioManager: ObservableObject {
     }
 
     @Published private(set) var state: State = .noRadio
-    /// When the current connected session began — consumers that expire
+    /// When the transmit radio's session began — consumers that expire
     /// things by "time without hearing X" must not count time we weren't
     /// listening at all.
     private(set) var connectedAt: Date?
-    @Published private(set) var discovered: [BLETransport.Discovered] = []
+    @Published private(set) var discovered: [BLECentral.Discovered] = []
     @Published private(set) var lastSyncedAt: Date?
+
+    // MARK: - Fleet (docs/MULTI_RADIO.md)
+
+    /// One radio the phone currently holds a link to, for the UI.
+    struct AttachedRadio: Identifiable, Equatable {
+        let id: UUID
+        let nodeNum: Int64
+        let phase: RadioLink.Phase
+        let firmware: String
+        let isTransmit: Bool
+        let drift: [String]
+        let roleRaw: Int?     // device role as the radio reported it
+    }
+    @Published private(set) var attached: [AttachedRadio] = []
+    /// Every radio the owner has added, in priority order (from the store).
+    @Published private(set) var fleet: [MessageStore.RadioSnapshot] = []
     @Published var needsMeshSetup = false     // factory-fresh radio: region unset
 
     // Mesh-traffic diagnostics (since launch): distinguishes "radio hears nothing"
@@ -174,11 +190,13 @@ final class RadioManager: ObservableObject {
     }
 
     private let log = Logger(subsystem: "com.w2asm.hops", category: "radio")
-    private let transport = BLETransport()
+    private let central: any RadioTransport
+    /// Every peripheral we hold, are connecting to, or keep a pending
+    /// connect armed for, with its per-session state.
+    private var links: [UUID: RadioLink] = [:]
     private var store: MessageStore?
     private var bluetoothOn = false
     private var pairingInProgress = false
-    private var nodeDBRequested = false
 
     /// The set_owner in flight: its packet id and the names to restore if the
     /// radio NAKs it (the local mirror is applied optimistically).
@@ -188,16 +206,34 @@ final class RadioManager: ObservableObject {
         let previousShort: String
     }
     private var pendingOwner: PendingOwner?
+    private var pendingAdminAcks: [UInt32: CheckedContinuation<Bool, Never>] = [:]
 
-    /// Window in which a packet's rx_time (the radio's clock) is believed:
-    /// heard after the previous session ended and before this one began —
-    /// i.e. queued on the radio while we were away. Anything else is
-    /// stamped on arrival; see `MessageStore.inboundTimestamp` (TODO 179).
-    private var trustedRxWindow: ClosedRange<Date>?
+    /// The radio a send goes through: the highest-priority attached radio
+    /// (fleet order), or whichever is connected if the fleet order doesn't
+    /// know it yet.
+    var transmitLink: RadioLink? {
+        let connected = links.values.filter { $0.phase == .connected && $0.nodeNum > 0 }
+        guard !connected.isEmpty else { return nil }
+        return connected.min { a, b in
+            let pa = fleetPriority(a.nodeNum), pb = fleetPriority(b.nodeNum)
+            if pa != pb { return pa < pb }
+            return (a.connectedAt ?? .distantPast) < (b.connectedAt ?? .distantPast)
+        }
+    }
+    private func fleetPriority(_ nodeNum: Int64) -> Int {
+        fleet.firstIndex { $0.nodeNum == nodeNum } ?? Int.max
+    }
 
-    private let defaults = UserDefaults.standard
+    /// Is this node number one of the owner's radios?
+    func isMine(_ num: Int64) -> Bool {
+        guard num > 0 else { return false }
+        return fleetPeripherals[num] != nil || num == myNodeNum || links.values.contains { $0.nodeNum == num }
+    }
+
+    private let defaults: UserDefaults
     private enum Keys {
-        static let peripheralId = "pairedPeripheralId"
+        static let peripheralId = "pairedPeripheralId"   // pre-fleet single radio
+        static let fleetPeripherals = "fleetPeripherals" // nodeNum → peripheral id, this device
         static let myNodeNum = "myNodeNum"
         static let lastSynced = "lastSyncedAt"
         static let firmware = "firmwareVersion"
@@ -208,15 +244,32 @@ final class RadioManager: ObservableObject {
         static let loraReceived = "loraReceived"
     }
 
+    /// Bluetooth identifiers are per iOS device, so this map is local: which
+    /// peripheral is which fleet radio on this phone.
+    private var fleetPeripherals: [Int64: UUID] = [:] {
+        didSet {
+            var raw: [String: String] = [:]
+            for (num, id) in fleetPeripherals { raw[String(num)] = id.uuidString }
+            defaults.set(raw, forKey: Keys.fleetPeripherals)
+        }
+    }
+    /// Just paired on this device, MyInfo not seen yet.
+    private var pendingPeripherals: Set<UUID> = []
+    private var wantedPeripheralIds: Set<UUID> { Set(fleetPeripherals.values).union(pendingPeripherals) }
+
+    /// Pre-fleet callers ask "is any radio paired?".
     var pairedPeripheralId: UUID? {
-        get { defaults.string(forKey: Keys.peripheralId).flatMap(UUID.init(uuidString:)) }
-        set { defaults.set(newValue?.uuidString, forKey: Keys.peripheralId) }
+        fleetPeripherals.values.first ?? pendingPeripherals.first
     }
 
     /// The key of the conversation currently on screen; its messages don't notify.
     var activeConversationKey: String?
 
-    private init() {
+    /// `shared` uses Core Bluetooth; tests inject a scripted transport and
+    /// their own defaults suite.
+    init(transport: any RadioTransport, defaults: UserDefaults = .standard) {
+        self.central = transport
+        self.defaults = defaults
         myNodeNum = Int64(defaults.integer(forKey: Keys.myNodeNum))
         firmwareVersion = defaults.string(forKey: Keys.firmware) ?? ""
         lastSyncedAt = defaults.object(forKey: Keys.lastSynced) as? Date
@@ -227,30 +280,71 @@ final class RadioManager: ObservableObject {
             frequencySlot: defaults.integer(forKey: Keys.slot),
             hopLimit: max(1, defaults.integer(forKey: Keys.hopLimit))
         )
-        state = pairedPeripheralId == nil ? .noRadio : .offline
-        transport.onEvent = { [weak self] event in self?.handle(event) }
+        // Fleet peripherals on this device; migrate the single pre-fleet
+        // radio into a one-member fleet.
+        var map: [Int64: UUID] = [:]
+        for (k, v) in defaults.dictionary(forKey: Keys.fleetPeripherals) as? [String: String] ?? [:] {
+            if let num = Int64(k), let id = UUID(uuidString: v) { map[num] = id }
+        }
+        if map.isEmpty, let old = defaults.string(forKey: Keys.peripheralId).flatMap(UUID.init(uuidString:)) {
+            if myNodeNum > 0 { map[myNodeNum] = old } else { pendingPeripherals.insert(old) }
+        }
+        fleetPeripherals = map
+        for id in wantedPeripheralIds { links[id] = RadioLink(id: id) }
+        state = wantedPeripheralIds.isEmpty ? .noRadio : .offline
+        central.onEvent = { [weak self] event in self?.handle(event) }
         // Bluetooth comes up at launch only for an already-paired radio (the
         // central must exist early for iOS state restoration). A fresh
         // install first sees the Bluetooth prompt when it starts pairing.
-        if pairedPeripheralId != nil { transport.activate() }
+        if !wantedPeripheralIds.isEmpty { central.activate() }
     }
 
     func configure(container: ModelContainer) {
         let store = MessageStore(modelContainer: container)
         self.store = store
-        let localNum = myNodeNum
+        let localNums = Set(fleetPeripherals.keys).union(myNodeNum > 0 ? [myNodeNum] : [])
         Task {
-            // Before any maintenance pass: the store must know which record
-            // is us, so a renumber merge or a stale prune can't delete it.
-            await store.setLocalNodeNum(localNum)
+            // Before any maintenance pass: the store must know which records
+            // are us, so a renumber merge or a stale prune can't delete them.
+            await store.setLocalNodeNums(localNums)
             await store.setEventSink { text in
                 Task { @MainActor in RadioManager.shared.noteAppEvent(text) }
             }
+            // Migration: the pre-fleet radio becomes fleet member #1.
+            if myNodeNum > 0, await store.radios().isEmpty {
+                await store.upsertRadio(nodeNum: myNodeNum, firmware: firmwareVersion, publicKey: nil, battery: nil)
+            }
+            await reloadFleet()
             await store.repairConversations()
             await store.pruneTrails()
             await store.pruneCoverage()
             await store.pruneStaleNodes(olderThanDays: UserDefaults.standard.object(forKey: "nodeMaxAgeDays") as? Int ?? 90)
         }
+    }
+
+    /// Re-read the fleet (priority order) from the store and re-derive the
+    /// transmit radio.
+    func reloadFleet() async {
+        guard let store else { return }
+        fleet = await store.radios()
+        let nums = Set(fleet.map(\.nodeNum)).union(links.values.compactMap { $0.nodeNum > 0 ? $0.nodeNum : nil })
+        await store.setLocalNodeNums(nums)
+        refreshFacade()
+    }
+
+    // MARK: - Fleet editing
+
+    func renameRadio(_ nodeNum: Int64, nickname: String) {
+        Task { await store?.updateRadio(nodeNum: nodeNum, nickname: nickname); await reloadFleet() }
+    }
+
+    func setRadioLocation(_ nodeNum: Int64, tag: String) {
+        Task { await store?.updateRadio(nodeNum: nodeNum, locationTag: tag); await reloadFleet() }
+    }
+
+    /// New priority order; the transmit radio follows it immediately.
+    func reorderFleet(_ nodeNums: [Int64]) {
+        Task { await store?.reorderRadios(nodeNums); await reloadFleet() }
     }
 
     /// Called when the retention setting changes.
@@ -260,41 +354,81 @@ final class RadioManager: ObservableObject {
         Task { await store.pruneStaleNodes(olderThanDays: days) }
     }
 
-    // MARK: - Pairing
+    // MARK: - Pairing (first radio, or adding one to the fleet)
+
+    @Published private(set) var pairingPeripheralId: UUID?
+    /// Node number of the radio just paired, once its MyInfo lands — the
+    /// add-radio flow watches this to finish.
+    @Published private(set) var pairedNodeNum: Int64 = 0
+
+    /// Phase of the radio being paired right now (add-radio flow).
+    var pairingPhase: RadioLink.Phase? { pairingPeripheralId.flatMap { links[$0]?.phase } }
 
     func beginPairingScan() {
         discovered = []
         pairingInProgress = true
-        transport.activate()   // first Bluetooth prompt on a fresh install lands here
-        transport.startScan()  // no-op until powered on; the state event re-issues it
+        pairingPeripheralId = nil
+        pairedNodeNum = 0
+        central.activate()   // first Bluetooth prompt on a fresh install lands here
+        central.startScan()  // no-op until powered on; the state event re-issues it
     }
 
     func endPairingScan() {
         pairingInProgress = false
-        transport.stopScan()
+        central.stopScan()
     }
 
     func pair(with id: UUID) {
-        pairedPeripheralId = id
         pairingInProgress = false
-        state = .connecting
-        transport.connectDiscovered(id: id)
+        pendingPeripherals.insert(id)
+        pairingPeripheralId = id
+        pairedNodeNum = 0
+        let link = RadioLink(id: id)
+        link.phase = .connecting
+        links[id] = link
+        central.connectDiscovered(id: id)
+        armWatchdog(link)
+        refreshFacade()
     }
 
+    /// Drop one radio from the fleet on every device (the row syncs) and
+    /// from this phone's Bluetooth map.
+    func forget(radio nodeNum: Int64) {
+        if let id = fleetPeripherals.removeValue(forKey: nodeNum) {
+            links[id]?.watchdog?.cancel()
+            links[id] = nil
+            central.forget(id)
+        }
+        Task {
+            await store?.deleteRadio(nodeNum: nodeNum)
+            await reloadFleet()
+        }
+        if fleetPeripherals.isEmpty { resetSingleRadioDefaults() }
+        refreshFacade()
+    }
+
+    /// Forget every radio (the pre-fleet "Forget This Radio").
     func forgetRadio() {
-        transport.disconnect(userInitiated: true)
-        pairedPeripheralId = nil
+        for num in Array(fleetPeripherals.keys) { forget(radio: num) }
+        for id in pendingPeripherals { central.forget(id); links[id] = nil }
+        pendingPeripherals.removeAll()
+        pairingPeripheralId = nil
+        resetSingleRadioDefaults()
+        refreshFacade()
+    }
+
+    private func resetSingleRadioDefaults() {
+        defaults.removeObject(forKey: Keys.peripheralId)
         myNodeNum = 0
         defaults.set(0, forKey: Keys.myNodeNum)
-        Task { await store?.setLocalNodeNum(0) }
         defaults.set(false, forKey: Keys.loraReceived)
         loRa = LoRaSnapshot()
-        state = .noRadio
+        Task { await store?.setLocalNodeNums([]) }
     }
 
     // MARK: - Connection lifecycle
 
-    /// User chose to disconnect (without forgetting the radio); persists so a
+    /// User chose to disconnect (without forgetting the radios); persists so a
     /// relaunch doesn't silently reconnect against their wishes.
     @Published var userDisconnected: Bool = UserDefaults.standard.bool(forKey: "userDisconnected") {
         didSet { UserDefaults.standard.set(userDisconnected, forKey: "userDisconnected") }
@@ -302,8 +436,9 @@ final class RadioManager: ObservableObject {
 
     func disconnectByUser() {
         userDisconnected = true
-        transport.disconnect(userInitiated: true)
-        state = .offline
+        central.disconnectAll(userInitiated: true)
+        for link in links.values { link.watchdog?.cancel(); link.phase = .armed }
+        refreshFacade()
     }
 
     func reconnectByUser() {
@@ -311,44 +446,48 @@ final class RadioManager: ObservableObject {
         connectIfNeeded()
     }
 
-    private var connectWatchdog: Task<Void, Never>?
-
-    /// If a connect attempt stalls (stale peripheral reference, missed callback),
-    /// tear it down and retry fresh every 20 s until something changes state.
-    private func armConnectWatchdog() {
-        connectWatchdog?.cancel()
-        connectWatchdog = Task { [weak self] in
+    /// If a connect attempt stalls (stale peripheral reference, missed
+    /// callback), tear it down and retry fresh every 20 s while connecting.
+    private func armWatchdog(_ link: RadioLink) {
+        link.watchdog?.cancel()
+        link.watchdog = Task { [weak self, weak link] in
             try? await Task.sleep(for: .seconds(20))
-            guard let self, !Task.isCancelled,
-                  self.state == .connecting, let id = self.pairedPeripheralId else { return }
-            self.log.warning("connect watchdog: retrying fresh")
-            self.transport.retryFresh(id: id)
-            self.armConnectWatchdog()
+            guard let self, let link, !Task.isCancelled, link.phase == .connecting,
+                  self.links[link.id] === link else { return }
+            self.log.warning("connect watchdog: retrying fresh \(link.id.uuidString.prefix(8))")
+            self.central.retryFresh(id: link.id)
+            self.armWatchdog(link)
         }
     }
 
+    /// Arm pending connects for every fleet radio not already linked.
     func connectIfNeeded() {
-        guard let id = pairedPeripheralId, bluetoothOn, !userDisconnected else { return }
-        guard state == .offline || state == .bondLost else { return }
-        state = .connecting
-        transport.connect(to: id)
-        armConnectWatchdog()
+        guard bluetoothOn, !userDisconnected else { return }
+        var ids: Set<UUID> = []
+        for id in wantedPeripheralIds {
+            let link = links[id] ?? RadioLink(id: id)
+            links[id] = link
+            guard link.phase == .armed || link.phase == .bondLost else { continue }
+            link.phase = .connecting
+            armWatchdog(link)
+            ids.insert(id)
+        }
+        if !ids.isEmpty { central.connect(to: ids) }
+        refreshFacade()
     }
 
-    private func handle(_ event: BLETransport.Event) {
+    private func handle(_ event: BLECentral.Event) {
         switch event {
         case .bluetoothState(let cbState):
             bluetoothOn = cbState == .poweredOn
-            if !bluetoothOn {
-                if pairedPeripheralId != nil { state = .bluetoothOff }
-            } else {
-                if state == .bluetoothOff { state = .offline }
-                if pairingInProgress { transport.startScan() }
+            if bluetoothOn {
+                if pairingInProgress { central.startScan() }
                 connectIfNeeded()
             }
+            refreshFacade()
 
         case .discovered(let device):
-            guard pairingInProgress else { return }
+            guard pairingInProgress, !wantedPeripheralIds.contains(device.id) else { return }
             if let index = discovered.firstIndex(where: { $0.id == device.id }) {
                 discovered[index].rssi = device.rssi
             } else {
@@ -356,77 +495,149 @@ final class RadioManager: ObservableObject {
             }
             discovered.sort { $0.rssi > $1.rssi }
 
-        case .linkReady:
-            connectWatchdog?.cancel()
-            state = .syncing
-            nodeDBRequested = false
-            startHandshake()
+        case .linkReady(let id):
+            let link = links[id] ?? RadioLink(id: id)
+            links[id] = link
+            link.watchdog?.cancel()
+            link.phase = .syncing
+            refreshFacade()
+            startHandshake(link)
 
-        case .disconnected(let userInitiated):
-            let hadSession = state == .connected || state == .syncing
-            state = pairedPeripheralId == nil ? .noRadio : .offline
-            // Re-arm the pending connect on every non-user disconnect path — this is
-            // what lets iOS relaunch us when the radio comes back in range.
-            if !userInitiated, let id = pairedPeripheralId, bluetoothOn {
-                if hadSession { state = .connecting }
-                transport.connect(to: id)
-                if hadSession { state = .offline }
+        case .disconnected(let id, let userInitiated):
+            let old = links[id]
+            old?.watchdog?.cancel()
+            links[id] = nil
+            if wantedPeripheralIds.contains(id) {
+                let link = RadioLink(id: id)
+                links[id] = link
+                // Re-arm the pending connect on every non-user disconnect —
+                // this is what lets iOS relaunch us when the radio comes
+                // back in range.
+                if !userInitiated, bluetoothOn, !userDisconnected {
+                    link.phase = .armed
+                    central.connect(to: [id])
+                }
             }
+            if let old, old.nodeNum > 0 {
+                noteAppEvent("radio \(String(format: "!%08x", UInt32(truncatingIfNeeded: old.nodeNum))) disconnected")
+            }
+            refreshFacade()
 
-        case .bondLost:
-            state = .bondLost
+        case .bondLost(let id):
+            links[id]?.phase = .bondLost
+            refreshFacade()
             NotificationManager.shared.postBondLost()
 
-        case .writeError(let message):
-            logTraffic(from: myNodeNum, port: "ble", summary: "Write to radio failed: \(message)")
+        case .writeError(let id, let message):
+            logTraffic(from: links[id]?.nodeNum ?? myNodeNum, port: "ble", summary: "Write to radio failed: \(message)")
 
-        case .writeStalled(let pending):
-            logTraffic(from: myNodeNum, port: "ble",
+        case .writeStalled(let id, let pending):
+            logTraffic(from: links[id]?.nodeNum ?? myNodeNum, port: "ble",
                        summary: "Write to radio stalled — \(pending) queued, pump reset")
 
-        case .frame(let data):
-            process(frame: data)
+        case .frame(let id, let data):
+            guard let link = links[id] else { return }
+            process(frame: data, link: link)
 
-        case .drainComplete:
-            if state == .connected {
-                touchLastSynced()
+        case .drainComplete(let id):
+            if let link = links[id], link.phase == .connected {
+                touchLastSynced(link)
             }
         }
     }
 
-    // MARK: - Handshake (messages first, node DB deferred)
+    // MARK: - Facade over the fleet
 
-    private func startHandshake() {
+    private func deriveState() -> State {
+        if wantedPeripheralIds.isEmpty { return .noRadio }
+        if !bluetoothOn { return .bluetoothOff }
+        let phases = links.values.map(\.phase)
+        if phases.contains(.connected) { return .connected }
+        if phases.contains(.syncing) { return .syncing }
+        if phases.contains(.connecting) { return .connecting }
+        if phases.contains(.bondLost) { return .bondLost }
+        return .offline
+    }
+
+    /// Republish everything the app reads as "the radio" from the transmit
+    /// radio (or the best link we have), and the attached list.
+    private func refreshFacade() {
+        let transmit = transmitLink
+        if let link = transmit {
+            if myNodeNum != link.nodeNum {
+                myNodeNum = link.nodeNum
+                defaults.set(myNodeNum, forKey: Keys.myNodeNum)
+            }
+            if !link.firmwareVersion.isEmpty, firmwareVersion != link.firmwareVersion {
+                firmwareVersion = link.firmwareVersion
+                defaults.set(firmwareVersion, forKey: Keys.firmware)
+            }
+            if link.loRa.received, loRa != link.loRa {
+                loRa = link.loRa
+                persistLoRa()
+            }
+            bluetoothConfig = link.bluetoothConfig
+            deviceConfig = link.deviceConfig
+            displayConfig = link.displayConfig
+            positionConfig = link.positionConfig
+            telemetryConfig = link.telemetryConfig
+            connectedAt = link.connectedAt
+            if let synced = link.lastSyncedAt { lastSyncedAt = synced }
+        } else {
+            connectedAt = nil
+        }
+        let newState = deriveState()
+        if state != newState { state = newState }
+        let list = links.values
+            .filter { $0.phase != .armed }
+            .sorted { fleetPriority($0.nodeNum) < fleetPriority($1.nodeNum) }
+            .map { AttachedRadio(id: $0.id, nodeNum: $0.nodeNum, phase: $0.phase,
+                                 firmware: $0.firmwareVersion, isTransmit: $0 === transmit, drift: $0.drift,
+                                 roleRaw: $0.deviceConfig.map { Int($0.role.rawValue) }) }
+        if attached != list { attached = list }
+    }
+
+    // MARK: - Handshake (messages first, node DB deferred) — per link
+
+    private func startHandshake(_ link: RadioLink) {
+        link.knownPeers.removeAll()
+        link.preloadedThisSession.removeAll()
+        link.nodeDBRequested = false
         var heartbeat = ToRadio()
         heartbeat.heartbeat = Heartbeat()
-        write(heartbeat)
+        write(heartbeat, via: link)
 
         var wantConfig = ToRadio()
         wantConfig.wantConfigID = 69420   // NONCE_ONLY_CONFIG
-        write(wantConfig)
-        transport.drain()
+        write(wantConfig, via: link)
+        central.drain(id: link.id)
     }
 
-    private func handleConfigComplete(_ nonce: UInt32) {
+    private func handleConfigComplete(_ nonce: UInt32, link: RadioLink) {
         switch nonce {
         case 69420:
-            state = .connected
+            link.phase = .connected
             let now = Date()
-            connectedAt = now
+            link.connectedAt = now
             // Previous sync → now: the span the radio spent without us. A
             // first-ever connect trusts nothing (its clock was never set).
-            if let previous = lastSyncedAt, previous <= now {
-                trustedRxWindow = previous...now
+            if let previous = link.lastSyncedAt, previous <= now {
+                link.trustedRxWindow = previous...now
             } else {
-                trustedRxWindow = nil
+                link.trustedRxWindow = nil
             }
-            touchLastSynced()
-            setRadioTime()
-            needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
+            touchLastSynced(link)
+            setRadioTime(via: link)
+            refreshFacade()
+            noteAppEvent("radio \(String(format: "!%08x", UInt32(truncatingIfNeeded: link.nodeNum))) attached\(link === transmitLink ? " (transmit)" : "")")
+            if link === transmitLink {
+                needsMeshSetup = loRa.received && loRa.regionRaw == Config.LoRaConfig.RegionCode.unset.rawValue
+            }
             flushOutboxAndSweep()
             startOutboxSweep()
             requestStoreForwardHistoryIfUseful()
             announcePresenceIfDue()
+            Task { await self.computeDrift(link) }
             // Friendly default name for a blank primary channel: the applied
             // metro's name ("NYC Mesh"), handled store-side only when unnamed.
             if let id = MetroPresetStore.shared.appliedPresetId,
@@ -437,24 +648,24 @@ final class RadioManager: ObservableObject {
             }
             // Node DB is deliberately deferred: on a big mesh it can take minutes and
             // messages must never wait behind it.
-            Task { @MainActor in
+            Task { @MainActor [weak link] in
                 try? await Task.sleep(for: .seconds(2))
-                self.requestNodeDBIfNeeded()
+                if let link { self.requestNodeDBIfNeeded(link) }
             }
         case 69421:
-            touchLastSynced()
+            touchLastSynced(link)
         default:
             break
         }
     }
 
-    private func requestNodeDBIfNeeded() {
-        guard state == .connected, !nodeDBRequested else { return }
-        nodeDBRequested = true
+    private func requestNodeDBIfNeeded(_ link: RadioLink) {
+        guard link.phase == .connected, !link.nodeDBRequested else { return }
+        link.nodeDBRequested = true
         var toRadio = ToRadio()
         toRadio.wantConfigID = 69421      // NONCE_ONLY_DB
-        write(toRadio)
-        transport.drain()
+        write(toRadio, via: link)
+        central.drain(id: link.id)
     }
 
     private var outboxTimer: Task<Void, Never>?
@@ -477,7 +688,8 @@ final class RadioManager: ObservableObject {
             for record in queued {
                 await MainActor.run { self.transmit(record) }
             }
-            let reholds = await store.sweepStaleSending()
+            let attachedNow = Set(self.attachedNodeNums)
+            let reholds = await store.sweepStaleSending(attachedRadios: attachedNow)
             for packetId in reholds {
                 await store.prepareRetryHold(packetId: packetId,
                                              newPacketId: Int64(self.newPacketId()))
@@ -485,78 +697,270 @@ final class RadioManager: ObservableObject {
         }
     }
 
-    private func touchLastSynced() {
-        lastSyncedAt = Date()
-        defaults.set(lastSyncedAt, forKey: Keys.lastSynced)
+    private func touchLastSynced(_ link: RadioLink) {
+        let now = Date()
+        link.lastSyncedAt = now
+        if link.nodeNum > 0 { defaults.set(now, forKey: "\(Keys.lastSynced)-\(link.nodeNum)") }
+        if link === transmitLink || transmitLink == nil {
+            lastSyncedAt = now
+            defaults.set(now, forKey: Keys.lastSynced)
+        }
     }
 
-    // MARK: - Inbound frames
+    // MARK: - Fleet settings (docs/MULTI_RADIO.md §1.5)
 
-    private func process(frame: Data) {
+    /// How `link` differs from the fleet: the store's channel list (what the
+    /// transmit radio carries) and the transmit radio's LoRa settings.
+    func computeDrift(_ link: RadioLink) async {
+        guard let store, link.nodeNum > 0 else { return }
+        guard let transmit = transmitLink, transmit !== link else {
+            link.drift = []
+            refreshFacade()
+            return
+        }
+        let fleetChannels = await store.channelSettings()
+        var lines: [String] = []
+        for ch in fleetChannels {
+            let name = ch.name.isEmpty ? (ch.index == 0 ? "primary channel" : "channel \(ch.index)") : "\"\(ch.name)\""
+            if let mine = link.channels[ch.index], mine.roleRaw != 0 {
+                if mine.name != ch.name { lines.append("Slot \(ch.index) is named \"\(mine.name)\", fleet has \(name)") }
+                else if mine.psk != ch.psk { lines.append("\(name.capitalized) has a different key") }
+            } else {
+                lines.append("Missing \(name) (slot \(ch.index))")
+            }
+        }
+        for (index, mine) in link.channels where mine.roleRaw != 0 && !fleetChannels.contains(where: { $0.index == index }) {
+            lines.append("Extra channel \"\(mine.name)\" in slot \(index) not in the fleet")
+        }
+        if link.loRa.received, transmit.loRa.received {
+            if link.loRa.regionRaw != transmit.loRa.regionRaw { lines.append("Region differs (\(link.loRa.regionName) vs \(transmit.loRa.regionName))") }
+            if link.loRa.presetRaw != transmit.loRa.presetRaw { lines.append("Modem preset differs (\(link.loRa.presetName) vs \(transmit.loRa.presetName))") }
+            if link.loRa.frequencySlot != transmit.loRa.frequencySlot { lines.append("Frequency slot \(link.loRa.frequencySlot) vs \(transmit.loRa.frequencySlot)") }
+            if link.loRa.hopLimit != transmit.loRa.hopLimit { lines.append("Hop limit \(link.loRa.hopLimit) vs \(transmit.loRa.hopLimit)") }
+        }
+        link.drift = lines
+        if !lines.isEmpty {
+            noteAppEvent("radio \(String(format: "!%08x", UInt32(truncatingIfNeeded: link.nodeNum))) differs from the fleet: \(lines.count) item(s)")
+        }
+        refreshFacade()
+    }
+
+    private func link(forNodeNum num: Int64) -> RadioLink? {
+        links.values.first { $0.nodeNum == num && $0.phase == .connected }
+    }
+
+    /// Write the fleet's channels and LoRa settings to one attached radio.
+    /// Never touches the security section or the role (docs §1.5).
+    func applyFleetSettings(to nodeNum: Int64) {
+        guard let store, let link = link(forNodeNum: nodeNum), let transmit = transmitLink, transmit !== link else { return }
+        Task {
+            let channels = await store.channelSettings()
+            for ch in channels {
+                var settings = ChannelSettings()
+                settings.name = ch.name
+                settings.psk = ch.psk
+                var channel = Channel()
+                channel.index = ch.index
+                channel.role = ch.index == 0 ? .primary : .secondary
+                channel.settings = settings
+                var admin = AdminMessage()
+                admin.setChannel = channel
+                sendAdmin(admin, via: link)
+            }
+            // Disable slots the fleet doesn't use.
+            for (index, mine) in link.channels where mine.roleRaw != 0 && !channels.contains(where: { $0.index == index }) {
+                var channel = Channel()
+                channel.index = index
+                channel.role = .disabled
+                var admin = AdminMessage()
+                admin.setChannel = channel
+                sendAdmin(admin, via: link)
+            }
+            if transmit.loRa.received {
+                var lora = Config.LoRaConfig()
+                lora.usePreset = true
+                lora.region = Config.LoRaConfig.RegionCode(rawValue: transmit.loRa.regionRaw) ?? .us
+                lora.modemPreset = Config.LoRaConfig.ModemPreset(rawValue: transmit.loRa.presetRaw) ?? .longFast
+                lora.channelNum = UInt32(transmit.loRa.frequencySlot)
+                lora.hopLimit = UInt32(transmit.loRa.hopLimit)
+                lora.txEnabled = true
+                var config = Config()
+                config.lora = lora
+                var admin = AdminMessage()
+                admin.setConfig = config
+                sendAdmin(admin, via: link)   // the radio reboots; the link re-syncs
+            }
+            link.drift = []
+            noteAppEvent("applied fleet settings to \(String(format: "!%08x", UInt32(truncatingIfNeeded: nodeNum)))")
+            refreshFacade()
+        }
+    }
+
+    /// Owner names for one attached fleet radio (suggestion accepted).
+    func setOwner(longName: String, shortName: String, via nodeNum: Int64) {
+        guard let link = link(forNodeNum: nodeNum), let store else { return }
+        let long = MeshName.clampLong(longName.trimmingCharacters(in: .whitespaces))
+        let short = MeshName.clampShort(shortName.trimmingCharacters(in: .whitespaces))
+        guard !long.isEmpty, !short.isEmpty else { return }
+        var user = User()
+        user.longName = long
+        user.shortName = short
+        var admin = AdminMessage()
+        admin.setOwner = user
+        sendAdmin(admin, via: link)
+        Task { await store.renameNode(num: nodeNum, longName: long, shortName: short) }
+    }
+
+    /// Device role for one attached fleet radio (suggestion accepted); written
+    /// on top of that radio's own device config so nothing else changes.
+    func setDeviceRole(_ roleRaw: Int, via nodeNum: Int64) {
+        guard let link = link(forNodeNum: nodeNum), var device = link.deviceConfig else { return }
+        device.role = Config.DeviceConfig.Role(rawValue: roleRaw) ?? .client
+        var config = Config()
+        config.device = device
+        var admin = AdminMessage()
+        admin.setConfig = config
+        sendAdmin(admin, via: link)
+        link.deviceConfig = device
+    }
+
+    /// Forget & Revoke (docs §1.8): drop the radio, then give every
+    /// custom-keyed channel a fresh key on the transmit radio. Other fleet
+    /// radios show drift until re-applied; channels on the default key
+    /// (a community mesh) can't be revoked. Returns the rotated channel
+    /// names so the UI can say who needs the new QR.
+    @discardableResult
+    func forgetAndRevoke(radio nodeNum: Int64) -> [String] {
+        forget(radio: nodeNum)
+        return rotateFleetChannelKeys()
+    }
+
+    @discardableResult
+    func rotateFleetChannelKeys() -> [String] {
+        guard let store else { return [] }
+        var rotated: [String] = []
+        Task {
+            for ch in await store.channelSettings() where ch.psk.count >= 16 {
+                let fresh = Data((0..<32).map { _ in UInt8.random(in: .min ... .max) })
+                setChannel(index: ch.index, name: ch.name, roleRaw: ch.roleRaw, psk: fresh)
+                rotated.append(ch.name.isEmpty ? "channel \(ch.index)" : ch.name)
+            }
+            if !rotated.isEmpty {
+                noteAppEvent("rotated keys on \(rotated.joined(separator: ", ")) — re-share the QR")
+            }
+            for link in links.values where link.phase == .connected { await computeDrift(link) }
+        }
+        return rotated
+    }
+
+    /// Node numbers of every attached (connected) fleet radio, transmit first.
+    var attachedNodeNums: [Int64] {
+        attached.filter { $0.phase == .connected && $0.nodeNum > 0 }.map(\.nodeNum)
+    }
+
+    /// First MyInfo on a link: it is now a known fleet radio on this phone.
+    private func registerFleetRadio(_ num: Int64, link: RadioLink) {
+        fleetPeripherals[num] = link.id
+        pendingPeripherals.remove(link.id)
+        if pairingPeripheralId == link.id { pairedNodeNum = num }
+        // Per-radio sync clock; fall back to the pre-fleet single value.
+        link.lastSyncedAt = defaults.object(forKey: "\(Keys.lastSynced)-\(num)") as? Date
+            ?? (num == defaults.integer(forKey: Keys.myNodeNum) ? lastSyncedAt : nil)
+        if myNodeNum == 0 {
+            myNodeNum = num
+            defaults.set(num, forKey: Keys.myNodeNum)
+        }
+        let firmware = link.firmwareVersion
+        Task {
+            await store?.upsertRadio(nodeNum: num, firmware: firmware.isEmpty ? nil : firmware, publicKey: nil, battery: nil)
+            await reloadFleet()
+        }
+    }
+
+    // MARK: - Inbound frames (per link)
+
+    private func process(frame: Data, link: RadioLink) {
         guard let fromRadio = try? FromRadio(serializedBytes: frame) else {
             log.error("undecodable FromRadio frame (\(frame.count) bytes)")
             return
         }
+        let isPrimary = transmitLink == nil || transmitLink === link
         switch fromRadio.payloadVariant {
         case .myInfo(let myInfo):
-            myNodeNum = Int64(myInfo.myNodeNum)
-            defaults.set(myNodeNum, forKey: Keys.myNodeNum)
-            let localNum = myNodeNum
-            Task { await store?.setLocalNodeNum(localNum) }
+            let num = Int64(myInfo.myNodeNum)
+            if link.nodeNum != num {
+                link.nodeNum = num
+                registerFleetRadio(num, link: link)
+            }
 
         case .metadata(let metadata):
-            firmwareVersion = metadata.firmwareVersion
-            defaults.set(firmwareVersion, forKey: Keys.firmware)
+            link.firmwareVersion = metadata.firmwareVersion
+            if link.nodeNum > 0 {
+                let num = link.nodeNum, fw = metadata.firmwareVersion
+                Task { await store?.upsertRadio(nodeNum: num, firmware: fw, publicKey: nil, battery: nil) }
+            }
+            if isPrimary { refreshFacade() }
 
         case .config(let config):
             switch config.payloadVariant {
-            case .bluetooth(let bluetooth): bluetoothConfig = bluetooth
-            case .device(let device): deviceConfig = device
-            case .display(let display): displayConfig = display
-            case .position(let position): positionConfig = position
+            case .bluetooth(let bluetooth): link.bluetoothConfig = bluetooth
+            case .device(let device): link.deviceConfig = device
+            case .display(let display): link.displayConfig = display
+            case .position(let position): link.positionConfig = position
             default: break
             }
             if case .lora(let lora) = config.payloadVariant {
-                loRa = LoRaSnapshot(received: true,
-                                    regionRaw: lora.region.rawValue,
-                                    presetRaw: lora.modemPreset.rawValue,
-                                    frequencySlot: Int(lora.channelNum),
-                                    hopLimit: Int(lora.hopLimit))
-                persistLoRa()
-                // If the radio's config matches a known metro preset but we never
-                // recorded applying it (applied before tracking existed, or via
-                // another app), adopt it — this drives the channel icon.
-                MetroPresetStore.shared.inferAppliedPreset(regionRaw: loRa.regionRaw,
-                                                           presetRaw: loRa.presetRaw,
-                                                           frequencySlot: loRa.frequencySlot)
+                link.loRa = LoRaSnapshot(received: true,
+                                         regionRaw: lora.region.rawValue,
+                                         presetRaw: lora.modemPreset.rawValue,
+                                         frequencySlot: Int(lora.channelNum),
+                                         hopLimit: Int(lora.hopLimit))
+                if isPrimary {
+                    // If the radio's config matches a known metro preset but we never
+                    // recorded applying it (applied before tracking existed, or via
+                    // another app), adopt it — this drives the channel icon.
+                    MetroPresetStore.shared.inferAppliedPreset(regionRaw: link.loRa.regionRaw,
+                                                               presetRaw: link.loRa.presetRaw,
+                                                               frequencySlot: link.loRa.frequencySlot)
+                }
             }
+            if isPrimary { refreshFacade() }
 
         case .moduleConfig(let moduleConfig):
             if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
-                telemetryConfig = telemetry
+                link.telemetryConfig = telemetry
+                if isPrimary { refreshFacade() }
             }
 
         case .channel(let channel):
-            Task { await store?.applyChannel(channel) }
+            // Every link remembers its own table (for drift); the store's
+            // fleet-wide list is defined by the transmit radio's dump.
+            link.channels[Int32(channel.index)] = MessageStore.ChannelSnapshot(
+                index: Int32(channel.index), name: channel.settings.name,
+                psk: channel.settings.psk, roleRaw: Int32(channel.role.rawValue))
+            if isPrimary { Task { await store?.applyChannel(channel) } }
 
         case .nodeInfo(let nodeInfo):
+            link.knownPeers.insert(Int64(nodeInfo.num))
             Task { await store?.applyNodeInfo(nodeInfo) }
 
         case .configCompleteID(let nonce):
-            handleConfigComplete(nonce)
+            handleConfigComplete(nonce, link: link)
 
         case .rebooted:
             // Radio rebooted mid-session (e.g. after a config write): full re-sync.
-            startHandshake()
+            link.phase = .syncing
+            refreshFacade()
+            startHandshake(link)
 
         case .packet(let packet):
-            handleMeshPacket(packet)
+            handleMeshPacket(packet, via: link)
 
         case .queueStatus(let qs):
             // The firmware's verdict on every packet the phone hands it:
             // res is the sendLocal error code, free/maxlen the TX queue.
             // A packet the firmware couldn't even decode never gets one.
-            logTraffic(from: myNodeNum, port: "queue",
+            logTraffic(from: link.nodeNum, port: "queue",
                        summary: "res=\(qs.res) free=\(qs.free)/\(qs.maxlen) for #\(String(format: "%08X", qs.meshPacketID))")
 
         default:
@@ -564,10 +968,11 @@ final class RadioManager: ObservableObject {
         }
     }
 
-    private func handleMeshPacket(_ packet: MeshPacket) {
+    private func handleMeshPacket(_ packet: MeshPacket, via link: RadioLink) {
         guard let store else { return }
         let fromNum = Int64(packet.from)
-        if fromNum != myNodeNum {
+        link.knownPeers.insert(fromNum)
+        if !isMine(fromNum) {
             TrafficMonitor.shared.noteMeshPacket()
             accumulateCoverage(snr: packet.rxSnr)
             Task {
@@ -599,11 +1004,13 @@ final class RadioManager: ObservableObject {
 
         switch decoded.portnum {
         case .textMessageApp, .detectionSensorApp, .alertApp:
-            let myNum = myNodeNum
-            let window = trustedRxWindow
+            let myNum = link.nodeNum > 0 ? link.nodeNum : myNodeNum
+            let window = link.trustedRxWindow
+            let via = link.nodeNum
             Task {
                 if let inbound = await store.ingestTextMessage(packet: packet, myNum: myNum,
-                                                               trustedRxWindow: window) {
+                                                               trustedRxWindow: window,
+                                                               viaNodeNum: via) {
                     await MainActor.run { self.notifyIfAppropriate(inbound) }
                 }
                 let unread = await store.totalUnreadConversations()
@@ -615,8 +1022,11 @@ final class RadioManager: ObservableObject {
             // Only routing results addressed to us correlate with our sends —
             // overheard results for other nodes' packets could collide on the
             // 32-bit id space and forge a delivery state.
-            guard Int64(packet.to) == myNodeNum else { return }
+            guard isMine(Int64(packet.to)) else { return }
             let errorRaw = Int32(routing.errorReason.rawValue)
+            if let waiter = pendingAdminAcks.removeValue(forKey: decoded.requestID) {
+                waiter.resume(returning: errorRaw == 0)
+            }
             if let key = resendRequests.first(where: { $0.value.packetId == decoded.requestID })?.key {
                 if errorRaw == 0 { resendRequests[key]?.delivered = true } else { resendRequests[key]?.nakError = errorRaw }
             }
@@ -650,6 +1060,14 @@ final class RadioManager: ObservableObject {
                                                              ackTo: Int64(packet.to))
                 guard let outcome else { return }
                 await MainActor.run {
+                    // PKI 39: the radio has no key for this peer after all —
+                    // forget what we assumed so the next send preloads first.
+                    if errorRaw == 39 || errorRaw == 34 {
+                        for l in self.links.values {
+                            l.knownPeers.remove(outcome.toNum)
+                            l.preloadedThisSession.remove(outcome.toNum)
+                        }
+                    }
                     switch MessageStatus(rawValue: outcome.statusRaw) {
                     case .failed:
                         LiveActivityManager.shared.update(packetId: requestId,
@@ -671,7 +1089,7 @@ final class RadioManager: ObservableObject {
 
         case .positionApp:
             guard let position = try? Position(serializedBytes: decoded.payload) else { return }
-            if fromNum == myNodeNum, position.latitudeI != 0 || position.longitudeI != 0 {
+            if isMine(fromNum), position.latitudeI != 0 || position.longitudeI != 0 {
                 myLastPosition = (Double(position.latitudeI) * 1e-7,
                                   Double(position.longitudeI) * 1e-7, Date())
             }
@@ -686,6 +1104,10 @@ final class RadioManager: ObservableObject {
 
         case .telemetryApp:
             guard let telemetry = try? Telemetry(serializedBytes: decoded.payload) else { return }
+            if isMine(fromNum), case .deviceMetrics(let metrics) = telemetry.variant, metrics.hasBatteryLevel {
+                let battery = Int(metrics.batteryLevel)
+                Task { await store.upsertRadio(nodeNum: fromNum, firmware: nil, publicKey: nil, battery: battery) }
+            }
             Task { await store.applyTelemetry(telemetry, from: fromNum) }
 
         case .tracerouteApp:
@@ -964,7 +1386,62 @@ final class RadioManager: ObservableObject {
         UserDefaults.standard.object(forKey: "sequenceTrailerEnabled") as? Bool ?? true
     }
 
+    /// DMs to a peer the radio hasn't shown us get their node info loaded
+    /// onto the radio first (issue #1 follow-up, docs/MULTI_RADIO.md §1.3).
     private func transmit(_ record: MessageStore.OutgoingRecord) {
+        let isDM = record.toNum != Int64(UInt32.max)
+        guard isDM, let link = transmitLink,
+              !link.knownPeers.contains(record.toNum), !link.preloadedThisSession.contains(record.toNum) else {
+            transmitNow(record)
+            return
+        }
+        Task {
+            await preloadContact(peer: record.toNum)
+            transmitNow(record)
+        }
+    }
+
+    /// add_contact + set_favorite_node for `peer` from our own store, then
+    /// wait for the radio's ack (or 2 s). Favorite so the radio's eviction
+    /// policy spares the entry. At most once per peer per session — each
+    /// add_contact is a flash write on the radio.
+    func preloadContact(peer: Int64) async {
+        guard let store, let link = transmitLink, peer > 0, !isMine(peer) else { return }
+        link.preloadedThisSession.insert(peer)
+        guard let snapshot = await store.nodeSnapshot(num: peer) else { return }
+        var user = User()
+        user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: peer))
+        user.longName = snapshot.longName
+        user.shortName = snapshot.shortName
+        if snapshot.publicKey.count == 32 { user.publicKey = snapshot.publicKey }
+        var contact = SharedContact()
+        contact.nodeNum = UInt32(truncatingIfNeeded: peer)
+        contact.user = user
+        var admin = AdminMessage()
+        admin.addContact = contact
+        let id = sendAdmin(admin)
+        let acked = await awaitAdminAck(id, timeout: 2)
+        if acked {
+            var favorite = AdminMessage()
+            favorite.setFavoriteNode = UInt32(truncatingIfNeeded: peer)
+            sendAdmin(favorite)
+            link.knownPeers.insert(peer)
+        }
+        noteAppEvent("preloaded \(user.id) onto the radio\(snapshot.publicKey.count == 32 ? " with key" : " (no key)")\(acked ? "" : " — no ack, sending anyway")")
+    }
+
+    private func awaitAdminAck(_ packetId: UInt32, timeout: TimeInterval) async -> Bool {
+        await withCheckedContinuation { continuation in
+            pendingAdminAcks[packetId] = continuation
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(timeout))
+                guard let self, let waiter = self.pendingAdminAcks.removeValue(forKey: packetId) else { return }
+                waiter.resume(returning: false)
+            }
+        }
+    }
+
+    private func transmitNow(_ record: MessageStore.OutgoingRecord) {
         var decoded = DataMessage()
         decoded.portnum = .textMessageApp
         decoded.payload = record.text.data(using: .utf8) ?? Data()
@@ -1016,14 +1493,15 @@ final class RadioManager: ObservableObject {
     /// packet is never relayed beyond the direct RF link. Returns the packet
     /// id so the serving side can pace chunks on routing acks.
     @discardableResult
-    func sendMeshsites(to num: Int64, payload: Data, wantAck: Bool = true) -> UInt32 {
+    func sendMeshsites(to num: Int64, payload: Data, wantAck: Bool = true, via nodeNum: Int64? = nil) -> UInt32 {
+        let link = nodeNum.flatMap { self.link(forNodeNum: $0) }
         var decoded = DataMessage()
         decoded.portnum = PortNum.UNRECOGNIZED(MeshsitesManager.port)
         decoded.payload = payload
 
         var packet = MeshPacket()
         packet.id = newPacketId()
-        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.from = UInt32(truncatingIfNeeded: link?.nodeNum ?? myNodeNum)
         packet.to = UInt32(truncatingIfNeeded: num)
         packet.hopLimit = 1
         packet.wantAck = wantAck
@@ -1031,8 +1509,8 @@ final class RadioManager: ObservableObject {
 
         var toRadio = ToRadio()
         toRadio.packet = packet
-        write(toRadio)
-        logTraffic(from: myNodeNum, port: "sent",
+        if let link { write(toRadio, via: link) } else { write(toRadio) }
+        logTraffic(from: link?.nodeNum ?? myNodeNum, port: "sent",
                    summary: "→ meshsite \(String(format: "!%08x", UInt32(truncatingIfNeeded: num))) #\(String(format: "%08X", packet.id)): \(MeshsitesManager.describeFrame([UInt8](payload)))")
         return packet.id
     }
@@ -1539,10 +2017,24 @@ final class RadioManager: ObservableObject {
     /// and drifts from there, and every packet's rx_time comes from that
     /// clock. Set it from the phone on each connect, as the official app
     /// does (TODO 179). The firmware keeps a better source (GPS) if it has one.
-    private func setRadioTime() {
+    private func setRadioTime(via link: RadioLink) {
         var admin = AdminMessage()
         admin.setTimeOnly = UInt32(clamping: Int(Date().timeIntervalSince1970))
-        sendAdmin(admin)
+        var decoded = DataMessage()
+        decoded.portnum = .adminApp
+        decoded.payload = (try? admin.serializedData()) ?? Data()
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: link.nodeNum)
+        packet.to = UInt32(truncatingIfNeeded: link.nodeNum)
+        packet.decoded = decoded
+        packet.wantAck = true
+        packet.priority = .reliable
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio, via: link)
+        logTraffic(from: link.nodeNum, port: "sent",
+                   summary: "→ admin #\(String(format: "%08X", packet.id)): set time")
     }
 
     func applyLoRaConfig(regionRaw: Int, presetRaw: Int, frequencySlot: Int, hopLimit: Int,
@@ -1679,22 +2171,28 @@ final class RadioManager: ObservableObject {
     /// Returns the packet id so callers can correlate the routing result.
     @discardableResult
     private func sendAdmin(_ admin: AdminMessage) -> UInt32 {
+        sendAdmin(admin, via: nil)
+    }
+
+    @discardableResult
+    private func sendAdmin(_ admin: AdminMessage, via link: RadioLink?) -> UInt32 {
+        let target = link?.nodeNum ?? myNodeNum
         var decoded = DataMessage()
         decoded.portnum = .adminApp
         decoded.payload = (try? admin.serializedData()) ?? Data()
 
         var packet = MeshPacket()
         packet.id = newPacketId()
-        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
-        packet.to = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.from = UInt32(truncatingIfNeeded: target)
+        packet.to = UInt32(truncatingIfNeeded: target)
         packet.decoded = decoded
         packet.wantAck = true
         packet.priority = .reliable
 
         var toRadio = ToRadio()
         toRadio.packet = packet
-        write(toRadio)
-        logTraffic(from: myNodeNum, port: "sent",
+        if let link { write(toRadio, via: link) } else { write(toRadio) }
+        logTraffic(from: target, port: "sent",
                    summary: "→ admin #\(String(format: "%08X", packet.id)): \(adminLabel(admin))")
         return packet.id
     }
@@ -1706,6 +2204,8 @@ final class RadioManager: ObservableObject {
         case .setConfig: return "set config"
         case .setChannel(let ch): return "set channel \(ch.index)"
         case .setModuleConfig: return "set module config"
+        case .addContact(let c): return "add contact \(c.user.id)"
+        case .setFavoriteNode(let n): return "favorite \(String(format: "!%08x", n))"
         default: return String(describing: admin.payloadVariant).components(separatedBy: "(").first ?? "admin"
         }
     }
@@ -1718,9 +2218,17 @@ final class RadioManager: ObservableObject {
         defaults.set(loRa.hopLimit, forKey: Keys.hopLimit)
     }
 
+    /// Writes to the transmit radio. Handshake traffic names its link.
     private func write(_ toRadio: ToRadio) {
+        guard let link = transmitLink
+                ?? links.values.first(where: { $0.phase == .connected })
+                ?? links.values.first(where: { $0.phase == .syncing }) else { return }
+        write(toRadio, via: link)
+    }
+
+    private func write(_ toRadio: ToRadio, via link: RadioLink) {
         guard let data = try? toRadio.serializedData() else { return }
-        transport.write(data)
+        central.write(id: link.id, data)
     }
 
     // MARK: - On-demand refresh (Settings pull-to-refresh)
@@ -1737,8 +2245,10 @@ final class RadioManager: ObservableObject {
         heartbeat.heartbeat = Heartbeat()
         write(heartbeat)
         requestOwnTelemetry()
-        nodeDBRequested = false
-        requestNodeDBIfNeeded()
+        for link in links.values where link.phase == .connected {
+            link.nodeDBRequested = false
+            requestNodeDBIfNeeded(link)
+        }
         // Give the radio a beat to answer so the refresh spinner reflects reality.
         try? await Task.sleep(for: .seconds(1.5))
     }
@@ -1772,8 +2282,9 @@ final class RadioManager: ObservableObject {
             Task { _ = await LocationProvider.shared.current() }
         }
         guard let store else { return }
+        let attachedNow = Set(attachedNodeNums)
         Task {
-            let reholds = await store.sweepStaleSending()
+            let reholds = await store.sweepStaleSending(attachedRadios: attachedNow)
             for packetId in reholds {
                 await store.prepareRetryHold(packetId: packetId,
                                              newPacketId: Int64(self.newPacketId()))
@@ -1796,6 +2307,42 @@ final class RadioManager: ObservableObject {
             try? await Task.sleep(for: .seconds(3))  // let the drain settle
         }
     }
+}
+
+/// One radio the phone holds (or is arming a connect for): its Bluetooth
+/// identity plus everything a session learns from that radio alone.
+@MainActor
+final class RadioLink {
+    enum Phase: Equatable {
+        case armed        // pending connect; radio out of range
+        case connecting
+        case syncing      // link up, config drain in flight
+        case connected
+        case bondLost
+    }
+    let id: UUID
+    var nodeNum: Int64 = 0
+    var phase: Phase = .armed
+    var firmwareVersion = ""
+    var loRa = RadioManager.LoRaSnapshot()
+    var bluetoothConfig: Config.BluetoothConfig?
+    var deviceConfig: Config.DeviceConfig?
+    var displayConfig: Config.DisplayConfig?
+    var positionConfig: Config.PositionConfig?
+    var telemetryConfig: ModuleConfig.TelemetryConfig?
+    var connectedAt: Date?
+    var lastSyncedAt: Date?
+    var trustedRxWindow: ClosedRange<Date>?
+    var knownPeers: Set<Int64> = []
+    var preloadedThisSession: Set<Int64> = []
+    var nodeDBRequested = false
+    var watchdog: Task<Void, Never>?
+    /// This radio's own channel table, from its config dump.
+    var channels: [Int32: MessageStore.ChannelSnapshot] = [:]
+    /// How this radio differs from the fleet (channels + LoRa); empty = in step.
+    var drift: [String] = []
+
+    init(id: UUID) { self.id = id }
 }
 
 /// Tracks foreground/background so notification suppression works without views.

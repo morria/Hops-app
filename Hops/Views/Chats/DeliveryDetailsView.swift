@@ -41,6 +41,11 @@ struct DeliveryDetailsView: View {
                     LabeledContent(message.outgoing ? "Sent" : "Received",
                                    value: message.timestamp.formatted(date: .abbreviated, time: .standard))
                     LabeledContent("Delivery", value: isDM ? "Direct message" : "Channel broadcast")
+                    if message.viaNodeNum > 0, RadioManager.shared.fleet.count > 1 {
+                        LabeledContent(message.outgoing ? "Sent via" : "Heard by",
+                                       value: RadioManager.shared.fleet.first { $0.nodeNum == message.viaNodeNum }?.displayName
+                                           ?? String(format: "!%08x", UInt32(truncatingIfNeeded: message.viaNodeNum)))
+                    }
                     LabeledContent("Packet ID",
                                    value: String(format: "0x%08X", UInt32(truncatingIfNeeded: message.packetId)))
                     if message.replyId > 0 {

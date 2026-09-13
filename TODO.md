@@ -4,6 +4,60 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+194. [x] Node-info preload before DMs (fleet phase 2, ships alone). The
+         radio tells us what it knows — its node-DB dump at connect and
+         every packet heard — and a DM to anyone else first sends
+         add_contact (user record + key from our store) and set_favorite
+         so the radio's 80–100-entry table won't evict them, waits for the
+         ack up to 2 s, then transmits. Once per peer per session (each
+         add_contact is a flash write). A PKI NAK (34/39) clears the
+         assumption so Retry preloads. Logged as "preloaded !xxxx onto the
+         radio" in Mesh Traffic.
+
+193. [x] Multi-radio ("fleet") support — product + implementation design
+         with adversarial review in docs/MULTI_RADIO.md. Phased: data model
+         → FleetConnector roaming → node-info preload before DMs (add_contact
+         + favorite; independent, ships first) → add-radio flow with fleet
+         settings and role/name recommendations → via-radio send/receive
+         semantics and mailbox honesty (firmware keeps 8/32 packets for an
+         absent phone) → forget & revoke with key rotation → test harness.
+         Decisions made (draft 2). Progress: phase 2 (preload) done in
+         194; phase 0 done — RadioEntity (synced; nickname, location,
+         priority, firmware, last seen, battery), MessageEntity.viaNodeNum,
+         store fleet CRUD, local-node SET for merge/prune/own-sender
+         guards; phase 1 done — BLECentral (one CBCentralManager, pending
+         connects for every fleet radio, BLELink per peripheral, up to all
+         attached at once), RadioManager as a fleet of RadioLinks with a
+         priority-ordered transmit radio and a facade (state, myNodeNum,
+         loRa, configs) over it, per-link handshake/node-DB/known-peers/
+         sync clock, Settings › Radios (attached now, fleet in order with
+         drag-to-reorder, add radio, per-radio detail with mailbox note
+         and companion line, forget), PairingView add-radio mode. Migration:
+         the pre-fleet radio becomes fleet member #1. Phase 3 done — every link
+         keeps its own channel table; drift vs the fleet (store channels +
+         transmit LoRa) is computed at attach and shown per radio with
+         Apply Fleet Settings (channels + LoRa via that link; never
+         security or role); owner-name suggestion "<base> · <Location>" /
+         "<3><L>" and role suggestion by location (second radio at a place
+         → Client Mute; mobile → Client Mute) with explicit Use/Apply
+         buttons, in both the radio detail and the add-radio flow. Phase 4
+         done — Meshsites beacons through every attached radio and answers
+         through the radio a request arrived on; sweeps skip messages
+         whose radio is detached; Delivery Details shows Sent via / Heard
+         by. Phase 6 done — RadioTransport protocol
+         (BLECentral conforms), RadioManager takes an injected transport +
+         defaults, HopsTests target with a scripted MockTransport: first
+         radio becomes transmit; second attaches and reorder picks the
+         sender; dropping the transmit radio fails over and re-arms; sends
+         leave only through the transmit radio; forget removes from fleet
+         and transport; store fleet CRUD; merge refused when any fleet
+         radio shares a key, peers still fold; MeshName/MeshURL/routing
+         words/partial-page helpers. Phase 5 done — Forget & Revoke Keys
+         rotates every custom-keyed channel on the transmit radio, other
+         radios show drift until re-applied. Field verification still
+         needed with two radios: attach both, reorder, send, drop the top
+         one mid-conversation, Apply Fleet Settings on the second.
+
 192. [x] "Ask to Resend" did nothing visibly. It sent the NACK but recorded
          nothing: no pill state, no Mesh Traffic line, no ack tracking, and
          a disconnected radio returned silently. Now each request is tracked
