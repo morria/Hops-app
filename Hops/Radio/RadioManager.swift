@@ -81,6 +81,7 @@ final class RadioManager: ObservableObject {
     @Published var telemetryConfig: ModuleConfig.TelemetryConfig?
     @Published var powerConfig: Config.PowerConfig?
     @Published var networkConfig: Config.NetworkConfig?
+    @Published var securityConfig: Config.SecurityConfig?
     /// The radio's full LoRa section (the snapshot `loRa` is a summary);
     /// needed to flip tx_enabled without resetting the rest.
     @Published var loraConfig: Config.LoRaConfig?
@@ -120,6 +121,7 @@ final class RadioManager: ObservableObject {
         var power: Config.PowerConfig?
         var network: Config.NetworkConfig?
         var lora: Config.LoRaConfig?
+        var security: Config.SecurityConfig?
         var telemetry: ModuleConfig.TelemetryConfig?
         var modules = ModuleConfigs()
     }
@@ -131,7 +133,8 @@ final class RadioManager: ObservableObject {
             map[link.nodeNum] = LinkConfigs(bluetooth: link.bluetoothConfig, device: link.deviceConfig,
                                             display: link.displayConfig, position: link.positionConfig,
                                             power: link.powerConfig, network: link.networkConfig,
-                                            lora: link.loraConfig, telemetry: link.telemetryConfig,
+                                            lora: link.loraConfig, security: link.securityConfig,
+                                            telemetry: link.telemetryConfig,
                                             modules: link.moduleConfigs)
         }
         if configsByNode != map { configsByNode = map }
@@ -664,6 +667,7 @@ final class RadioManager: ObservableObject {
             telemetryConfig = link.telemetryConfig
             powerConfig = link.powerConfig
             networkConfig = link.networkConfig
+            securityConfig = link.securityConfig
             loraConfig = link.loraConfig
             if moduleConfigs != link.moduleConfigs { moduleConfigs = link.moduleConfigs }
             connectedAt = link.connectedAt
@@ -995,6 +999,7 @@ final class RadioManager: ObservableObject {
             case .position(let position): link.positionConfig = position
             case .power(let power): link.powerConfig = power
             case .network(let network): link.networkConfig = network
+            case .security(let security): link.securityConfig = security
             default: break
             }
             if case .lora(let lora) = config.payloadVariant {
@@ -1264,6 +1269,7 @@ final class RadioManager: ObservableObject {
                 case .position(let position): positionConfig = position; link.positionConfig = position
                 case .power(let power): powerConfig = power; link.powerConfig = power
                 case .network(let network): networkConfig = network; link.networkConfig = network
+                case .security(let security): securityConfig = security; link.securityConfig = security
                 case .lora(let lora):
                     loraConfig = lora
                     link.loraConfig = lora
@@ -2230,6 +2236,22 @@ final class RadioManager: ObservableObject {
     /// Multi-config saves must be transactional: each setConfig schedules a
     /// firmware save+reboot, and writes racing that reboot are silently lost.
     /// begin defers the reboot; commit applies everything at once.
+    /// Replace one radio's keypair. Empty = the firmware generates a fresh
+    /// pair on reboot; 32 bytes = that private key (the public half is
+    /// derived). Peers who pinned the old key will see a key change.
+    func setPrivateKey(_ privateKey: Data, via nodeNum: Int64? = nil) {
+        let link = nodeNum.flatMap { self.link(forNodeNum: $0) }
+        var security = (link?.securityConfig ?? securityConfig) ?? Config.SecurityConfig()
+        security.privateKey = privateKey
+        security.publicKey = Data()     // derived by the firmware
+        var config = Config()
+        config.security = security
+        var admin = AdminMessage()
+        admin.setConfig = config
+        sendAdmin(admin, via: link)
+        noteAppEvent(privateKey.isEmpty ? "keypair regeneration requested" : "private key set")
+    }
+
     /// Ask one radio (or the transmit radio) to reboot in a couple of
     /// seconds. Unlike Sleep, it comes back with Bluetooth on.
     func rebootRadio(via nodeNum: Int64? = nil) {
@@ -2465,6 +2487,7 @@ final class RadioLink {
     var telemetryConfig: ModuleConfig.TelemetryConfig?
     var powerConfig: Config.PowerConfig?
     var networkConfig: Config.NetworkConfig?
+    var securityConfig: Config.SecurityConfig?
     var loraConfig: Config.LoRaConfig?
     var moduleConfigs = RadioManager.ModuleConfigs()
     var connectedAt: Date?

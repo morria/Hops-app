@@ -236,6 +236,9 @@ struct DeviceConfigurationView: View {
     @State private var location = "other"
     @State private var confirmForget = false
     @State private var confirmRevoke = false
+    @State private var confirmRegenerate = false
+    @State private var showSetKey = false
+    @State private var newPrivateKey = ""
 
     private var fleetEntry: MessageStore.RadioSnapshot? {
         let num = nodeNum ?? radio.myNodeNum
@@ -260,30 +263,51 @@ struct DeviceConfigurationView: View {
                         Text("Other").tag("other")
                     }
                     .onChange(of: location) { _, tag in radio.setRadioLocation(num, tag: tag) }
-                } header: {
-                    Text("This radio")
-                }
-
-                Section {
-                    LabeledContent("Battery") {
-                        if let battery = fleetEntry?.lastBattery, battery >= 0 {
-                            HStack(spacing: 6) {
-                                Image(systemName: battery > 100 ? "powerplug" : battery > 60 ? "battery.100" : battery > 25 ? "battery.50" : "battery.25")
-                                Text(battery > 100 ? "Plugged in" : "\(battery)%")
-                            }
-                            .foregroundStyle(battery <= 25 ? Color.red : Color.secondary)
-                            .fixedSize()
-                        } else {
-                            Text("—").foregroundStyle(.secondary)
-                        }
-                    }
                     LabeledContent("Node ID", value: String(format: "!%08x", UInt32(truncatingIfNeeded: num)))
                     if let fw = fleetEntry?.firmware, !fw.isEmpty { LabeledContent("Firmware", value: "v\(fw)") }
                     if let attached = attachedEntry {
                         LabeledContent("Status", value: attached.isTransmit ? "Attached · sending" : "Attached · receiving")
                     }
+                    if let security = cfg.security, security.publicKey.count == 32 {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("Encryption key")
+                            KeyFingerprintView(key: security.publicKey)
+                            Text(security.publicKey.base64EncodedString())
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                                .textSelection(.enabled)
+                        }
+                        Button("Regenerate Keys…") { confirmRegenerate = true }
+                            .confirmationDialog("Regenerate this radio's keys?", isPresented: $confirmRegenerate, titleVisibility: .visible) {
+                                Button("Regenerate", role: .destructive) { radio.setPrivateKey(Data(), via: nodeNum) }
+                            } message: {
+                                Text("The radio makes a new keypair and restarts. Everyone who has messaged this radio will see a key change and need to reset it before their direct messages get through again.")
+                            }
+                        Button("Set Private Key…") { showSetKey = true }
+                            .alert("Private key", isPresented: $showSetKey) {
+                                TextField("Base64, 32 bytes", text: $newPrivateKey)
+                                Button("Set", role: .destructive) {
+                                    if let data = Data(base64Encoded: newPrivateKey.trimmingCharacters(in: .whitespacesAndNewlines)), data.count == 32 {
+                                        radio.setPrivateKey(data, via: nodeNum)
+                                    }
+                                    newPrivateKey = ""
+                                }
+                                Button("Cancel", role: .cancel) { newPrivateKey = "" }
+                            } message: {
+                                Text("Use this to give a replacement radio the same identity. The public key is derived by the radio; it restarts.")
+                            }
+                    }
+                    Button("Forget & Revoke Keys…", role: .destructive) { confirmRevoke = true }
+                        .confirmationDialog("Lost or stolen?", isPresented: $confirmRevoke, titleVisibility: .visible) {
+                            Button("Forget and Rotate Channel Keys", role: .destructive) {
+                                radio.forgetAndRevoke(radio: nodeNum ?? radio.myNodeNum)
+                                dismiss()
+                            }
+                        } message: {
+                            Text("Forgets the radio and gives every channel with a custom key a new one, applied to your sending radio now. Your other radios will show as differing until you apply fleet settings. Anyone else on a rotated channel needs the new QR.")
+                        }
                 } header: {
-                    Text("Details")
+                    Text("This radio")
                 } footer: {
                     Label("Holds only its last 8–32 packets for you while you're not attached.", systemImage: "exclamationmark.triangle")
                 }
@@ -292,6 +316,18 @@ struct DeviceConfigurationView: View {
             }
 
             Section {
+                LabeledContent("Battery") {
+                    if let battery = fleetEntry?.lastBattery, battery >= 0 {
+                        HStack(spacing: 6) {
+                            Image(systemName: battery > 100 ? "powerplug" : battery > 60 ? "battery.100" : battery > 25 ? "battery.50" : "battery.25")
+                            Text(battery > 100 ? "Plugged in" : "\(battery)%")
+                        }
+                        .foregroundStyle(battery <= 25 ? Color.red : Color.secondary)
+                        .fixedSize()
+                    } else {
+                        Text("—").foregroundStyle(.secondary)
+                    }
+                }
                 Toggle("Very low power", isOn: veryLowPower)
                     .disabled(cfg.device == nil)
                 NavigationLink {
@@ -466,14 +502,7 @@ struct DeviceConfigurationView: View {
                         dismiss()
                     }
                 }
-            } header: {
-                Text("Connection")
-            } footer: {
-                Text("Reboot restarts the radio with Bluetooth on; it's back in about 20 seconds. Disconnect keeps the radio in your fleet but stops Hops from attaching until you connect again.")
-            }
-
-            if fleetEntry != nil {
-                Section {
+                if fleetEntry != nil {
                     Button("Forget This Radio…", role: .destructive) { confirmForget = true }
                         .confirmationDialog("Forget this radio?", isPresented: $confirmForget, titleVisibility: .visible) {
                             Button("Forget Radio", role: .destructive) {
@@ -483,16 +512,11 @@ struct DeviceConfigurationView: View {
                         } message: {
                             Text("Removes it from your fleet on every device. Messages stay. You can pair it again anytime.")
                         }
-                    Button("Forget & Revoke Keys…", role: .destructive) { confirmRevoke = true }
-                        .confirmationDialog("Lost or stolen?", isPresented: $confirmRevoke, titleVisibility: .visible) {
-                            Button("Forget and Rotate Channel Keys", role: .destructive) {
-                                radio.forgetAndRevoke(radio: nodeNum ?? radio.myNodeNum)
-                                dismiss()
-                            }
-                        } message: {
-                            Text("Forgets the radio and gives every channel with a custom key a new one, applied to your sending radio now. Your other radios will show as differing until you apply fleet settings. Anyone else on a rotated channel needs the new QR.")
-                        }
                 }
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("Reboot restarts the radio with Bluetooth on; it's back in about 20 seconds. Disconnect keeps the radio in your fleet but stops Hops from attaching until you connect again. Forget removes it from your fleet on every device.")
             }
         }
         .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
@@ -508,6 +532,7 @@ struct DeviceConfigurationView: View {
             radio.requestConfig(.powerConfig, via: target)
             radio.requestConfig(.networkConfig, via: target)
             radio.requestConfig(.loraConfig, via: target)
+            radio.requestConfig(.securityConfig, via: target)
             syncAll()
         }
         // Read-backs trickle in for seconds after the screen opens (ten
