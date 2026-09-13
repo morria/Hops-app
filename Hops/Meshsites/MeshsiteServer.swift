@@ -43,6 +43,35 @@ final class MeshsiteServer: ObservableObject {
     @Published private(set) var lastBeaconAt: Date?
     @Published private(set) var requestsServed = 0
 
+    // MARK: - Visitors (TODO 190) — persisted across launches
+    @Published private(set) var visitors: [Int64: Date] = MeshsiteServer.loadVisitors()
+    @Published private(set) var lifetimeRequests = UserDefaults.standard.integer(forKey: "meshsiteLifetimeRequests")
+
+    private static func loadVisitors() -> [Int64: Date] {
+        let raw = UserDefaults.standard.dictionary(forKey: "meshsiteVisitors") as? [String: Double] ?? [:]
+        var out: [Int64: Date] = [:]
+        for (key, stamp) in raw { if let num = Int64(key) { out[num] = Date(timeIntervalSince1970: stamp) } }
+        return out
+    }
+
+    /// One accepted request = one visit; link-level retransmits are filtered
+    /// out before this is called.
+    private func noteVisit(from: Int64) {
+        visitors[from] = Date()
+        lifetimeRequests += 1
+        var raw: [String: Double] = [:]
+        for (num, date) in visitors { raw[String(num)] = date.timeIntervalSince1970 }
+        UserDefaults.standard.set(raw, forKey: "meshsiteVisitors")
+        UserDefaults.standard.set(lifetimeRequests, forKey: "meshsiteLifetimeRequests")
+    }
+
+    func resetVisitors() {
+        visitors = [:]
+        lifetimeRequests = 0
+        UserDefaults.standard.removeObject(forKey: "meshsiteVisitors")
+        UserDefaults.standard.removeObject(forKey: "meshsiteLifetimeRequests")
+    }
+
     private struct CachedResponse {
         let request: [UInt8]
         let frames: [Data]
@@ -154,6 +183,7 @@ final class MeshsiteServer: ObservableObject {
             sendError(to: from, id: id, code: 5)
             return
         }
+        noteVisit(from: from)
         // Response cache, keyed by full request content (spec §3).
         let key = "\(from)/\(id)"
         if let cached = cache[key], Date().timeIntervalSince(cached.at) < 120 {
@@ -209,6 +239,10 @@ final class MeshsiteServer: ObservableObject {
             guard recorded else {
                 sendError(to: from, id: id, code: 4, message: "Server is starting — try again")
                 return
+            }
+            // TODO 191: optional push when a reader submits a form.
+            if UserDefaults.standard.bool(forKey: "meshsiteNotifyForms") {
+                NotificationManager.shared.postFormSubmission(from: from, path: path, fields: fields)
             }
             if case .found(let md) = await store.pageContentAsync(requestPath: path) {
                 markdown = md

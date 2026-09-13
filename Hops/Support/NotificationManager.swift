@@ -109,6 +109,25 @@ final class NotificationManager: NSObject {
             UNNotificationRequest(identifier: "bond-lost", content: content, trigger: nil))
     }
 
+    #if MESHSITES
+    /// A reader submitted a form on the user's Meshsite (TODO 191). Field
+    /// text is RF input — sanitized and truncated before it reaches a banner.
+    func postFormSubmission(from: Int64, path: String, fields: [(String, String)]) {
+        let content = UNMutableNotificationContent()
+        let site = MeshsiteServer.siteName
+        content.title = site.isEmpty ? "New form reply on your site" : "New form reply on \(site)"
+        let who = String(format: "!%08x", UInt32(truncatingIfNeeded: from))
+        let summary = fields.map { "\($0.0)=\(MeshsitesManager.sanitizeDisplay($0.1))" }.joined(separator: ", ")
+        var body = "\(who) on \(path)"
+        if !summary.isEmpty { body += " — \(summary)" }
+        content.body = body.count > 160 ? String(body.prefix(159)) + "…" : body
+        content.sound = .default
+        content.threadIdentifier = "meshsite-replies"
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "meshsite-reply-\(UUID().uuidString)", content: content, trigger: nil))
+    }
+    #endif
+
     func postOutboxHeld() {
         let content = UNMutableNotificationContent()
         content.title = "Couldn't send yet"

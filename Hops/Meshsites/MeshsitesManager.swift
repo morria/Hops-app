@@ -30,13 +30,46 @@ final class MeshsitesManager: ObservableObject {
 
     /// A fetched page plus the protocol/format version it was served with —
     /// the renderer selects syntax rules by version (spec §7).
-    struct Page {
+    struct Page: Equatable {
         let markdown: String
         let version: UInt8
     }
 
     @Published private(set) var sites: [Site] = []
-    @Published private(set) var progress: (received: Int, total: Int)?
+
+    /// Live state of the fetch in flight (TODO 189): every packet out and
+    /// back, byte counts as soon as the first chunk names the total, and a
+    /// renderable prefix of the page rebuilt on each contiguous chunk.
+    struct Transfer: Equatable {
+        enum PacketState: Equatable {
+            case pending            // not yet seen
+            case sent               // handed to the radio
+            case acked              // routing ACK from the peer
+            case failed(Int32)      // routing NAK
+            case received(Int)      // chunk bytes
+        }
+        var server: Int64
+        var startedAt: Date
+        var attempt: Int = 1
+        var request: PacketState = .sent
+        var chunks: [PacketState] = []          // sized once total is known
+        var receivedBytes = 0                   // compressed, so far
+        var expectedBytes: Int?                 // compressed, estimated from total
+        var inflatedBytes = 0                   // page bytes decodable so far
+        var partial: Page?                      // renderable prefix (whole lines)
+        var complete = false
+        var lastEventAt: Date
+
+        var totalChunks: Int? { chunks.isEmpty ? nil : chunks.count }
+        var receivedChunks: Int { chunks.filter { if case .received = $0 { return true }; return false }.count }
+    }
+    @Published private(set) var transfer: Transfer?
+
+    /// Legacy shape kept for callers that only want a fraction.
+    var progress: (received: Int, total: Int)? {
+        guard let t = transfer, let total = t.totalChunks else { return nil }
+        return (t.receivedChunks, total)
+    }
 
     enum SiteError: LocalizedError {
         case notConnected
@@ -230,12 +263,13 @@ final class MeshsitesManager: ObservableObject {
         if let known = entry.version, known != version { return }
         entry.total = total
         entry.version = version
-        entry.chunks[seq] = bytes.count > 10 ? Data(bytes[10...]) : Data()
+        let chunkData = bytes.count > 10 ? Data(bytes[10...]) : Data()
+        entry.chunks[seq] = chunkData
         pending[id] = entry
         restartTimeout(id: id)
         if progressId == nil || progressId == id {
             progressId = id
-            progress = (entry.chunks.count, total)
+            updateTransfer(for: entry, total: total, seq: seq, chunkBytes: chunkData.count, version: version)
         }
 
         if entry.chunks.count == total {
@@ -255,6 +289,49 @@ final class MeshsitesManager: ObservableObject {
             }
             finish(id: id, with: .success(Page(markdown: markdown, version: version)))
         }
+    }
+
+    /// Rebuilds the live transfer after a chunk: packet strip, byte counts,
+    /// and the page prefix that the contiguous chunks so far decode to.
+    private func updateTransfer(for entry: Pending, total: Int, seq: Int, chunkBytes: Int, version: UInt8) {
+        var t = transfer ?? Transfer(server: entry.server, startedAt: Date(), lastEventAt: Date())
+        if t.chunks.count != total { t.chunks = Array(repeating: .pending, count: total) }
+        t.chunks[seq] = .received(chunkBytes)
+        t.receivedBytes = entry.chunks.values.reduce(0) { $0 + $1.count }
+        // Spec: every chunk but the last carries 190 bytes, so the total is
+        // knowable from the first packet, exactly once the last one lands.
+        let lastKnown = entry.chunks[total - 1]?.count
+        t.expectedBytes = (total - 1) * 190 + (lastKnown ?? 190)
+        t.lastEventAt = Date()
+        // Contiguous prefix from chunk 0 is a valid DEFLATE stream prefix.
+        var joined = Data()
+        var index = 0
+        while let part = entry.chunks[index] { joined.append(part); index += 1 }
+        if !joined.isEmpty, let inflated = Self.inflatePrefix(joined) {
+            t.inflatedBytes = inflated.count
+            let complete = index == total
+            if let text = Self.utf8Prefix(inflated) {
+                let usable = complete ? text : Self.wholeLines(text)
+                if !usable.isEmpty { t.partial = Page(markdown: usable, version: version) }
+            }
+            t.complete = complete
+        }
+        transfer = t
+    }
+
+    /// Longest prefix that is valid UTF-8 (a chunk boundary can split a
+    /// multi-byte character).
+    static func utf8Prefix(_ data: Data) -> String? {
+        for drop in 0...3 where drop < data.count {
+            if let s = String(data: data.dropLast(drop), encoding: .utf8) { return s }
+        }
+        return nil
+    }
+
+    /// Everything up to the last newline — the final line may be cut mid-way.
+    static func wholeLines(_ text: String) -> String {
+        guard let cut = text.lastIndex(of: "\n") else { return "" }
+        return String(text[...cut])
     }
 
     private func handleError(from: Int64, bytes: [UInt8]) {
@@ -287,7 +364,7 @@ final class MeshsitesManager: ObservableObject {
         entry.timeoutTask?.cancel()
         if progressId == id {
             progressId = nil
-            progress = nil
+            transfer = nil
         }
         entry.continuation.resume(with: result)
     }
@@ -298,8 +375,10 @@ final class MeshsitesManager: ObservableObject {
         for (id, entry) in pending where entry.requestPacketId == packetId {
             if errorRaw == 0 {
                 pending[id]?.transmitted = true
+                if progressId == id || progressId == nil { transfer?.request = .acked; transfer?.lastEventAt = Date() }
             } else {
                 pending[id]?.nakError = errorRaw
+                if progressId == id || progressId == nil { transfer?.request = .failed(errorRaw); transfer?.lastEventAt = Date() }
             }
         }
     }
@@ -348,7 +427,8 @@ final class MeshsitesManager: ObservableObject {
             try Task.checkCancellation()
             do {
                 return try await performRequest(frameBody: frameBody, etag: etag,
-                                                server: server, cacheKey: cacheKey, id: id)
+                                                server: server, cacheKey: cacheKey, id: id,
+                                                attempt: attempt)
             } catch let error as SiteError where attempt == 1 {
                 switch error {
                 case .timeout, .deadAir: continue   // spec §3: one retry, same id
@@ -360,7 +440,7 @@ final class MeshsitesManager: ObservableObject {
 
     private func performRequest(frameBody: (method: UInt8, path: Data, body: Data),
                                 etag: UInt32, server: Int64,
-                                cacheKey: CacheKey?, id: UInt16) async throws -> Page {
+                                cacheKey: CacheKey?, id: UInt16, attempt: Int = 1) async throws -> Page {
         var frame = Data([0x02, Self.protocolVersion,
                           UInt8(id >> 8), UInt8(id & 0xFF), frameBody.method,
                           UInt8(etag >> 24 & 0xFF), UInt8(etag >> 16 & 0xFF),
@@ -374,6 +454,10 @@ final class MeshsitesManager: ObservableObject {
                 pending[id] = Pending(server: server, cacheKey: cacheKey,
                                       continuation: continuation)
                 restartTimeout(id: id)
+                if progressId == nil || progressId == id {
+                    progressId = id
+                    transfer = Transfer(server: server, startedAt: Date(), attempt: attempt, lastEventAt: Date())
+                }
                 let packetId = RadioManager.shared.sendMeshsites(to: server, payload: frame)
                 pending[id]?.requestPacketId = packetId
             }
@@ -428,6 +512,50 @@ final class MeshsitesManager: ObservableObject {
     /// stream the spec requires. Cap is 64 KiB inclusive (spec §6); the
     /// buffer is one byte larger so exactly-64KiB pages are distinguishable
     /// from overflow.
+    /// Decodes as much of a raw-DEFLATE stream as the bytes so far allow —
+    /// a truncated stream yields a valid prefix of the page (TODO 189).
+    static func inflatePrefix(_ data: Data) -> Data? {
+        guard !data.isEmpty else { return nil }
+        let capacity = maxPageBytes + 1
+        var dst = [UInt8](repeating: 0, count: capacity)
+        var stream = compression_stream(dst_ptr: UnsafeMutablePointer<UInt8>(bitPattern: 1)!, dst_size: 0,
+                                        src_ptr: UnsafePointer<UInt8>(bitPattern: 1)!, src_size: 0, state: nil)
+        guard compression_stream_init(&stream, COMPRESSION_STREAM_DECODE, COMPRESSION_ZLIB) == COMPRESSION_STATUS_OK else { return nil }
+        defer { compression_stream_destroy(&stream) }
+        let written: Int = data.withUnsafeBytes { (src: UnsafeRawBufferPointer) -> Int in
+            guard let base = src.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+            return dst.withUnsafeMutableBufferPointer { out -> Int in
+                stream.src_ptr = base
+                stream.src_size = data.count
+                stream.dst_ptr = out.baseAddress!
+                stream.dst_size = capacity
+                let status = compression_stream_process(&stream, 0)
+                guard status == COMPRESSION_STATUS_OK || status == COMPRESSION_STATUS_END else { return 0 }
+                return capacity - stream.dst_size
+            }
+        }
+        guard written > 0, written <= maxPageBytes else { return nil }
+        return Data(dst.prefix(written))
+    }
+
+    /// One line for Mesh Traffic per Meshsites frame.
+    nonisolated static func describeFrame(_ bytes: [UInt8]) -> String {
+        guard let type = bytes.first else { return "empty" }
+        switch type {
+        case 0x01: return "beacon \"\(String(bytes: bytes.dropFirst(2), encoding: .utf8) ?? "")\""
+        case 0x02:
+            guard bytes.count >= 10 else { return "request (malformed)" }
+            let n = Int(bytes[9]); let path = bytes.count >= 10 + n ? String(bytes: bytes[10..<10 + n], encoding: .utf8) ?? "?" : "?"
+            return "request \(bytes[4] == 1 ? "POST" : "GET") \(path)"
+        case 0x03:
+            guard bytes.count >= 10 else { return "chunk (malformed)" }
+            return "chunk \(Int(bytes[4]) + 1)/\(bytes[5]) · \(max(0, bytes.count - 10)) B"
+        case 0x04: return "error \(bytes.count > 3 ? Int(bytes[3]) : -1)"
+        case 0x05: return "not modified"
+        default: return "type \(type) · \(bytes.count) B"
+        }
+    }
+
     static func inflate(_ data: Data) -> Data? {
         guard !data.isEmpty else { return nil }
         let capacity = maxPageBytes + 1

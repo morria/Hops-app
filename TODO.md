@@ -4,6 +4,44 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+192. [x] "Ask to Resend" did nothing visibly. It sent the NACK but recorded
+         nothing: no pill state, no Mesh Traffic line, no ack tracking, and
+         a disconnected radio returned silently. Now each request is tracked
+         per gap: "Asking their radio…" → "Their radio has the request —
+         waiting for their app…" on the routing ACK → the gap resolves on
+         RESEND / hardens on TOO_OLD; a NAK shows the routing reason; 45 s
+         without a reply explains that they may be out of direct range or
+         not on Hops (relays here don't forward port 423). Not connected is
+         said outright. Ask Again re-sends. Both directions log to Mesh
+         Traffic as port "resend".
+
+191. [x] My Site: "Notify me of form replies" toggle (off by default) next
+         to Form Replies. A recorded POST from a reader posts a local
+         notification: "New form reply on <site>" with the requester's
+         node id, path, and sanitized, truncated field values. Preview
+         submissions don't notify.
+
+190. [x] My Site: Visitors row (unique radios, lifetime requests, last
+         visit) with a list of who fetched pages and when, plus Reset.
+         Counted per accepted request after retransmit/dup filtering,
+         persisted in UserDefaults; beacons don't count.
+
+189. [x] Meshsites render progressively. Each chunk rebuilds a live
+         Transfer: the contiguous prefix of chunks is inflated with the
+         streaming DEFLATE API (a truncated stream decodes to a valid page
+         prefix), cut to whole UTF-8 characters and whole lines, and parsed
+         in partial mode (an unclosed form at the bottom edge is withheld
+         until it closes). The browser shows that partial page live and
+         keeps it interactive — a link tap cancels the load and starts the
+         next. A status card shows elapsed time, "n of N packets", bytes
+         received of the expected total (known from the first chunk: 190 B
+         per chunk but the last), decoded page bytes, silence duration, a
+         retry marker, and a packet strip: the request cell (sent → acked
+         or NAK) then one cell per chunk. Mesh Traffic now names Meshsites
+         frames (request GET /path, chunk 3/8 · 190 B, beacon "…") on both
+         directions. Verify on a real site: watch the strip fill and the
+         page grow; tap a link mid-load.
+
 188. [x] iOS killed Hops twice for CPU (Hops.cpu_resource_fatal, Sep 9 and
          10): 48 s CPU in 55 s while in the BACKGROUND, idle, one thread,
          382 MB. Symbolicated: main → SettingsView.body → radioSection →

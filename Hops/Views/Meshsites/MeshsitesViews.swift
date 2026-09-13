@@ -271,20 +271,32 @@ struct MeshsiteBrowserView: View {
     @State private var loadTask: Task<Void, Never>?
     @Environment(\.dismiss) private var dismiss
 
+    /// While loading, the page is whatever the contiguous chunks so far
+    /// decode to — live, and usable (TODO 189). Otherwise the last full page.
+    private var shownDocument: MeshdownDocument? {
+        if loading, let partial = manager.transfer?.partial {
+            return MeshdownDocument.parse(partial.markdown, version: partial.version,
+                                          partial: !(manager.transfer?.complete ?? false))
+        }
+        return document
+    }
+
     var body: some View {
         Group {
-            if loading {
+            if loading, shownDocument == nil {
                 VStack(spacing: 12) {
-                    ProgressView()
-                    if let progress = manager.progress {
-                        Text("Receiving \(progress.received) of \(progress.total)…")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text("Requesting over the mesh — this takes a moment.")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                    if let transfer = manager.transfer {
+                        TransferStatusView(transfer: transfer)
+                            .padding(.horizontal)
                     }
+                    Spacer()
+                    ProgressView()
+                    Text(manager.transfer?.totalChunks == nil
+                         ? "Requesting over the mesh — this takes a moment."
+                         : "First packet in; decoding as the rest arrive.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                    Spacer()
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let errorText {
@@ -296,14 +308,30 @@ struct MeshsiteBrowserView: View {
                     Button("Try Again") { reload() }
                         .buttonStyle(.borderedProminent)
                 }
-            } else if let document {
+            } else if let document = shownDocument {
                 ScrollView {
-                    MeshdownRenderer(document: document, disabled: loading,
-                                     onNavigate: { navigate(to: $0) },
-                                     onSubmit: { form, pairs in submit(form, pairs: pairs) })
-                        .id(resetToken)
-                        .padding()
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                    VStack(alignment: .leading, spacing: 12) {
+                        if loading, let transfer = manager.transfer {
+                            TransferStatusView(transfer: transfer)
+                        }
+                        // Partial pages stay interactive: a link tap cancels
+                        // this load and starts the next one.
+                        MeshdownRenderer(document: document, disabled: false,
+                                         onNavigate: { navigate(to: $0) },
+                                         onSubmit: { form, pairs in submit(form, pairs: pairs) })
+                            .id(resetToken)
+                        if loading {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small)
+                                Text(manager.transfer.map { "More on the way — \($0.receivedChunks) of \($0.totalChunks ?? 0) packets" } ?? "Loading…")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.top, 4)
+                        }
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } else {
                 Color.clear
@@ -397,6 +425,92 @@ struct MeshsiteBrowserView: View {
                 errorText = error.localizedDescription
             }
         }
+    }
+}
+#endif
+
+#if MESHSITES
+/// What the fetch is doing right now (TODO 189): elapsed time, bytes as
+/// soon as the first chunk names the total, and one cell per packet — the
+/// request going out, then each chunk coming back.
+struct TransferStatusView: View {
+    let transfer: MeshsitesManager.Transfer
+
+    var body: some View {
+        TimelineView(.periodic(from: transfer.startedAt, by: 1)) { context in
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text(headline(at: context.date))
+                        .font(.footnote.weight(.semibold))
+                    Spacer()
+                    Text(bytesText)
+                        .font(.footnote.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+                packetStrip
+                Text(detail(at: context.date))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(10)
+            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private var packetStrip: some View {
+        HStack(spacing: 4) {
+            cell(for: transfer.request, label: "↑", accent: .blue)
+            if transfer.chunks.isEmpty {
+                ForEach(0..<3, id: \.self) { _ in cell(for: .pending, label: "·", accent: .green) }
+            } else {
+                ForEach(Array(transfer.chunks.enumerated()), id: \.offset) { index, state in
+                    cell(for: state, label: "\(index + 1)", accent: .green)
+                }
+            }
+        }
+    }
+
+    private func cell(for state: MeshsitesManager.Transfer.PacketState, label: String, accent: Color) -> some View {
+        let (fill, fg): (Color, Color) = {
+            switch state {
+            case .pending: return (Color.secondary.opacity(0.15), .secondary)
+            case .sent: return (accent.opacity(0.35), .primary)
+            case .acked, .received: return (accent.opacity(0.85), .white)
+            case .failed: return (Color.red.opacity(0.85), .white)
+            }
+        }()
+        return Text(label)
+            .font(.caption2.monospacedDigit().weight(.semibold))
+            .frame(minWidth: 22, minHeight: 22)
+            .background(fill, in: RoundedRectangle(cornerRadius: 5))
+            .foregroundStyle(fg)
+    }
+
+    private func headline(at now: Date) -> String {
+        let elapsed = Int(now.timeIntervalSince(transfer.startedAt))
+        let retry = transfer.attempt > 1 ? " · retry" : ""
+        if let total = transfer.totalChunks {
+            return "Receiving \(transfer.receivedChunks) of \(total) packets · \(elapsed) s\(retry)"
+        }
+        switch transfer.request {
+        case .failed(let code): return "Request failed (routing \(code)) · \(elapsed) s\(retry)"
+        case .acked: return "Request delivered, waiting for the page · \(elapsed) s\(retry)"
+        default: return "Sending request · \(elapsed) s\(retry)"
+        }
+    }
+
+    private var bytesText: String {
+        guard let expected = transfer.expectedBytes else { return "" }
+        return "\(transfer.receivedBytes) of ~\(expected) B"
+    }
+
+    private func detail(at now: Date) -> String {
+        let quiet = Int(now.timeIntervalSince(transfer.lastEventAt))
+        var parts: [String] = []
+        if transfer.inflatedBytes > 0 { parts.append("\(transfer.inflatedBytes) page bytes decoded") }
+        if quiet >= 5 { parts.append("nothing heard for \(quiet) s") }
+        if parts.isEmpty { parts.append("Each packet is one LoRa frame; the site sends the next after ours is acknowledged.") }
+        return parts.joined(separator: " · ")
     }
 }
 #endif

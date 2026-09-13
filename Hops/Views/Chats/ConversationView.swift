@@ -491,17 +491,49 @@ struct ConversationView: View {
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             } else {
-                Button("Ask to Resend") {
-                    let seqs = gap.text.split(separator: ",").compactMap { Int($0) }
-                    radio.requestResend(from: sender, conversationKey: conversationKey, seqs: seqs)
+                let request = radio.resendRequests[RadioManager.resendKey(conversationKey: conversationKey, sender: sender)]
+                if let request, request.inFlight {
+                    HStack(spacing: 6) {
+                        ProgressView().controlSize(.mini)
+                        Text(request.delivered ? "Their radio has the request — waiting for their app…" : "Asking their radio…")
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                } else {
+                    if let request, let reason = resendOutcome(request) {
+                        Text(reason)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
+                    Button(request == nil ? "Ask to Resend" : "Ask Again") {
+                        let seqs = gap.text.split(separator: ",").compactMap { Int($0) }
+                        radio.requestResend(from: sender, conversationKey: conversationKey, seqs: seqs)
+                    }
+                    .font(.caption)
+                    .buttonStyle(.bordered)
+                    .controlSize(.mini)
+                    if request == nil {
+                        Text("Only works with Hops users in direct radio range.")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
-                .font(.caption)
-                .buttonStyle(.bordered)
-                .controlSize(.mini)
             }
         }
         .frame(maxWidth: .infinity, alignment: .center)
         .padding(.vertical, 6)
+    }
+
+    private func resendOutcome(_ request: RadioManager.ResendRequest) -> String? {
+        if request.nakError == -2 { return "Not connected to your radio." }
+        if request.nakError > 0 { return "Couldn't reach their radio: \(RoutingFailure.short(code: request.nakError, isDM: true))." }
+        if request.timedOut {
+            return request.delivered
+                ? "Their radio got the request but their app didn't answer — they may not be using Hops."
+                : "No reply in 45 s — they may be out of direct range or not using Hops."
+        }
+        return nil
     }
 
     private func systemNoteText(_ message: MessageEntity) -> String {

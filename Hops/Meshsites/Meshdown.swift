@@ -36,12 +36,15 @@ struct MeshdownDocument {
     /// `version` is the protocol/format version the page was served with
     /// (spec §7). v1 is the only syntax today; future syntaxes switch here so
     /// old pages keep rendering with old rules.
-    static func parse(_ text: String, version: UInt8 = 1) -> MeshdownDocument {
+    /// `partial`: the text is a prefix of a page still arriving (TODO 189) —
+    /// a form left open at the bottom edge is withheld until it closes,
+    /// rather than rendered half-built.
+    static func parse(_ text: String, version: UInt8 = 1, partial: Bool = false) -> MeshdownDocument {
         _ = version   // one grammar so far
-        return parseV1(text)
+        return parseV1(text, partial: partial)
     }
 
-    private static func parseV1(_ text: String) -> MeshdownDocument {
+    private static func parseV1(_ text: String, partial: Bool = false) -> MeshdownDocument {
         var doc = MeshdownDocument()
         var nextId = 0
         var paragraphBuffer: [String] = []
@@ -134,7 +137,7 @@ struct MeshdownDocument {
             }
         }
         flushParagraph()
-        if let form = openForm {
+        if let form = openForm, !partial {
             emit(.form(form))
         }
         return doc

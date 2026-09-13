@@ -1,5 +1,6 @@
 #if MESHSITES
 import SwiftUI
+import SwiftData
 
 /// The creator's home: name the site, flip it on the air, manage pages,
 /// read form replies, preview exactly what readers will see.
@@ -9,6 +10,7 @@ struct MySiteView: View {
     @ObservedObject private var radio = RadioManager.shared
     @AppStorage("meshsiteName") private var siteName = ""
     @AppStorage("meshsiteServing") private var serving = false
+    @AppStorage("meshsiteNotifyForms") private var notifyForms = false
 
     @State private var showNewPage = false
     @State private var newPageName = ""
@@ -66,6 +68,22 @@ struct MySiteView: View {
                 } else {
                     Label("Paused — radio disconnected", systemImage: "pause.circle")
                         .foregroundStyle(.orange)
+                }
+            }
+            if !server.visitors.isEmpty {
+                NavigationLink {
+                    MeshsiteVisitorsView()
+                } label: {
+                    LabeledContent {
+                        Text("\(server.visitors.count)")
+                    } label: {
+                        Label("Visitors", systemImage: "person.2")
+                        if let last = server.visitors.values.max() {
+                            Text("\(server.lifetimeRequests) requests · last \(last, style: .relative) ago")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
             }
         } header: {
@@ -131,6 +149,9 @@ struct MySiteView: View {
             } label: {
                 Label("Form Replies", systemImage: "tray.full")
                     .badge(store.submissionCount)
+            }
+            Toggle(isOn: $notifyForms) {
+                Label("Notify me of form replies", systemImage: "bell.badge")
             }
             NavigationLink {
                 MeshsitePreviewView(startPath: "/")
@@ -439,3 +460,49 @@ struct MeshsitePreviewView: View {
     }
 }
 #endif
+
+/// Who has fetched pages from this site, most recent first (TODO 190).
+struct MeshsiteVisitorsView: View {
+    @ObservedObject private var server = MeshsiteServer.shared
+    @Query private var nodes: [NodeEntity]
+    @State private var confirmReset = false
+
+    private var rows: [(num: Int64, at: Date)] {
+        server.visitors.map { (num: $0.key, at: $0.value) }.sorted { $0.at > $1.at }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(rows, id: \.num) { row in
+                    LabeledContent {
+                        Text(row.at, style: .relative) + Text(" ago")
+                    } label: {
+                        Text(name(for: row.num))
+                        Text(String(format: "!%08x", UInt32(truncatingIfNeeded: row.num)))
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            } footer: {
+                Text("\(server.visitors.count) unique radios · \(server.lifetimeRequests) requests since counting began. Every accepted page request counts; beacons don't.")
+            }
+            Section {
+                Button("Reset Counts", role: .destructive) { confirmReset = true }
+                    .confirmationDialog("Reset visitor counts?", isPresented: $confirmReset, titleVisibility: .visible) {
+                        Button("Reset", role: .destructive) { server.resetVisitors() }
+                    }
+            }
+        }
+        .navigationTitle("Visitors")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func name(for num: Int64) -> String {
+        if let node = nodes.first(where: { $0.num == num }) {
+            let n = node.displayName.trimmingCharacters(in: .whitespaces)
+            if !n.isEmpty { return n }
+        }
+        return "Unknown radio"
+    }
+}

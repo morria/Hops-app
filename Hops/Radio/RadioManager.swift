@@ -617,6 +617,9 @@ final class RadioManager: ObservableObject {
             // 32-bit id space and forge a delivery state.
             guard Int64(packet.to) == myNodeNum else { return }
             let errorRaw = Int32(routing.errorReason.rawValue)
+            if let key = resendRequests.first(where: { $0.value.packetId == decoded.requestID })?.key {
+                if errorRaw == 0 { resendRequests[key]?.delivered = true } else { resendRequests[key]?.nakError = errorRaw }
+            }
             if let pending = pendingOwner, pending.packetId == decoded.requestID {
                 pendingOwner = nil
                 if errorRaw != 0 {
@@ -772,6 +775,7 @@ final class RadioManager: ObservableObject {
         #if MESHSITES
         if case .UNRECOGNIZED(MeshsitesManager.port) = port { return "meshsite" }
         #endif
+        if case .UNRECOGNIZED(Self.reliabilityPort) = port { return "resend" }
         switch port {
         case .textMessageApp: return "message"
         case .positionApp: return "position"
@@ -821,6 +825,14 @@ final class RadioManager: ObservableObject {
             }
             return "Waypoint"
         default:
+            #if MESHSITES
+            if decoded.portnum.rawValue == MeshsitesManager.port {
+                return MeshsitesManager.describeFrame([UInt8](decoded.payload))
+            }
+            #endif
+            if decoded.portnum.rawValue == Self.reliabilityPort {
+                return Self.describeReliability([UInt8](decoded.payload))
+            }
             return "\(decoded.payload.count) bytes"
         }
     }
@@ -1020,6 +1032,8 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+        logTraffic(from: myNodeNum, port: "sent",
+                   summary: "→ meshsite \(String(format: "!%08x", UInt32(truncatingIfNeeded: num))) #\(String(format: "%08X", packet.id)): \(MeshsitesManager.describeFrame([UInt8](payload)))")
         return packet.id
     }
     #endif
@@ -1140,9 +1154,31 @@ final class RadioManager: ObservableObject {
 
     static let reliabilityPort = 423
 
+    /// What became of an "Ask to Resend" tap, so the gap pill can say
+    /// (TODO 192): the request's routing fate, replies received, timeout.
+    struct ResendRequest: Equatable {
+        var sentAt: Date
+        var packetId: UInt32
+        var delivered = false      // their radio acked the request
+        var nakError: Int32 = 0    // routing NAK; -2 = we weren't connected
+        var recovered = 0          // RESEND frames received
+        var tooOld = 0             // TOO_OLD frames received
+        var timedOut = false
+        var inFlight: Bool { !delivered && nakError == 0 && !timedOut && recovered == 0 && tooOld == 0
+            || delivered && recovered == 0 && tooOld == 0 && !timedOut }
+    }
+    @Published private(set) var resendRequests: [String: ResendRequest] = [:]
+    static func resendKey(conversationKey: String, sender: Int64) -> String { "\(conversationKey)/\(sender)" }
+    private static let resendTimeout: TimeInterval = 45
+
     /// "Ask to resend": NACK the sender for the missing sequence numbers.
     func requestResend(from sender: Int64, conversationKey: String, seqs: [Int]) {
-        guard state == .connected, !seqs.isEmpty else { return }
+        guard !seqs.isEmpty else { return }
+        let key = Self.resendKey(conversationKey: conversationKey, sender: sender)
+        guard state == .connected else {
+            resendRequests[key] = ResendRequest(sentAt: Date(), packetId: 0, nakError: -2)
+            return
+        }
         var frame = Data([0x01])
         if conversationKey.hasPrefix("ch-"), let index = UInt8(conversationKey.dropFirst(3)) {
             frame.append(contentsOf: [1, index])
@@ -1152,7 +1188,35 @@ final class RadioManager: ObservableObject {
         let batch = seqs.prefix(8)
         frame.append(UInt8(batch.count))
         frame.append(contentsOf: batch.map { UInt8($0 & 0xFF) })
-        sendReliability(to: sender, payload: frame)
+        let packetId = sendReliability(to: sender, payload: frame)
+        resendRequests[key] = ResendRequest(sentAt: Date(), packetId: packetId)
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(Self.resendTimeout))
+            guard let self, var request = self.resendRequests[key], request.packetId == packetId,
+                  request.recovered == 0, request.tooOld == 0 else { return }
+            request.timedOut = true
+            self.resendRequests[key] = request
+        }
+    }
+
+    /// Reply frames from `from` count toward whatever we asked that node.
+    private func noteResendReply(from: Int64, bytes: [UInt8], tooOld: Bool) {
+        guard bytes.count >= 3 else { return }
+        let convoKey = bytes[1] == 0 ? ConversationEntity.dmKey(from) : ConversationEntity.channelKey(Int32(bytes[2]))
+        let key = Self.resendKey(conversationKey: convoKey, sender: from)
+        guard var request = resendRequests[key] else { return }
+        if tooOld { request.tooOld += 1 } else { request.recovered += 1 }
+        resendRequests[key] = request
+    }
+
+    private static func describeReliability(_ bytes: [UInt8]) -> String {
+        guard let type = bytes.first else { return "empty" }
+        switch type {
+        case 0x01: return "NACK \(bytes.count > 3 ? Int(bytes[3]) : 0) seq(s)"
+        case 0x02: return "RESEND seq \(bytes.count > 3 ? Int(bytes[3]) : -1)"
+        case 0x03: return "TOO_OLD seq \(bytes.count > 3 ? Int(bytes[3]) : -1)"
+        default: return "type \(type)"
+        }
     }
 
     private func handleReliabilityFrame(from: Int64, payload: Data) {
@@ -1168,15 +1232,18 @@ final class RadioManager: ObservableObject {
                 }
             }
         case 0x02:   // RESEND: recovered message
+            noteResendReply(from: from, bytes: bytes, tooOld: false)
             Task { await store.ingestResend(from: from, bytes: bytes, myNum: myNum) }
         case 0x03:   // TOO_OLD
+            noteResendReply(from: from, bytes: bytes, tooOld: true)
             Task { await store.markGapUnrecoverable(from: from, bytes: bytes) }
         default:
             break
         }
     }
 
-    private func sendReliability(to num: Int64, payload: Data) {
+    @discardableResult
+    private func sendReliability(to num: Int64, payload: Data) -> UInt32 {
         var decoded = DataMessage()
         decoded.portnum = PortNum.UNRECOGNIZED(Self.reliabilityPort)
         decoded.payload = payload
@@ -1189,6 +1256,9 @@ final class RadioManager: ObservableObject {
         var toRadio = ToRadio()
         toRadio.packet = packet
         write(toRadio)
+        logTraffic(from: myNodeNum, port: "sent",
+                   summary: "→ resend \(String(format: "!%08x", UInt32(truncatingIfNeeded: num))) #\(String(format: "%08X", packet.id)): \(Self.describeReliability([UInt8](payload)))")
+        return packet.id
     }
 
     // MARK: - Presence probes (round-trip liveness)
