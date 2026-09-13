@@ -60,6 +60,9 @@ struct SettingsView: View {
                 onMeshSection
                 notificationsSection
                 appSection
+                #if MESHSITES
+                meshsitesSection
+                #endif
                 advancedSection
                 aboutSection
             }
@@ -322,9 +325,9 @@ struct SettingsView: View {
                 }
             }
         } header: {
-            Text("Experimental")
+            Text("Meshsites")
         } footer: {
-            Text("Browse tiny pages served by nearby nodes over direct radio contact.")
+            Text("Tiny pages served by nearby radios over direct contact — no internet, no relays. Turn it on to browse them and to host your own.")
         }
     }
     #endif
@@ -352,20 +355,10 @@ struct SettingsView: View {
                 radio.applyNodeRetention()
             }
             Toggle("Sequence numbers on sends", isOn: $sequenceTrailerEnabled)
-            #if MESHSITES
-            Toggle("Meshsites (experimental)", isOn: $meshsitesEnabled)
-            if meshsitesEnabled {
-                NavigationLink {
-                    MySiteView()
-                } label: {
-                    Label("Mesh Site", systemImage: "house")
-                }
-            }
-            #endif
         } header: {
             Text("Advanced")
         } footer: {
-            Text("Renamed, photographed, or messaged nodes are always kept. Meshsites are tiny pages served by nearby nodes over direct radio contact.")
+            Text("Renamed, photographed, or messaged nodes are always kept.")
         }
     }
 
