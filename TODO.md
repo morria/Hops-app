@@ -4,6 +4,30 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+196. [x] Device Configuration per radio. The screen takes a radio; each
+         link keeps its own bluetooth/device/display/position/power/
+         network/LoRa/telemetry/module configs (configsByNode), reads and
+         writes go through that radio's link (applyConfig/applyModuleConfig/
+         begin/commit/request all take `via`). Radio detail has its own
+         Device Configuration entry (attached radios only); the main
+         Settings entry stays and says which radio it's for — the one
+         sending now.
+
+195. [x] Device Configuration: "Very low power" toggle, derived — on only
+         while every recommended setting is in place, so any manual change
+         switches it off; turning it on sets the form (Save applies),
+         turning it off restores firmware defaults for what it touched.
+         Checklist with the exact firmware fields: device telemetry off +
+         interval never (this is where battery notices live), environment/
+         power/air telemetry off, GPS disabled, fixed position off, position
+         broadcast never, smart off, node info every 4 h, power saving on,
+         screen off after 30 s, LED heartbeat off, Wi-Fi off, neighbor info/
+         range test/store & forward/detection sensor/paxcounter/MQTT off.
+         Sections gained explicit toggles for device telemetry, the three
+         sensor telemetries, node info interval, power saving, LED, Wi-Fi,
+         and each module. Separate "Transmit" toggle (lora.tx_enabled)
+         written on top of the radio's full LoRa section.
+
 194. [x] Node-info preload before DMs (fleet phase 2, ships alone). The
          radio tells us what it knows — its node-DB dump at connect and
          every packet heard — and a DM to anyone else first sends

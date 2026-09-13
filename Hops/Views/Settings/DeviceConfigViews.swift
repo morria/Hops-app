@@ -1,12 +1,31 @@
 import SwiftUI
 import MeshtasticProtobufs
 
-/// One screen for the radio's device behavior: Bluetooth, Display, Position,
-/// and Telemetry. Values load from the connect-time dump (plus live read-backs);
+/// One screen for the radio's device behavior: power, Bluetooth, display,
+/// position, telemetry, node info, relay, and the modules that transmit on
+/// their own. Values load from the connect-time dump (plus live read-backs);
 /// a single Save writes each section via admin.
 struct DeviceConfigurationView: View {
+    /// Which fleet radio; nil = the transmit radio (main Settings entry).
+    var nodeNum: Int64? = nil
     @EnvironmentObject private var radio: RadioManager
     @Environment(\.dismiss) private var dismiss
+
+    /// The configuration of the radio this screen edits (TODO 196).
+    private var cfg: RadioManager.LinkConfigs {
+        if let nodeNum, let c = radio.configsByNode[nodeNum] { return c }
+        if nodeNum == nil, let c = radio.configsByNode[radio.myNodeNum] { return c }
+        return RadioManager.LinkConfigs(bluetooth: cfg.bluetooth, device: cfg.device,
+                                        display: cfg.display, position: cfg.position,
+                                        power: cfg.power, network: cfg.network,
+                                        lora: cfg.lora, telemetry: cfg.telemetry,
+                                        modules: cfg.modules)
+    }
+    private var target: Int64? { nodeNum }
+    private var radioName: String {
+        let num = nodeNum ?? radio.myNodeNum
+        return radio.fleet.first { $0.nodeNum == num }?.displayName ?? String(format: "!%08x", UInt32(truncatingIfNeeded: num))
+    }
 
     // Bluetooth
     @State private var btEnabled = true
@@ -27,9 +46,27 @@ struct DeviceConfigurationView: View {
     @State private var smartMinSecs = 30
     @State private var fixedPosition = false
     // Telemetry
+    @State private var deviceTelemetryEnabled = true
     @State private var deviceInterval = 1800
-    // Device (rebroadcast)
+    @State private var envEnabled = false
+    @State private var powerEnabled = false
+    @State private var airEnabled = false
+    // Device
+    @State private var nodeInfoSecs = 10800
     @State private var rebroadcastRaw = 0
+    // Modules that transmit on their own (nil = radio hasn't reported yet)
+    @State private var neighborInfoOn: Bool?
+    @State private var rangeTestOn: Bool?
+    @State private var storeForwardOn: Bool?
+    @State private var detectionSensorOn: Bool?
+    @State private var paxcounterOn: Bool?
+    @State private var mqttOn: Bool?
+    @State private var lowPowerNote: String?
+    // Power / network / LoRa
+    @State private var powerSaving = false
+    @State private var ledHeartbeatDisabled = false
+    @State private var wifiEnabled = false
+    @State private var txEnabled = true
 
     private static let rebroadcastChoices: [(String, Int)] = [
         ("All packets", 0),
@@ -39,26 +76,163 @@ struct DeviceConfigurationView: View {
         ("Never relay", 4),
         ("Core ports only", 5),
     ]
-
     private static let screenChoices: [(String, Int)] = [
         ("15 seconds", 15), ("30 seconds", 30), ("1 minute", 60),
         ("5 minutes", 300), ("10 minutes", 600), ("Always on", 0),
     ]
+    static let never = Int(LowPowerProfile.never)
     private static let positionChoices: [(String, Int)] = [
         ("5 minutes", 300), ("15 minutes", 900), ("30 minutes", 1800),
-        ("1 hour", 3600), ("6 hours", 21600),
+        ("1 hour", 3600), ("6 hours", 21600), ("Never", never),
     ]
-    /// Firmware has no boolean for device metrics; "off" is an interval the
-    /// radio will never reach.
-    static let telemetryOff = 4_294_967_295
+    /// Firmware has no boolean for the interval; "off" is one the radio
+    /// will never reach.
+    static let telemetryOff = never
     private static let telemetryChoices: [(String, Int)] = [
         ("30 minutes (firmware default)", 1800), ("1 hour", 3600), ("2 hours", 7200),
         ("6 hours (community recommended)", 21600), ("12 hours", 43200), ("24 hours", 86400),
-        ("Off — never broadcast", telemetryOff),
+        ("Never", telemetryOff),
     ]
+    private static let nodeInfoChoices: [(String, Int)] = [
+        ("1 hour (firmware minimum)", 3600), ("3 hours (firmware default)", 10800),
+        ("4 hours (very low power)", 14400), ("12 hours", 43200), ("24 hours", 86400),
+    ]
+
+    // MARK: - Very low power (derived from the form, so any edit turns it off)
+
+    private var formTelemetry: ModuleConfig.TelemetryConfig {
+        var t = cfg.telemetry ?? ModuleConfig.TelemetryConfig()
+        t.deviceTelemetryEnabled = deviceTelemetryEnabled
+        t.deviceUpdateInterval = UInt32(deviceInterval)
+        t.environmentMeasurementEnabled = envEnabled
+        t.powerMeasurementEnabled = powerEnabled
+        t.airQualityEnabled = airEnabled
+        return t
+    }
+    private var formPosition: Config.PositionConfig {
+        var p = cfg.position ?? Config.PositionConfig()
+        p.gpsMode = Config.PositionConfig.GpsMode(rawValue: gpsModeRaw) ?? .enabled
+        p.positionBroadcastSecs = UInt32(broadcastSecs)
+        p.positionBroadcastSmartEnabled = smartEnabled
+        p.broadcastSmartMinimumDistance = UInt32(smartMinDistance)
+        p.broadcastSmartMinimumIntervalSecs = UInt32(smartMinSecs)
+        p.fixedPosition = fixedPosition
+        return p
+    }
+    private var formDevice: Config.DeviceConfig? {
+        guard var d = cfg.device else { return nil }
+        d.nodeInfoBroadcastSecs = UInt32(nodeInfoSecs)
+        d.rebroadcastMode = Config.DeviceConfig.RebroadcastMode(rawValue: rebroadcastRaw) ?? .all
+        d.ledHeartbeatDisabled = ledHeartbeatDisabled
+        return d
+    }
+    private var formPower: Config.PowerConfig? {
+        guard var p = cfg.power else { return nil }
+        p.isPowerSaving = powerSaving
+        return p
+    }
+    private var formDisplay: Config.DisplayConfig {
+        var d = cfg.display ?? Config.DisplayConfig()
+        d.screenOnSecs = UInt32(screenOnSecs)
+        d.units = Config.DisplayConfig.DisplayUnits(rawValue: unitsRaw) ?? .metric
+        d.use12HClock = use12HClock
+        d.flipScreen = flipScreen
+        d.compassNorthTop = compassNorthTop
+        d.wakeOnTapOrMotion = wakeOnTapOrMotion
+        return d
+    }
+    private var formNetwork: Config.NetworkConfig? {
+        guard var n = cfg.network else { return nil }
+        n.wifiEnabled = wifiEnabled
+        return n
+    }
+    private var formModules: RadioManager.ModuleConfigs {
+        var m = cfg.modules
+        if let on = neighborInfoOn { m.neighborInfo?.enabled = on }
+        if let on = rangeTestOn { m.rangeTest?.enabled = on }
+        if let on = storeForwardOn { m.storeForward?.enabled = on }
+        if let on = detectionSensorOn { m.detectionSensor?.enabled = on }
+        if let on = paxcounterOn { m.paxcounter?.enabled = on }
+        if let on = mqttOn { m.mqtt?.enabled = on }
+        return m
+    }
+    private var checks: [LowPowerProfile.Check] {
+        LowPowerProfile.checks(telemetry: formTelemetry, position: formPosition, device: formDevice, modules: formModules,
+                               power: formPower, display: formDisplay, network: formNetwork)
+    }
+    private var veryLowPower: Binding<Bool> {
+        Binding(get: { checks.allSatisfy(\.satisfied) },
+                set: { on in on ? applyLowPowerToForm() : restoreDefaultsToForm() })
+    }
+
+    private func applyLowPowerToForm() {
+        var t = formTelemetry, p = formPosition, d = formDevice ?? Config.DeviceConfig(), m = formModules
+        var pw = formPower ?? Config.PowerConfig(), ds = formDisplay, nw = formNetwork ?? Config.NetworkConfig()
+        LowPowerProfile.apply(telemetry: &t, position: &p, device: &d, modules: &m, power: &pw, display: &ds, network: &nw)
+        powerSaving = true; screenOnSecs = 30; ledHeartbeatDisabled = true; wifiEnabled = false
+        deviceTelemetryEnabled = false; deviceInterval = Self.never
+        envEnabled = false; powerEnabled = false; airEnabled = false
+        gpsModeRaw = Config.PositionConfig.GpsMode.disabled.rawValue
+        fixedPosition = false; broadcastSecs = Self.never; smartEnabled = false
+        nodeInfoSecs = Int(LowPowerProfile.nodeInfoSecs)
+        if m.neighborInfo != nil { neighborInfoOn = false }
+        if m.rangeTest != nil { rangeTestOn = false }
+        if m.storeForward != nil { storeForwardOn = false }
+        if m.detectionSensor != nil { detectionSensorOn = false }
+        if m.paxcounter != nil { paxcounterOn = false }
+        if m.mqtt != nil { mqttOn = false }
+        lowPowerNote = "Set. Tap Save to Radio to apply."
+    }
+
+    private func restoreDefaultsToForm() {
+        powerSaving = false; screenOnSecs = 60; ledHeartbeatDisabled = false
+        deviceTelemetryEnabled = true; deviceInterval = 1800
+        gpsModeRaw = Config.PositionConfig.GpsMode.enabled.rawValue
+        broadcastSecs = 900; smartEnabled = true
+        nodeInfoSecs = 10800
+        lowPowerNote = "Firmware defaults restored for GPS, position, telemetry and node info. Tap Save to Radio to apply."
+    }
 
     var body: some View {
         Form {
+            Section {
+                Toggle("Very low power", isOn: veryLowPower)
+                    .disabled(cfg.device == nil)
+                NavigationLink {
+                    LowPowerChecklistView(checks: checks)
+                } label: {
+                    LabeledContent("What it changes") {
+                        Text("\(checks.filter(\.satisfied).count) of \(checks.count)")
+                    }
+                }
+                if let lowPowerNote {
+                    Text(lowPowerNote)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                Toggle("Power saving mode", isOn: $powerSaving)
+                    .disabled(cfg.power == nil)
+                Toggle("LED heartbeat", isOn: Binding(get: { !ledHeartbeatDisabled }, set: { ledHeartbeatDisabled = !$0 }))
+                    .disabled(cfg.device == nil)
+                Toggle("Wi-Fi", isOn: $wifiEnabled)
+                    .disabled(cfg.network == nil)
+            } header: {
+                Text("Power")
+            } footer: {
+                Text("Turns off everything the radio does on its own — telemetry, GPS, position, modules — and keeps node info to every 4 hours. Change any of those by hand and the switch goes off.")
+            }
+
+            Section {
+                Toggle("Transmit", isOn: $txEnabled)
+                    .disabled(cfg.lora == nil)
+            } header: {
+                Text("Radio")
+            } footer: {
+                Text(txEnabled
+                     ? "lora.tx_enabled. Off makes the radio listen only: no acks, no node info, and nothing you send from this radio leaves it."
+                     : "Transmit is OFF — this radio only listens. Nothing sent through it reaches the mesh, and other radios can't confirm anything to it.")
+            }
+
             Section {
                 Toggle("Bluetooth Enabled", isOn: $btEnabled)
                 Picker("Pairing", selection: $btModeRaw) {
@@ -81,9 +255,7 @@ struct DeviceConfigurationView: View {
 
             Section("Display") {
                 Picker("Screen timeout", selection: $screenOnSecs) {
-                    ForEach(Self.screenChoices, id: \.1) { label, value in
-                        Text(label).tag(value)
-                    }
+                    ForEach(Self.screenChoices, id: \.1) { label, value in Text(label).tag(value) }
                 }
                 Picker("Units", selection: $unitsRaw) {
                     Text("Metric").tag(0)
@@ -103,9 +275,7 @@ struct DeviceConfigurationView: View {
                 }
                 Toggle("Fixed position", isOn: $fixedPosition)
                 Picker("Broadcast interval", selection: $broadcastSecs) {
-                    ForEach(Self.positionChoices, id: \.1) { label, value in
-                        Text(label).tag(value)
-                    }
+                    ForEach(Self.positionChoices, id: \.1) { label, value in Text(label).tag(value) }
                 }
                 Toggle("Smart broadcast", isOn: $smartEnabled)
                 if smartEnabled {
@@ -115,34 +285,51 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Position")
             } footer: {
-                Text("Smart broadcast sends positions when you've actually moved, saving airtime. Fixed position suits a home or roof node without GPS.")
+                Text("To shut GPS off completely: GPS Disabled, Fixed position off, Broadcast interval Never, Smart broadcast off. Disabled powers the receiver down; Not present tells the firmware there is no GPS hardware at all.")
             }
 
             Section {
-                Picker("Battery & device metrics", selection: $deviceInterval) {
-                    ForEach(Self.telemetryChoices, id: \.1) { label, value in
-                        Text(label).tag(value)
-                    }
+                Toggle("Device telemetry (battery, voltage, uptime)", isOn: $deviceTelemetryEnabled)
+                Picker("Broadcast interval", selection: $deviceInterval) {
+                    ForEach(Self.telemetryChoices, id: \.1) { label, value in Text(label).tag(value) }
                 }
+                Toggle("Environment sensors", isOn: $envEnabled)
+                Toggle("Power measurement", isOn: $powerEnabled)
+                Toggle("Air quality", isOn: $airEnabled)
             } header: {
                 Text("Telemetry")
             } footer: {
-                Text("Every broadcast spends the whole mesh's airtime — 6 hours is plenty; bayme.sh and nyme.sh both recommend it.")
+                Text("Battery updates come from device telemetry. To stop them entirely turn Device telemetry off and set the interval to Never. Every broadcast spends the whole mesh's airtime — 6 hours is plenty when it's on.")
             }
 
             Section {
-                Picker("Relay for others", selection: $rebroadcastRaw) {
-                    ForEach(Self.rebroadcastChoices, id: \.1) { label, value in
-                        Text(label).tag(value)
-                    }
+                Picker("Node info broadcast", selection: $nodeInfoSecs) {
+                    ForEach(Self.nodeInfoChoices, id: \.1) { label, value in Text(label).tag(value) }
                 }
-                .disabled(radio.deviceConfig == nil)
+                .disabled(cfg.device == nil)
+                Picker("Relay for others", selection: $rebroadcastRaw) {
+                    ForEach(Self.rebroadcastChoices, id: \.1) { label, value in Text(label).tag(value) }
+                }
+                .disabled(cfg.device == nil)
             } header: {
-                Text("Mesh Relay")
+                Text("Mesh")
             } footer: {
-                Text(radio.deviceConfig == nil
-                     ? "Reading current setting from the radio…"
-                     : "“All packets” is the standard choice. Careful: “Core ports only” makes the radio silently drop app traffic like Meshsites before it reaches Hops — and some firmware fails to apply “Never relay” (radio doesn't come back until power-cycled, keeping the old value).")
+                Text(cfg.device == nil
+                     ? "Reading current settings from the radio…"
+                     : "Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
+            }
+
+            Section {
+                moduleToggle("Neighbor info", $neighborInfoOn)
+                moduleToggle("Range test", $rangeTestOn)
+                moduleToggle("Store & forward", $storeForwardOn)
+                moduleToggle("Detection sensor", $detectionSensorOn)
+                moduleToggle("Paxcounter", $paxcounterOn)
+                moduleToggle("MQTT", $mqttOn)
+            } header: {
+                Text("Modules that transmit on their own")
+            } footer: {
+                Text("Each of these sends packets without you. A dimmed row means the radio hasn't reported that module yet.")
             }
 
             Section {
@@ -158,43 +345,67 @@ struct DeviceConfigurationView: View {
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
             } footer: {
-                Text("Saves all four sections. The radio may restart briefly; Hops reconnects automatically.")
+                Text("Saves every section. The radio may restart briefly; Hops reconnects automatically.")
             }
         }
-        .navigationTitle("Device Configuration")
+        .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            radio.requestModuleConfig(.telemetryConfig)
-            radio.requestConfig(.deviceConfig)
+            radio.requestAllModuleConfigs(via: target)
+            radio.requestConfig(.deviceConfig, via: target)
+            radio.requestConfig(.powerConfig, via: target)
+            radio.requestConfig(.networkConfig, via: target)
+            radio.requestConfig(.loraConfig, via: target)
             syncAll()
         }
-        .onChange(of: radio.deviceConfig) { syncDevice() }
-        .onChange(of: radio.bluetoothConfig) { syncBluetooth() }
-        .onChange(of: radio.displayConfig) { syncDisplay() }
-        .onChange(of: radio.positionConfig) { syncPosition() }
-        .onChange(of: radio.telemetryConfig) { syncTelemetry() }
+        .onChange(of: cfg) { syncAll() }
+    }
+
+    private func moduleToggle(_ title: String, _ value: Binding<Bool?>) -> some View {
+        Toggle(title, isOn: Binding(get: { value.wrappedValue ?? false },
+                                    set: { value.wrappedValue = $0 }))
+            .disabled(value.wrappedValue == nil)
     }
 
     // MARK: - Load
 
     private func syncAll() {
-        syncBluetooth(); syncDisplay(); syncPosition(); syncTelemetry(); syncDevice()
+        syncBluetooth(); syncDisplay(); syncPosition(); syncTelemetry(); syncDevice(); syncModules()
+        syncPower(); syncNetwork(); syncLoRa()
+    }
+
+    private func syncPower() {
+        guard let power = cfg.power else { return }
+        powerSaving = power.isPowerSaving
+    }
+
+    private func syncNetwork() {
+        guard let network = cfg.network else { return }
+        wifiEnabled = network.wifiEnabled
+    }
+
+    private func syncLoRa() {
+        guard let lora = cfg.lora else { return }
+        txEnabled = lora.txEnabled
     }
 
     private func syncDevice() {
-        guard let device = radio.deviceConfig else { return }
+        guard let device = cfg.device else { return }
         rebroadcastRaw = device.rebroadcastMode.rawValue
+        ledHeartbeatDisabled = device.ledHeartbeatDisabled
+        let secs = device.nodeInfoBroadcastSecs == 0 ? 10800 : Int(device.nodeInfoBroadcastSecs)
+        nodeInfoSecs = Self.nodeInfoChoices.map(\.1).contains(secs) ? secs : 10800
     }
 
     private func syncBluetooth() {
-        guard let bluetooth = radio.bluetoothConfig else { return }
+        guard let bluetooth = cfg.bluetooth else { return }
         btEnabled = bluetooth.enabled
         btModeRaw = bluetooth.mode.rawValue
         if bluetooth.fixedPin > 0 { btFixedPin = String(bluetooth.fixedPin) }
     }
 
     private func syncDisplay() {
-        guard let display = radio.displayConfig else { return }
+        guard let display = cfg.display else { return }
         screenOnSecs = Self.screenChoices.map(\.1).contains(Int(display.screenOnSecs)) ? Int(display.screenOnSecs) : 60
         unitsRaw = display.units.rawValue
         use12HClock = display.use12HClock
@@ -204,9 +415,11 @@ struct DeviceConfigurationView: View {
     }
 
     private func syncPosition() {
-        guard let position = radio.positionConfig else { return }
+        guard let position = cfg.position else { return }
         gpsModeRaw = position.gpsMode.rawValue
-        broadcastSecs = Self.positionChoices.map(\.1).contains(Int(position.positionBroadcastSecs)) ? Int(position.positionBroadcastSecs) : 900
+        var secs = Int(position.positionBroadcastSecs)
+        if secs >= 31_536_000 { secs = Self.never }
+        broadcastSecs = Self.positionChoices.map(\.1).contains(secs) ? secs : 900
         smartEnabled = position.positionBroadcastSmartEnabled
         if position.broadcastSmartMinimumDistance > 0 { smartMinDistance = Int(position.broadcastSmartMinimumDistance) }
         if position.broadcastSmartMinimumIntervalSecs > 0 { smartMinSecs = Int(position.broadcastSmartMinimumIntervalSecs) }
@@ -214,11 +427,24 @@ struct DeviceConfigurationView: View {
     }
 
     private func syncTelemetry() {
-        guard let telemetry = radio.telemetryConfig else { return }
+        guard let telemetry = cfg.telemetry else { return }
+        deviceTelemetryEnabled = telemetry.deviceTelemetryEnabled
         var current = telemetry.deviceUpdateInterval == 0 ? 1800 : Int(telemetry.deviceUpdateInterval)
-        // Anything a year or beyond reads back as Off.
-        if current >= 31_536_000 { current = Self.telemetryOff }
+        if current >= 31_536_000 { current = Self.telemetryOff }   // a year or beyond reads back as Never
         if Self.telemetryChoices.map(\.1).contains(current) { deviceInterval = current }
+        envEnabled = telemetry.environmentMeasurementEnabled
+        powerEnabled = telemetry.powerMeasurementEnabled
+        airEnabled = telemetry.airQualityEnabled
+    }
+
+    private func syncModules() {
+        let m = cfg.modules
+        if let c = m.neighborInfo { neighborInfoOn = c.enabled }
+        if let c = m.rangeTest { rangeTestOn = c.enabled }
+        if let c = m.storeForward { storeForwardOn = c.enabled }
+        if let c = m.detectionSensor { detectionSensorOn = c.enabled }
+        if let c = m.paxcounter { paxcounterOn = c.enabled }
+        if let c = m.mqtt { mqttOn = c.enabled }
     }
 
     // MARK: - Save
@@ -226,47 +452,75 @@ struct DeviceConfigurationView: View {
     private func save() {
         // Transactional: without begin/commit, the radio's save+reboot from
         // an early write races the later ones and drops them.
-        radio.beginEditSettings()
-        defer { radio.commitEditSettings() }
+        radio.beginEditSettings(via: target)
+        defer { radio.commitEditSettings(via: target) }
 
-        var bluetooth = radio.bluetoothConfig ?? Config.BluetoothConfig()
+        var bluetooth = cfg.bluetooth ?? Config.BluetoothConfig()
         bluetooth.enabled = btEnabled
         bluetooth.mode = Config.BluetoothConfig.PairingMode(rawValue: btModeRaw) ?? .randomPin
         if btModeRaw == 1, let pin = UInt32(btFixedPin), pin >= 100_000 { bluetooth.fixedPin = pin }
         var btConfig = Config(); btConfig.bluetooth = bluetooth
-        radio.applyConfig(btConfig)
+        radio.applyConfig(btConfig, via: target)
 
-        var display = radio.displayConfig ?? Config.DisplayConfig()
-        display.screenOnSecs = UInt32(screenOnSecs)
-        display.units = Config.DisplayConfig.DisplayUnits(rawValue: unitsRaw) ?? .metric
-        display.use12HClock = use12HClock
-        display.flipScreen = flipScreen
-        display.compassNorthTop = compassNorthTop
-        display.wakeOnTapOrMotion = wakeOnTapOrMotion
-        var displayConfig = Config(); displayConfig.display = display
-        radio.applyConfig(displayConfig)
+        var displayConfig = Config(); displayConfig.display = formDisplay
+        radio.applyConfig(displayConfig, via: target)
 
-        var position = radio.positionConfig ?? Config.PositionConfig()
-        position.gpsMode = Config.PositionConfig.GpsMode(rawValue: gpsModeRaw) ?? .enabled
-        position.positionBroadcastSecs = UInt32(broadcastSecs)
-        position.positionBroadcastSmartEnabled = smartEnabled
-        position.broadcastSmartMinimumDistance = UInt32(smartMinDistance)
-        position.broadcastSmartMinimumIntervalSecs = UInt32(smartMinSecs)
-        position.fixedPosition = fixedPosition
-        var positionConfig = Config(); positionConfig.position = position
-        radio.applyConfig(positionConfig)
+        if let power = formPower {
+            var c = Config(); c.power = power
+            radio.applyConfig(c, via: target)
+        }
+        if let network = formNetwork {
+            var c = Config(); c.network = network
+            radio.applyConfig(c, via: target)
+        }
+        // Transmit: written on top of the radio's full LoRa section so
+        // nothing else in it moves.
+        if var lora = cfg.lora, lora.txEnabled != txEnabled {
+            lora.txEnabled = txEnabled
+            var c = Config(); c.lora = lora
+            radio.applyConfig(c, via: target)
+        }
 
-        var telemetry = radio.telemetryConfig ?? ModuleConfig.TelemetryConfig()
-        telemetry.deviceUpdateInterval = UInt32(deviceInterval)
-        var moduleConfig = ModuleConfig(); moduleConfig.telemetry = telemetry
-        radio.applyModuleConfig(moduleConfig)
+        var positionConfig = Config(); positionConfig.position = formPosition
+        radio.applyConfig(positionConfig, via: target)
+
+        var moduleConfig = ModuleConfig(); moduleConfig.telemetry = formTelemetry
+        radio.applyModuleConfig(moduleConfig, via: target)
 
         // Device config only ever writes on top of the radio's own values —
         // a blank baseline would wipe the role and other fields.
-        if var device = radio.deviceConfig {
-            device.rebroadcastMode = Config.DeviceConfig.RebroadcastMode(rawValue: rebroadcastRaw) ?? .all
+        if let device = formDevice {
             var deviceWrite = Config(); deviceWrite.device = device
-            radio.applyConfig(deviceWrite)
+            radio.applyConfig(deviceWrite, via: target)
         }
+
+        let m = formModules
+        if let c = m.neighborInfo { var mc = ModuleConfig(); mc.neighborInfo = c; radio.applyModuleConfig(mc, via: target) }
+        if let c = m.rangeTest { var mc = ModuleConfig(); mc.rangeTest = c; radio.applyModuleConfig(mc, via: target) }
+        if let c = m.storeForward { var mc = ModuleConfig(); mc.storeForward = c; radio.applyModuleConfig(mc, via: target) }
+        if let c = m.detectionSensor { var mc = ModuleConfig(); mc.detectionSensor = c; radio.applyModuleConfig(mc, via: target) }
+        if let c = m.paxcounter { var mc = ModuleConfig(); mc.paxcounter = c; radio.applyModuleConfig(mc, via: target) }
+        if let c = m.mqtt { var mc = ModuleConfig(); mc.mqtt = c; radio.applyModuleConfig(mc, via: target) }
+    }
+}
+
+/// The very-low-power checklist: one line per setting, ticked when the
+/// radio (or the unsaved form) already has it.
+struct LowPowerChecklistView: View {
+    let checks: [LowPowerProfile.Check]
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(checks) { check in
+                    Label(check.label, systemImage: check.satisfied ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(check.satisfied ? Color.primary : Color.secondary)
+                }
+            } footer: {
+                Text("All of these must be in place for Very low power to show as on.")
+            }
+        }
+        .navigationTitle("Very Low Power")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }

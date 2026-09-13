@@ -128,7 +128,9 @@ struct SettingsView: View {
             } label: {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Device Configuration")
-                    Text("Bluetooth · Display · Position · Telemetry · Relay")
+                    Text(radio.fleet.count > 1
+                         ? "For \(radio.fleet.first { $0.nodeNum == radio.myNodeNum }?.displayName ?? "the sending radio") — the radio that's sending now"
+                         : "Power · Bluetooth · Display · Position · Telemetry · Relay")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

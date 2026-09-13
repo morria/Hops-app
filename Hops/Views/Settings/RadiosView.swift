@@ -212,6 +212,19 @@ struct RadioDetailView: View {
                 Label("Holds only its last 8–32 packets for you while you're not attached.", systemImage: "exclamationmark.triangle")
             }
 
+            Section {
+                NavigationLink {
+                    DeviceConfigurationView(nodeNum: nodeNum)
+                } label: {
+                    Label("Device Configuration", systemImage: "slider.horizontal.3")
+                }
+                .disabled(attached?.phase != .connected)
+            } footer: {
+                Text(attached?.phase == .connected
+                     ? "Power, Bluetooth, display, position, telemetry, relay and transmit — for this radio only."
+                     : "Attach this radio to change its configuration.")
+            }
+
             RadioSuggestionsSection(nodeNum: nodeNum)
 
             Section {

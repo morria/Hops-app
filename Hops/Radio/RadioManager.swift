@@ -79,6 +79,63 @@ final class RadioManager: ObservableObject {
     @Published var displayConfig: Config.DisplayConfig?
     @Published var positionConfig: Config.PositionConfig?
     @Published var telemetryConfig: ModuleConfig.TelemetryConfig?
+    @Published var powerConfig: Config.PowerConfig?
+    @Published var networkConfig: Config.NetworkConfig?
+    /// The radio's full LoRa section (the snapshot `loRa` is a summary);
+    /// needed to flip tx_enabled without resetting the rest.
+    @Published var loraConfig: Config.LoRaConfig?
+    /// The modules that transmit on their own (TODO 195: very low power).
+    struct ModuleConfigs: Equatable {
+        var neighborInfo: ModuleConfig.NeighborInfoConfig?
+        var rangeTest: ModuleConfig.RangeTestConfig?
+        var storeForward: ModuleConfig.StoreForwardConfig?
+        var detectionSensor: ModuleConfig.DetectionSensorConfig?
+        var paxcounter: ModuleConfig.PaxcounterConfig?
+        var mqtt: ModuleConfig.MQTTConfig?
+        var allKnown: Bool {
+            neighborInfo != nil && rangeTest != nil && storeForward != nil
+                && detectionSensor != nil && paxcounter != nil && mqtt != nil
+        }
+        mutating func absorb(_ moduleConfig: ModuleConfig) {
+            switch moduleConfig.payloadVariant {
+            case .neighborInfo(let c): neighborInfo = c
+            case .rangeTest(let c): rangeTest = c
+            case .storeForward(let c): storeForward = c
+            case .detectionSensor(let c): detectionSensor = c
+            case .paxcounter(let c): paxcounter = c
+            case .mqtt(let c): mqtt = c
+            default: break
+            }
+        }
+    }
+    @Published var moduleConfigs = ModuleConfigs()
+
+    /// Everything one radio has told us about its configuration (TODO 196:
+    /// Device Configuration per radio).
+    struct LinkConfigs: Equatable {
+        var bluetooth: Config.BluetoothConfig?
+        var device: Config.DeviceConfig?
+        var display: Config.DisplayConfig?
+        var position: Config.PositionConfig?
+        var power: Config.PowerConfig?
+        var network: Config.NetworkConfig?
+        var lora: Config.LoRaConfig?
+        var telemetry: ModuleConfig.TelemetryConfig?
+        var modules = ModuleConfigs()
+    }
+    @Published private(set) var configsByNode: [Int64: LinkConfigs] = [:]
+
+    private func publishLinkConfigs() {
+        var map: [Int64: LinkConfigs] = [:]
+        for link in links.values where link.nodeNum > 0 {
+            map[link.nodeNum] = LinkConfigs(bluetooth: link.bluetoothConfig, device: link.deviceConfig,
+                                            display: link.displayConfig, position: link.positionConfig,
+                                            power: link.powerConfig, network: link.networkConfig,
+                                            lora: link.loraConfig, telemetry: link.telemetryConfig,
+                                            modules: link.moduleConfigs)
+        }
+        if configsByNode != map { configsByNode = map }
+    }
 
     struct TrafficEntry: Identifiable {
         let id: Int
@@ -581,11 +638,16 @@ final class RadioManager: ObservableObject {
             displayConfig = link.displayConfig
             positionConfig = link.positionConfig
             telemetryConfig = link.telemetryConfig
+            powerConfig = link.powerConfig
+            networkConfig = link.networkConfig
+            loraConfig = link.loraConfig
+            if moduleConfigs != link.moduleConfigs { moduleConfigs = link.moduleConfigs }
             connectedAt = link.connectedAt
             if let synced = link.lastSyncedAt { lastSyncedAt = synced }
         } else {
             connectedAt = nil
         }
+        publishLinkConfigs()
         let newState = deriveState()
         if state != newState { state = newState }
         let list = links.values
@@ -907,9 +969,12 @@ final class RadioManager: ObservableObject {
             case .device(let device): link.deviceConfig = device
             case .display(let display): link.displayConfig = display
             case .position(let position): link.positionConfig = position
+            case .power(let power): link.powerConfig = power
+            case .network(let network): link.networkConfig = network
             default: break
             }
             if case .lora(let lora) = config.payloadVariant {
+                link.loraConfig = lora
                 link.loRa = LoRaSnapshot(received: true,
                                          regionRaw: lora.region.rawValue,
                                          presetRaw: lora.modemPreset.rawValue,
@@ -924,13 +989,15 @@ final class RadioManager: ObservableObject {
                                                                frequencySlot: link.loRa.frequencySlot)
                 }
             }
-            if isPrimary { refreshFacade() }
+            if isPrimary { refreshFacade() } else { publishLinkConfigs() }
 
         case .moduleConfig(let moduleConfig):
             if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
                 link.telemetryConfig = telemetry
-                if isPrimary { refreshFacade() }
+            } else {
+                link.moduleConfigs.absorb(moduleConfig)
             }
+            if isPrimary { refreshFacade() } else { publishLinkConfigs() }
 
         case .channel(let channel):
             // Every link remembers its own table (for drift); the store's
@@ -1158,15 +1225,24 @@ final class RadioManager: ObservableObject {
             switch admin.payloadVariant {
             case .getModuleConfigResponse(let moduleConfig):
                 if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
-                    telemetryConfig = telemetry
+                    link.telemetryConfig = telemetry
+                    if link === transmitLink { telemetryConfig = telemetry }
+                } else {
+                    link.moduleConfigs.absorb(moduleConfig)
+                    if link === transmitLink { moduleConfigs = link.moduleConfigs }
                 }
+                publishLinkConfigs()
             case .getConfigResponse(let config):
                 switch config.payloadVariant {
-                case .bluetooth(let bluetooth): bluetoothConfig = bluetooth
-                case .device(let device): deviceConfig = device
-                case .display(let display): displayConfig = display
-                case .position(let position): positionConfig = position
+                case .bluetooth(let bluetooth): bluetoothConfig = bluetooth; link.bluetoothConfig = bluetooth
+                case .device(let device): deviceConfig = device; link.deviceConfig = device
+                case .display(let display): displayConfig = display; link.displayConfig = display
+                case .position(let position): positionConfig = position; link.positionConfig = position
+                case .power(let power): powerConfig = power; link.powerConfig = power
+                case .network(let network): networkConfig = network; link.networkConfig = network
                 case .lora(let lora):
+                    loraConfig = lora
+                    link.loraConfig = lora
                     loRa = LoRaSnapshot(received: true,
                                         regionRaw: lora.region.rawValue,
                                         presetRaw: lora.modemPreset.rawValue,
@@ -1175,6 +1251,7 @@ final class RadioManager: ObservableObject {
                     persistLoRa()
                 default: break
                 }
+                publishLinkConfigs()
             default:
                 break
             }
@@ -2083,24 +2160,44 @@ final class RadioManager: ObservableObject {
     }
 
     /// Write one device-config section (bluetooth / display / position / …).
-    func applyConfig(_ config: Config) {
+    func applyConfig(_ config: Config, via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.setConfig = config
-        sendAdmin(admin)
+        sendAdmin(admin, via: nodeNum.flatMap { link(forNodeNum: $0) })
     }
 
-    func applyModuleConfig(_ moduleConfig: ModuleConfig) {
+    func applyModuleConfig(_ moduleConfig: ModuleConfig, via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.setModuleConfig = moduleConfig
-        sendAdmin(admin)
+        let target = nodeNum.flatMap { link(forNodeNum: $0) }
+        sendAdmin(admin, via: target)
+        if let target, target !== transmitLink {
+            // Mirror on that link and read back.
+            if case .telemetry(let telemetry) = moduleConfig.payloadVariant { target.telemetryConfig = telemetry }
+            else { target.moduleConfigs.absorb(moduleConfig) }
+            publishLinkConfigs()
+            return
+        }
         // Module-config writes don't reboot the radio, so no re-sync happens.
         // Mirror optimistically, then read back to confirm what actually stuck.
         if case .telemetry(let telemetry) = moduleConfig.payloadVariant {
             telemetryConfig = telemetry
+            transmitLink?.telemetryConfig = telemetry
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(2))
                 self.requestModuleConfig(.telemetryConfig)
             }
+        } else {
+            moduleConfigs.absorb(moduleConfig)
+            transmitLink?.moduleConfigs.absorb(moduleConfig)
+        }
+    }
+
+    /// Read every module that can transmit on its own (Device Configuration).
+    func requestAllModuleConfigs(via nodeNum: Int64? = nil) {
+        for type in [AdminMessage.ModuleConfigType.telemetryConfig, .neighborinfoConfig, .rangetestConfig,
+                     .storeforwardConfig, .detectionsensorConfig, .paxcounterConfig, .mqttConfig] {
+            requestModuleConfig(type, via: nodeNum)
         }
     }
 
@@ -2109,53 +2206,50 @@ final class RadioManager: ObservableObject {
     /// Multi-config saves must be transactional: each setConfig schedules a
     /// firmware save+reboot, and writes racing that reboot are silently lost.
     /// begin defers the reboot; commit applies everything at once.
-    func beginEditSettings() {
+    func beginEditSettings(via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.beginEditSettings = true
-        sendAdmin(admin)
+        sendAdmin(admin, via: nodeNum.flatMap { link(forNodeNum: $0) })
     }
 
-    func commitEditSettings() {
+    func commitEditSettings(via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.commitEditSettings = true
-        sendAdmin(admin)
+        sendAdmin(admin, via: nodeNum.flatMap { link(forNodeNum: $0) })
     }
 
-    func requestConfig(_ type: AdminMessage.ConfigType) {
+    func requestConfig(_ type: AdminMessage.ConfigType, via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.getConfigRequest = type
-        var decoded = DataMessage()
-        decoded.portnum = .adminApp
-        decoded.payload = (try? admin.serializedData()) ?? Data()
-        decoded.wantResponse = true
-        var packet = MeshPacket()
-        packet.id = newPacketId()
-        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
-        packet.to = UInt32(truncatingIfNeeded: myNodeNum)
-        packet.priority = .reliable
-        packet.decoded = decoded
-        var toRadio = ToRadio()
-        toRadio.packet = packet
-        write(toRadio)
+        sendAdminRequest(admin, via: nodeNum)
     }
 
-    func requestModuleConfig(_ type: AdminMessage.ModuleConfigType) {
+    func requestModuleConfig(_ type: AdminMessage.ModuleConfigType, via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.getModuleConfigRequest = type
+        sendAdminRequest(admin, via: nodeNum)
+    }
+
+    /// A get-request to one radio (or the transmit radio), answered on the
+    /// admin port and handled in handleMeshPacket for that link.
+    private func sendAdminRequest(_ admin: AdminMessage, via nodeNum: Int64?) {
+        let link = nodeNum.flatMap { self.link(forNodeNum: $0) }
+        let target = link?.nodeNum ?? myNodeNum
         var decoded = DataMessage()
         decoded.portnum = .adminApp
         decoded.payload = (try? admin.serializedData()) ?? Data()
         decoded.wantResponse = true
         var packet = MeshPacket()
         packet.id = newPacketId()
-        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
-        packet.to = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.from = UInt32(truncatingIfNeeded: target)
+        packet.to = UInt32(truncatingIfNeeded: target)
         packet.priority = .reliable
         packet.decoded = decoded
         var toRadio = ToRadio()
         toRadio.packet = packet
-        write(toRadio)
+        if let link { write(toRadio, via: link) } else { write(toRadio) }
     }
+
 
     func setChannel(index: Int32, name: String, roleRaw: Int32, psk: Data) {
         var settings = ChannelSettings()
@@ -2333,6 +2427,10 @@ final class RadioLink {
     var displayConfig: Config.DisplayConfig?
     var positionConfig: Config.PositionConfig?
     var telemetryConfig: ModuleConfig.TelemetryConfig?
+    var powerConfig: Config.PowerConfig?
+    var networkConfig: Config.NetworkConfig?
+    var loraConfig: Config.LoRaConfig?
+    var moduleConfigs = RadioManager.ModuleConfigs()
     var connectedAt: Date?
     var lastSyncedAt: Date?
     var trustedRxWindow: ClosedRange<Date>?
