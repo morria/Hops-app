@@ -234,6 +234,17 @@ struct DeviceConfigurationView: View {
 
     @State private var nickname = ""
     @State private var location = "other"
+    @State private var confirmForget = false
+    @State private var confirmRevoke = false
+
+    private var fleetEntry: MessageStore.RadioSnapshot? {
+        let num = nodeNum ?? radio.myNodeNum
+        return radio.fleet.first { $0.nodeNum == num }
+    }
+    private var attachedEntry: RadioManager.AttachedRadio? {
+        let num = nodeNum ?? radio.myNodeNum
+        return radio.attached.first { $0.nodeNum == num }
+    }
 
     var body: some View {
         Form {
@@ -249,14 +260,35 @@ struct DeviceConfigurationView: View {
                         Text("Other").tag("other")
                     }
                     .onChange(of: location) { _, tag in radio.setRadioLocation(num, tag: tag) }
-                    NavigationLink {
-                        RadioDetailView(nodeNum: num)
-                    } label: {
-                        Text("Fleet settings, suggestions & forget")
-                    }
                 } header: {
                     Text("This radio")
                 }
+
+                Section {
+                    LabeledContent("Battery") {
+                        if let battery = fleetEntry?.lastBattery, battery >= 0 {
+                            HStack(spacing: 6) {
+                                Image(systemName: battery > 100 ? "powerplug" : battery > 60 ? "battery.100" : battery > 25 ? "battery.50" : "battery.25")
+                                Text(battery > 100 ? "Plugged in" : "\(battery)%")
+                            }
+                            .foregroundStyle(battery <= 25 ? Color.red : Color.secondary)
+                            .fixedSize()
+                        } else {
+                            Text("—").foregroundStyle(.secondary)
+                        }
+                    }
+                    LabeledContent("Node ID", value: String(format: "!%08x", UInt32(truncatingIfNeeded: num)))
+                    if let fw = fleetEntry?.firmware, !fw.isEmpty { LabeledContent("Firmware", value: "v\(fw)") }
+                    if let attached = attachedEntry {
+                        LabeledContent("Status", value: attached.isTransmit ? "Attached · sending" : "Attached · receiving")
+                    }
+                } header: {
+                    Text("Details")
+                } footer: {
+                    Label("Holds only its last 8–32 packets for you while you're not attached.", systemImage: "exclamationmark.triangle")
+                }
+
+                RadioSuggestionsSection(nodeNum: num)
             }
 
             Section {
@@ -438,6 +470,29 @@ struct DeviceConfigurationView: View {
                 Text("Connection")
             } footer: {
                 Text("Reboot restarts the radio with Bluetooth on; it's back in about 20 seconds. Disconnect keeps the radio in your fleet but stops Hops from attaching until you connect again.")
+            }
+
+            if fleetEntry != nil {
+                Section {
+                    Button("Forget This Radio…", role: .destructive) { confirmForget = true }
+                        .confirmationDialog("Forget this radio?", isPresented: $confirmForget, titleVisibility: .visible) {
+                            Button("Forget Radio", role: .destructive) {
+                                radio.forget(radio: nodeNum ?? radio.myNodeNum)
+                                dismiss()
+                            }
+                        } message: {
+                            Text("Removes it from your fleet on every device. Messages stay. You can pair it again anytime.")
+                        }
+                    Button("Forget & Revoke Keys…", role: .destructive) { confirmRevoke = true }
+                        .confirmationDialog("Lost or stolen?", isPresented: $confirmRevoke, titleVisibility: .visible) {
+                            Button("Forget and Rotate Channel Keys", role: .destructive) {
+                                radio.forgetAndRevoke(radio: nodeNum ?? radio.myNodeNum)
+                                dismiss()
+                            }
+                        } message: {
+                            Text("Forgets the radio and gives every channel with a custom key a new one, applied to your sending radio now. Your other radios will show as differing until you apply fleet settings. Anyone else on a rotated channel needs the new QR.")
+                        }
+                }
             }
         }
         .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
