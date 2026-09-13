@@ -189,9 +189,12 @@ struct RadioDetailView: View {
             Section {
                 LabeledContent("Battery") {
                     if let battery = batteryLevel {
-                        Label(battery > 100 ? "Plugged in" : "\(battery)%",
-                              systemImage: battery > 100 ? "powerplug" : battery > 60 ? "battery.100" : battery > 25 ? "battery.50" : "battery.25")
-                            .foregroundStyle(battery <= 25 && battery <= 100 ? .red : .primary)
+                        HStack(spacing: 6) {
+                            Image(systemName: battery > 100 ? "powerplug" : battery > 60 ? "battery.100" : battery > 25 ? "battery.50" : "battery.25")
+                            Text(battery > 100 ? "Plugged in" : "\(battery)%")
+                        }
+                        .foregroundStyle(battery <= 25 ? Color.red : Color.secondary)
+                        .fixedSize()
                     } else {
                         Text("—").foregroundStyle(.secondary)
                     }
