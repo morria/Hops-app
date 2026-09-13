@@ -455,7 +455,21 @@ struct DeviceConfigurationView: View {
             radio.requestConfig(.loraConfig, via: target)
             syncAll()
         }
-        .onChange(of: cfg) { syncAll() }
+        // Read-backs trickle in for seconds after the screen opens (ten
+        // requests). Only a section's *first* arrival fills the form;
+        // later replies must never overwrite what the user is editing —
+        // that is exactly what reverted saved toggles before.
+        .onChange(of: cfg) { old, new in
+            if old.bluetooth == nil, new.bluetooth != nil { syncBluetooth() }
+            if old.display == nil, new.display != nil { syncDisplay() }
+            if old.position == nil, new.position != nil { syncPosition() }
+            if old.telemetry == nil, new.telemetry != nil { syncTelemetry() }
+            if old.device == nil, new.device != nil { syncDevice() }
+            if old.power == nil, new.power != nil { syncPower() }
+            if old.network == nil, new.network != nil { syncNetwork() }
+            if old.lora == nil, new.lora != nil { syncLoRa() }
+            if !old.modules.allKnown { syncModules() }
+        }
         .onDisappear {
             let num = nodeNum ?? radio.myNodeNum
             if let entry = radio.fleet.first(where: { $0.nodeNum == num }), entry.nickname != nickname {
@@ -542,12 +556,12 @@ struct DeviceConfigurationView: View {
 
     private func syncModules() {
         let m = cfg.modules
-        if let c = m.neighborInfo { neighborInfoOn = c.enabled }
-        if let c = m.rangeTest { rangeTestOn = c.enabled }
-        if let c = m.storeForward { storeForwardOn = c.enabled }
-        if let c = m.detectionSensor { detectionSensorOn = c.enabled }
-        if let c = m.paxcounter { paxcounterOn = c.enabled }
-        if let c = m.mqtt { mqttOn = c.enabled }
+        if neighborInfoOn == nil, let c = m.neighborInfo { neighborInfoOn = c.enabled }
+        if rangeTestOn == nil, let c = m.rangeTest { rangeTestOn = c.enabled }
+        if storeForwardOn == nil, let c = m.storeForward { storeForwardOn = c.enabled }
+        if detectionSensorOn == nil, let c = m.detectionSensor { detectionSensorOn = c.enabled }
+        if paxcounterOn == nil, let c = m.paxcounter { paxcounterOn = c.enabled }
+        if mqttOn == nil, let c = m.mqtt { mqttOn = c.enabled }
     }
 
     // MARK: - Save
