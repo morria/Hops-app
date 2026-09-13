@@ -42,9 +42,11 @@ enum LowPowerProfile {
         add("envtel", "Environment, power and air-quality telemetry off",
             "environment_measurement_enabled, power_measurement_enabled, air_quality_enabled = false",
             telemetry.map { !$0.environmentMeasurementEnabled && !$0.powerMeasurementEnabled && !$0.airQualityEnabled })
+        // A radio with no GPS chip reports NOT_PRESENT after boot even if
+        // we wrote DISABLED — both mean the receiver is off.
         add("gps", "GPS disabled",
             "gps_mode = DISABLED — the receiver is powered down",
-            position.map { $0.gpsMode == .disabled })
+            position.map { $0.gpsMode == .disabled || $0.gpsMode == .notPresent })
         add("pos", "Position broadcasts off",
             "fixed_position = false, position_broadcast_secs = never, smart broadcast off",
             position.map { !$0.fixedPosition && $0.positionBroadcastSecs >= never && !$0.positionBroadcastSmartEnabled })
@@ -57,15 +59,17 @@ enum LowPowerProfile {
         add("led", "LED heartbeat off",
             "device.led_heartbeat_disabled = true",
             device.map { $0.ledHeartbeatDisabled })
+        // No network section from the radio = no Wi-Fi hardware to turn off.
         add("wifi", "Wi-Fi off",
             "network.wifi_enabled = false",
-            network.map { !$0.wifiEnabled })
+            network.map { !$0.wifiEnabled } ?? true)
+        // A module the radio never reports isn't built into its firmware,
+        // so it can't transmit; only the ones it does report must be off.
         add("modules", "Self-transmitting modules off",
             "neighbor_info, range_test, store_forward, detection_sensor, paxcounter, mqtt all disabled",
-            modules.allKnown
-                ? !(modules.neighborInfo!.enabled || modules.rangeTest!.enabled || modules.storeForward!.enabled
-                    || modules.detectionSensor!.enabled || modules.paxcounter!.enabled || modules.mqtt!.enabled)
-                : nil)
+            !(modules.neighborInfo?.enabled ?? false) && !(modules.rangeTest?.enabled ?? false)
+                && !(modules.storeForward?.enabled ?? false) && !(modules.detectionSensor?.enabled ?? false)
+                && !(modules.paxcounter?.enabled ?? false) && !(modules.mqtt?.enabled ?? false))
         return out
     }
 
