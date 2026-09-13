@@ -2230,6 +2230,15 @@ final class RadioManager: ObservableObject {
     /// Multi-config saves must be transactional: each setConfig schedules a
     /// firmware save+reboot, and writes racing that reboot are silently lost.
     /// begin defers the reboot; commit applies everything at once.
+    /// Ask one radio (or the transmit radio) to reboot in a couple of
+    /// seconds. Unlike Sleep, it comes back with Bluetooth on.
+    func rebootRadio(via nodeNum: Int64? = nil) {
+        var admin = AdminMessage()
+        admin.rebootSeconds = 2
+        sendAdmin(admin, via: nodeNum.flatMap { link(forNodeNum: $0) })
+        noteAppEvent("reboot requested for \(String(format: "!%08x", UInt32(truncatingIfNeeded: nodeNum ?? myNodeNum)))")
+    }
+
     func beginEditSettings(via nodeNum: Int64? = nil) {
         var admin = AdminMessage()
         admin.beginEditSettings = true
@@ -2325,6 +2334,9 @@ final class RadioManager: ObservableObject {
         case .setConfig: return "set config"
         case .setChannel(let ch): return "set channel \(ch.index)"
         case .setModuleConfig: return "set module config"
+        case .rebootSeconds: return "reboot"
+        case .beginEditSettings: return "begin edit"
+        case .commitEditSettings: return "commit edit"
         case .addContact(let c): return "add contact \(c.user.id)"
         case .setFavoriteNode(let n): return "favorite \(String(format: "!%08x", n))"
         default: return String(describing: admin.payloadVariant).components(separatedBy: "(").first ?? "admin"

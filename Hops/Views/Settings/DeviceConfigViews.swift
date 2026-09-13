@@ -62,6 +62,7 @@ struct DeviceConfigurationView: View {
     @State private var paxcounterOn: Bool?
     @State private var mqttOn: Bool?
     @State private var lowPowerNote: String?
+    @State private var confirmSleepSave = false
     // Power / network / LoRa
     @State private var powerSaving = false
     @State private var ledHeartbeatDisabled = false
@@ -375,8 +376,7 @@ struct DeviceConfigurationView: View {
 
             Section {
                 Button {
-                    save()
-                    dismiss()
+                    if powerSaving { confirmSleepSave = true } else { save(); dismiss() }
                 } label: {
                     Text("Save to Radio")
                         .frame(maxWidth: .infinity)
@@ -385,12 +385,22 @@ struct DeviceConfigurationView: View {
                 .buttonStyle(.borderedProminent)
                 .listRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
+                .confirmationDialog("Sleep is on", isPresented: $confirmSleepSave, titleVisibility: .visible) {
+                    Button("Save and Let It Sleep", role: .destructive) { save(); dismiss() }
+                    Button("Turn Sleep Off, Then Save") { powerSaving = false; save(); dismiss() }
+                } message: {
+                    Text("After saving, this radio turns Bluetooth off and Hops can't reach it until you press its button.")
+                }
             } footer: {
-                Text("Saves every section. The radio may restart briefly; Hops reconnects automatically.")
+                Text("Saves every section. The radio restarts itself and is back in about 20 seconds; Hops reattaches on its own.")
             }
 
             Section {
                 let num = nodeNum ?? radio.myNodeNum
+                Button("Reboot Radio") {
+                    radio.rebootRadio(via: nodeNum)
+                    dismiss()
+                }
                 if radio.userDisconnectedRadios.contains(num) {
                     Button("Connect") { radio.reconnectByUser(radio: num) }
                 } else {
@@ -402,7 +412,7 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Connection")
             } footer: {
-                Text("Disconnect keeps the radio in your fleet but stops Hops from attaching to it until you connect again.")
+                Text("Reboot restarts the radio with Bluetooth on; it's back in about 20 seconds. Disconnect keeps the radio in your fleet but stops Hops from attaching until you connect again.")
             }
         }
         .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
@@ -522,7 +532,7 @@ struct DeviceConfigurationView: View {
         var displayConfig = Config(); displayConfig.display = formDisplay
         radio.applyConfig(displayConfig, via: target)
 
-        if let power = formPower {
+        if let power = formPower, power != cfg.power {
             var c = Config(); c.power = power
             radio.applyConfig(c, via: target)
         }
