@@ -47,9 +47,6 @@ enum LowPowerProfile {
         add("nodeinfo", "Node info every 4 hours",
             "node_info_broadcast_secs = 14400",
             device.map { $0.nodeInfoBroadcastSecs == nodeInfoSecs })
-        add("powersave", "Power saving mode on",
-            "power.is_power_saving = true — the CPU sleeps between packets",
-            power.map { $0.isPowerSaving })
         add("screen", "Screen off after 30 s",
             "display.screen_on_secs = 30",
             display.map { $0.screenOnSecs > 0 && $0.screenOnSecs <= 30 })
@@ -81,7 +78,10 @@ enum LowPowerProfile {
                       device: inout Config.DeviceConfig, modules: inout RadioManager.ModuleConfigs,
                       power: inout Config.PowerConfig, display: inout Config.DisplayConfig,
                       network: inout Config.NetworkConfig) {
-        power.isPowerSaving = true
+        // power.is_power_saving is deliberately NOT here: it disables
+        // Bluetooth, so the radio vanishes from Hops (it took a SenseCAP
+        // offline). It has its own switch with a warning.
+        _ = power
         display.screenOnSecs = 30
         device.ledHeartbeatDisabled = true
         network.wifiEnabled = false
@@ -107,7 +107,7 @@ enum LowPowerProfile {
     static func restoreDefaults(telemetry: inout ModuleConfig.TelemetryConfig, position: inout Config.PositionConfig,
                                 device: inout Config.DeviceConfig, power: inout Config.PowerConfig,
                                 display: inout Config.DisplayConfig) {
-        power.isPowerSaving = false
+        _ = power
         display.screenOnSecs = 60
         device.ledHeartbeatDisabled = false
         telemetry.deviceTelemetryEnabled = true

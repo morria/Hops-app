@@ -27,6 +27,11 @@ Working list from on-device testing. Items stay here until resolved.
          sensor telemetries, node info interval, power saving, LED, Wi-Fi,
          and each module. Separate "Transmit" toggle (lora.tx_enabled)
          written on top of the radio's full LoRa section.
+         Correction (Sep 13): power.is_power_saving was in the profile and
+         took a SenseCAP offline — the firmware docs: it "disables
+         Bluetooth, Serial, WiFi, and the device's screen"; recovery is the
+         user button or a reset. Removed from Very low power; now its own
+         "Sleep between packets" switch with that warning.
 
 194. [x] Node-info preload before DMs (fleet phase 2, ships alone). The
          radio tells us what it knows — its node-DB dump at connect and

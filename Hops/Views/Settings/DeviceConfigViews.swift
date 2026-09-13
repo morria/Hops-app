@@ -169,7 +169,7 @@ struct DeviceConfigurationView: View {
         var t = formTelemetry, p = formPosition, d = formDevice ?? Config.DeviceConfig(), m = formModules
         var pw = formPower ?? Config.PowerConfig(), ds = formDisplay, nw = formNetwork ?? Config.NetworkConfig()
         LowPowerProfile.apply(telemetry: &t, position: &p, device: &d, modules: &m, power: &pw, display: &ds, network: &nw)
-        powerSaving = true; screenOnSecs = 30; ledHeartbeatDisabled = true; wifiEnabled = false
+        screenOnSecs = 30; ledHeartbeatDisabled = true; wifiEnabled = false
         deviceTelemetryEnabled = false; deviceInterval = Self.never
         envEnabled = false; powerEnabled = false; airEnabled = false
         gpsModeRaw = Config.PositionConfig.GpsMode.disabled.rawValue
@@ -202,8 +202,6 @@ struct DeviceConfigurationView: View {
             else { broadcastSecs = 900; smartEnabled = true }
         case "nodeinfo":
             nodeInfoSecs = on ? Int(LowPowerProfile.nodeInfoSecs) : 10800
-        case "powersave":
-            powerSaving = on
         case "screen":
             screenOnSecs = on ? 30 : 60
         case "led":
@@ -225,7 +223,7 @@ struct DeviceConfigurationView: View {
     }
 
     private func restoreDefaultsToForm() {
-        powerSaving = false; screenOnSecs = 60; ledHeartbeatDisabled = false
+        screenOnSecs = 60; ledHeartbeatDisabled = false
         deviceTelemetryEnabled = true; deviceInterval = 1800
         gpsModeRaw = Config.PositionConfig.GpsMode.enabled.rawValue
         broadcastSecs = 900; smartEnabled = true
@@ -253,7 +251,16 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Power")
             } footer: {
-                Text("Turns off everything the radio does on its own — telemetry, GPS, position, modules, Wi-Fi, LED — puts the CPU to sleep between packets, and keeps node info to every 4 hours. Open What it changes to pick and choose.")
+                Text("Turns off everything the radio does on its own — telemetry, GPS, position, modules, Wi-Fi, LED — and keeps node info to every 4 hours. Bluetooth stays on so Hops can still reach it. Open What it changes to pick and choose.")
+            }
+
+            Section {
+                Toggle("Sleep between packets", isOn: $powerSaving)
+                    .disabled(cfg.power == nil)
+            } header: {
+                Text("Sleep")
+            } footer: {
+                Text("Turns Bluetooth off. Hops can't reach the radio again until you press its button or power-cycle it. Only for radios you never connect a phone to.")
             }
 
             Section {
