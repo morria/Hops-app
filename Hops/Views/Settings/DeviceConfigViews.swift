@@ -241,7 +241,6 @@ struct DeviceConfigurationView: View {
     @State private var newPrivateKey = ""
     @State private var confirmTxOffSave = false
     @State private var savedNote: String?
-    @AppStorage("deviceConfigShowAdvanced") private var showAdvanced = false
 
     /// Anything on the form that differs from what the radio reported.
     private var hasChanges: Bool {
@@ -375,13 +374,6 @@ struct DeviceConfigurationView: View {
             }
 
             Section {
-                Toggle("Show advanced settings", isOn: $showAdvanced)
-            } footer: {
-                Text("Bluetooth, position, telemetry and module details. Very low power already covers what most people change here.")
-            }
-
-            if showAdvanced {
-            Section {
                 Toggle("Bluetooth Enabled", isOn: $btEnabled)
                 Picker("Pairing", selection: $btModeRaw) {
                     Text("Random PIN").tag(0)
@@ -401,8 +393,6 @@ struct DeviceConfigurationView: View {
                 Text("Careful: disabling Bluetooth or changing pairing disconnects Hops — undoing it needs the radio's buttons or another transport.")
             }
 
-            }   // advanced: Bluetooth
-
             Section("Display") {
                 Picker("Screen timeout", selection: $screenOnSecs) {
                     ForEach(Self.screenChoices, id: \.1) { label, value in Text(label).tag(value) }
@@ -417,7 +407,6 @@ struct DeviceConfigurationView: View {
                 Toggle("Wake on tap or motion", isOn: $wakeOnTapOrMotion)
             }
 
-            if showAdvanced {
             Section {
                 Picker("GPS", selection: $gpsModeRaw) {
                     Text("Enabled").tag(1)
@@ -452,7 +441,6 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text("Battery updates come from device telemetry. To stop them entirely turn Device telemetry off and set the interval to Never. Every broadcast spends the whole mesh's airtime — 6 hours is plenty when it's on.")
             }
-            }   // advanced: Position, Telemetry
 
             Section {
                 Picker("Node info broadcast", selection: $nodeInfoSecs) {
@@ -469,7 +457,6 @@ struct DeviceConfigurationView: View {
                 Text("Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
             }
 
-            if showAdvanced {
             Section {
                 moduleToggle("Neighbor info", $neighborInfoOn)
                 moduleToggle("Range test", $rangeTestOn)
@@ -482,7 +469,6 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text("Each of these sends packets without you. A dimmed row means the radio hasn't reported that module yet.")
             }
-            }   // advanced: Modules
 
 
             Section {
