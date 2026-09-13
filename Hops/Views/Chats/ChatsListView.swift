@@ -110,13 +110,12 @@ struct ChatsListView: View {
                 .simultaneousGesture(TapGesture().onEnded { searchFocused = false })
                 .scrollDismissesKeyboard(.immediately)
             }
-            // iPhone: no bar, the search row is the header. iPad: the split
-            // view column reserves the bar's height even when hidden, which
-            // left a blank band above the search field — so give it a real
-            // inline title there instead.
-            .toolbar(hSize == .regular ? .visible : .hidden, for: .navigationBar)
-            .navigationTitle(hSize == .regular ? "Messages" : "")
-            .navigationBarTitleDisplayMode(.inline)
+            // No title on either width: the search row is the header. The
+            // iPad split-view column still insets for the hidden bar, so the
+            // sidebar ignores that top inset and pads itself instead.
+            .toolbar(.hidden, for: .navigationBar)
+            .ignoresSafeArea(.container, edges: hSize == .regular ? .top : [])
+            .padding(.top, hSize == .regular ? 12 : 0)
             .onChange(of: searchFocused) { _, focused in
                 if focused && !searchActive {
                     allNodes = fetchAllNodes()
