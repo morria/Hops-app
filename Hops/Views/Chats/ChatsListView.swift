@@ -110,7 +110,13 @@ struct ChatsListView: View {
                 .simultaneousGesture(TapGesture().onEnded { searchFocused = false })
                 .scrollDismissesKeyboard(.immediately)
             }
-            .toolbar(.hidden, for: .navigationBar)
+            // iPhone: no bar, the search row is the header. iPad: the split
+            // view column reserves the bar's height even when hidden, which
+            // left a blank band above the search field — so give it a real
+            // inline title there instead.
+            .toolbar(hSize == .regular ? .visible : .hidden, for: .navigationBar)
+            .navigationTitle(hSize == .regular ? "Messages" : "")
+            .navigationBarTitleDisplayMode(.inline)
             .onChange(of: searchFocused) { _, focused in
                 if focused && !searchActive {
                     allNodes = fetchAllNodes()
