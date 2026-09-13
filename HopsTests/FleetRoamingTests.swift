@@ -19,7 +19,8 @@ final class FleetRoamingTests: XCTestCase {
         radio = RadioManager(transport: mock, defaults: suite)
         let schema = Schema([ConversationEntity.self, MessageEntity.self, NodeEntity.self,
                              ChannelEntity.self, WaypointEntity.self, PositionSampleEntity.self,
-                             CoverageSampleEntity.self, SeqTrackEntity.self, RadioEntity.self])
+                             CoverageSampleEntity.self, SeqTrackEntity.self, RadioEntity.self,
+                             GameSessionEntity.self])
         container = try ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
         radio.configure(container: container)
         try await settle()

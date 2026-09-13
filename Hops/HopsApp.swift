@@ -15,7 +15,8 @@ struct HopsApp: App {
     init() {
         let schema = Schema([ConversationEntity.self, MessageEntity.self, NodeEntity.self,
                              ChannelEntity.self, WaypointEntity.self, PositionSampleEntity.self,
-                             CoverageSampleEntity.self, SeqTrackEntity.self, RadioEntity.self])
+                             CoverageSampleEntity.self, SeqTrackEntity.self, RadioEntity.self,
+                             GameSessionEntity.self])
         do {
             // iCloud-synced store: messages, nodes, conversations, custom icons
             // follow the user across devices. Falls back to local-only if the
@@ -31,6 +32,7 @@ struct HopsApp: App {
             }
         }
         RadioManager.shared.configure(container: container)
+        GameCoordinator.shared.configure(container: container)
         #if MESHSITES
         // Wake the site server so beacons and request handling run without
         // the user ever opening the Mesh Site screen.
@@ -46,6 +48,7 @@ struct HopsApp: App {
             // Fresh simulators must land in the app, not the pairing cover.
             UserDefaults.standard.set(true, forKey: "onboardingComplete")
             ScreenshotMode.seedIfNeeded(container: container)
+            ScreenshotMode.seededGameSessionId = ScreenshotMode.seedGames(container: container)
         } else {
             NotificationManager.shared.bootstrap()
         }
@@ -70,6 +73,10 @@ struct HopsApp: App {
                     #if DEBUG
                     if ScreenshotMode.isActive {
                         appModel.selectedTab = ScreenshotMode.initialTab
+                        if let sid = ScreenshotMode.seededGameSessionId, ScreenshotMode.initialGame != nil {
+                            appModel.pendingGameSessionId = sid
+                            appModel.selectedTab = 4
+                        }
                     }
                     #endif
                 }
@@ -122,9 +129,16 @@ final class AppModel: ObservableObject {
     @Published var pendingScrollPacketId: Int64?
     @Published var pendingScrollConversationKey: String?
     @Published var selectedTab: Int = 0
+    /// Game to open (session id) after a notification tap; consumed by GamesListView.
+    @Published var pendingGameSessionId: Int64?
 
     func openConversation(_ key: String, scrollTo packetId: Int64 = 0) {
         RadioManager.shared.noteAppEvent("open requested: \(key) packet \(packetId)")
+        if key.hasPrefix("game-"), let sid = key.split(separator: "-").last.flatMap({ Int64($0) }) {
+            pendingGameSessionId = sid
+            selectedTab = 4
+            return
+        }
         pendingScrollPacketId = packetId != 0 ? packetId : nil
         pendingScrollConversationKey = packetId != 0 ? key : nil
         pendingConversationKey = key

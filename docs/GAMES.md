@@ -1,4 +1,4 @@
-# Games over the mesh — design (draft 1)
+# Games over the mesh — design (draft 2, implemented)
 
 Two-player, one-turn-at-a-time games between Hops users, carried on their
 own port, where a move counts only once both sides hold the same state.
@@ -114,7 +114,15 @@ protocol GameEngine {
    permissively-licensed Swift rules library rather than writing one.
 5. Later: Go 9×9, Reversi, Mancala, Hangman, Wordle-by-seed.
 
-## 6. Phases
+## 6. Where things live
+
+- `Hops/Games/GameEngine.swift` — `GameEngine` protocol, `GameKind` registry, FNV hash.
+- `Hops/Games/GameProtocol.swift` — `GameSessionRecord`, `GameFrame` (wire), `GameLogic` (commit rules; pure, tested in `HopsTests/GameProtocolTests.swift`).
+- `Hops/Games/GameCoordinator.swift` — persistence (`GameSessionEntity`), sending via `RadioManager.sendGames`, resend on reconnect / backoff / Nudge, notifications, Battleship auto-reports.
+- `Hops/Games/{SimpleGames,Checkers,Battleship,Chess}.swift` — engines. `Hops/Views/Games/` — tab, invite sheet, session screen, boards.
+- Port 425 is dispatched in `RadioManager.handleMeshPacket`; routing acks feed `GameCoordinator.noteRouting` for the "reached their radio" hint.
+
+## 7. Phases (all landed)
 
 | Phase | Scope | Size |
 |---|---|---|
@@ -124,10 +132,14 @@ protocol GameEngine {
 | D | Checkers, Battleship | 1.5 days |
 | E | Chess (with a vendored rules library) | 2 days |
 
-## 7. Adversarial notes
+## 8. Adversarial notes
 
 - Two moves cross in flight (both think it's their turn after a resync):
   `prevHash` rejects the loser; the NAK reason says "not your turn".
+- Lost ACK: the mover keeps resending the same bytes; the receiver re-acks
+  duplicates. If the receiver has already moved on, its next MOVE carries
+  `prevHash == hash(our state + our pending move)`, which the mover takes
+  as the missing ACK and commits before applying theirs.
 - A peer on an old Hops without Games: no reply, ever. Show "No answer —
   they may not have Games on" after a day; the invite stays resendable.
 - Cheating is out of scope; both engines validate every move, so at worst a

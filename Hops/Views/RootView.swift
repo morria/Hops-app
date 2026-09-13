@@ -8,13 +8,16 @@ struct RootView: View {
     #if MESHSITES
     @AppStorage("meshsitesEnabled") private var meshsitesEnabled = false
     #endif
+    @AppStorage("gamesEnabled") private var gamesEnabled = false
 
     /// Tab tags in on-screen order — tags are stable ids, not positions.
     private var orderedTabTags: [Int] {
+        var tags = [0]
         #if MESHSITES
-        if meshsitesEnabled { return [0, 3, 1, 2] }
+        if meshsitesEnabled { tags.append(3) }
         #endif
-        return [0, 1, 2]
+        if gamesEnabled { tags.append(4) }
+        return tags + [1, 2]
     }
 
     var body: some View {
@@ -31,6 +34,11 @@ struct RootView: View {
                 .tag(3)   // tags are stable ids, not positions — Map stays 1
             }
             #endif
+            if gamesEnabled {
+                GamesListView()
+                .tabItem { Label("Games", systemImage: "gamecontroller.fill") }
+                .tag(4)
+            }
             MapTab()
                 .tabItem { Label("Map", systemImage: "map.fill") }
                 .tag(1)
@@ -43,6 +51,9 @@ struct RootView: View {
             if !enabled, appModel.selectedTab == 3 { appModel.selectedTab = 0 }
         }
         #endif
+        .onChange(of: gamesEnabled) { _, enabled in
+            if !enabled, appModel.selectedTab == 4 { appModel.selectedTab = 0 }
+        }
         // Hardware keyboard (iPad/Mac): ⌘1…⌘n selects tabs by visual position.
         .background {
             ForEach(Array(orderedTabTags.enumerated()), id: \.offset) { index, tag in

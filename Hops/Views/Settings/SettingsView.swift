@@ -62,6 +62,7 @@ struct SettingsView: View {
                 appSection
                 #if MESHSITES
                 meshsitesSection
+                experimentalSection
                 #endif
                 advancedSection
                 aboutSection
@@ -331,6 +332,20 @@ struct SettingsView: View {
         }
     }
     #endif
+
+    // MARK: - Experimental
+
+    @AppStorage("gamesEnabled") private var gamesEnabled = false
+
+    private var experimentalSection: some View {
+        Section {
+            Toggle("Games", isOn: $gamesEnabled)
+        } header: {
+            Text("Experimental")
+        } footer: {
+            Text("Two-player games with another Hops user over the mesh — chess, checkers, and more. Adds a Games tab. Each move is confirmed by both phones before it counts.")
+        }
+    }
 
     // MARK: - Node retention
 

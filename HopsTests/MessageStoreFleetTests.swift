@@ -12,7 +12,8 @@ final class MessageStoreFleetTests: XCTestCase {
     override func setUp() async throws {
         let schema = Schema([ConversationEntity.self, MessageEntity.self, NodeEntity.self,
                              ChannelEntity.self, WaypointEntity.self, PositionSampleEntity.self,
-                             CoverageSampleEntity.self, SeqTrackEntity.self, RadioEntity.self])
+                             CoverageSampleEntity.self, SeqTrackEntity.self, RadioEntity.self,
+                             GameSessionEntity.self])
         container = try ModelContainer(for: schema, configurations: [ModelConfiguration(isStoredInMemoryOnly: true)])
         store = MessageStore(modelContainer: container)
     }

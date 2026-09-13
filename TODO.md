@@ -4,7 +4,7 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
-199. [ ] Games over the mesh — plan in docs/GAMES.md. Experimental › Games
+199. [x] Games over the mesh — plan in docs/GAMES.md. Experimental › Games
          toggle adds a Games tab; per game: New Game (pick a node) or
          continue. Own port (425), every move app-acknowledged with a state
          hash before the turn passes, state = move log, resync on

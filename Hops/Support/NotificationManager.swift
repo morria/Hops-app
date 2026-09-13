@@ -128,6 +128,22 @@ final class NotificationManager: NSObject {
     }
     #endif
 
+    /// A game event from a peer (invite, your turn, result). Tapping opens
+    /// the game through the conversation-key deep link ("game-<peer>-<id>").
+    func postGame(peer: Int64, sessionId: Int64, body: String) {
+        Task { @MainActor in
+            let name = await RadioManager.shared.displayName(for: peer)
+            let content = UNMutableNotificationContent()
+            content.title = name
+            content.body = body
+            content.sound = .default
+            content.threadIdentifier = "games"
+            content.userInfo = ["conversationKey": "game-\(peer)-\(sessionId)"]
+            try? await UNUserNotificationCenter.current().add(
+                UNNotificationRequest(identifier: "game-\(sessionId)-\(UUID().uuidString)", content: content, trigger: nil))
+        }
+    }
+
     func postOutboxHeld() {
         let content = UNMutableNotificationContent()
         content.title = "Couldn't send yet"

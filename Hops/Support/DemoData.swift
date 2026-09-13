@@ -19,8 +19,80 @@ enum ScreenshotMode {
         switch CommandLine.arguments[index + 1] {
         case "map": return 1
         case "settings": return 2
+        case "games": return 4
         default: return 0
         }
+    }
+
+    /// `-game chess|checkers|…` opens a seeded mid-game session on launch.
+    static var initialGame: GameKind? {
+        guard let index = CommandLine.arguments.firstIndex(of: "-game"),
+              CommandLine.arguments.count > index + 1 else { return nil }
+        switch CommandLine.arguments[index + 1] {
+        case "chess": return .chess
+        case "checkers": return .checkers
+        case "battleship": return .battleship
+        case "connectfour": return .connectFour
+        case "dots": return .dotsAndBoxes
+        case "tictactoe": return .ticTacToe
+        default: return nil
+        }
+    }
+
+    @MainActor static var seededGameSessionId: Int64?
+
+    /// Demo game sessions in every state the tab shows; returns the session
+    /// id for `-game` so the app can open it.
+    @MainActor
+    static func seedGames(container: ModelContainer) -> Int64? {
+        guard isActive, initialTab == 4 || initialGame != nil else { return nil }
+        UserDefaults.standard.set(true, forKey: "gamesEnabled")
+        let context = container.mainContext
+        guard ((try? context.fetchCount(FetchDescriptor<GameSessionEntity>())) ?? 0) == 0 else {
+            let wanted = initialGame ?? .chess
+            return (try? context.fetch(FetchDescriptor<GameSessionEntity>()))?
+                .first { $0.kind == wanted }?.sessionId
+        }
+        func make(_ kind: GameKind, peer: Int64, me: Player, phase: GamePhase, moves: [[UInt8]] = [],
+                  pending: [UInt8]? = nil, attention: Bool = false, minutesAgo: Double = 5) -> GameSessionEntity {
+            var r = GameSessionRecord(id: UInt32.random(in: 1...UInt32.max), kind: kind, peer: peer, me: me,
+                                      options: Data([me == .one ? 0 : 1]), phase: phase)
+            for m in moves { r.moves.append(contentsOf: m) }
+            r.pending = pending.map { Data($0) }
+            if [.finished, .myTurn, .theirTurn].contains(phase) { r.settleTurn() }
+            let e = GameSessionEntity(record: r)
+            e.needsAttention = attention
+            e.updatedAt = Date().addingTimeInterval(-minutesAgo * 60)
+            context.insert(e)
+            return e
+        }
+        // Chess, mid-game (Italian opening), my move.
+        func sq(_ n: String) -> UInt8 { UInt8((Int(n.unicodeScalars.first!.value) - 97) + (Int(String(n.last!))! - 1) * 8) }
+        let chessMoves: [[UInt8]] = [["e2","e4"],["e7","e5"],["g1","f3"],["b8","c6"],["f1","c4"],["f8","c5"],
+                                     ["c2","c3"],["g8","f6"],["d2","d4"],["e5","d4"]].map { [sq($0[0]), sq($0[1]), 0] }
+        let chess = make(.chess, peer: 0xA1B2C3, me: .one, phase: .myTurn, moves: chessMoves, attention: true, minutesAgo: 12)
+        _ = make(.checkers, peer: 0xC3D4E5, me: .two, phase: .invited, attention: true, minutesAgo: 30)
+        // A few plies of whatever is legal, so boards have pieces off the start squares.
+        func plies(_ kind: GameKind, _ count: Int) -> [[UInt8]] {
+            var engine = kind.make(options: Data([0])); var out: [[UInt8]] = []
+            for i in 0..<count {
+                let legal = engine.legalMoves(); guard !legal.isEmpty else { break }
+                let move = legal[(i * 5) % legal.count]
+                guard (try? engine.apply(move)) != nil else { break }
+                out.append([UInt8](move))
+            }
+            return out
+        }
+        _ = make(.checkers, peer: 0xB2C3D4, me: .one, phase: .theirTurn, moves: plies(.checkers, 7), minutesAgo: 45)
+        _ = make(.battleship, peer: 0xC3D4E5, me: .one, phase: .myTurn, attention: true, minutesAgo: 8)
+        _ = make(.dotsAndBoxes, peer: 0xA1B2C3, me: .two, phase: .theirTurn, moves: plies(.dotsAndBoxes, 9), minutesAgo: 120)
+        _ = make(.connectFour, peer: 0xB2C3D4, me: .one, phase: .waiting, moves: [[3], [3], [4]], pending: [2], minutesAgo: 90)
+        _ = make(.ticTacToe, peer: 0xA1B2C3, me: .two, phase: .finished,
+                 moves: [[0], [4], [1], [8], [2]], minutesAgo: 60 * 26)
+        try? context.save()
+        let wanted = initialGame ?? .chess
+        if wanted == .chess { return chess.sessionId }
+        return (try? context.fetch(FetchDescriptor<GameSessionEntity>()))?.first { $0.kind == wanted }?.sessionId
     }
 
     @MainActor

@@ -322,3 +322,104 @@ final class WaypointEntity {
         self.createdBy = createdBy
     }
 }
+
+// MARK: - Game session (docs/GAMES.md §3) — one two-player game with a peer
+
+@Model
+final class GameSessionEntity {
+    /// 32-bit session id chosen by the inviter; unique with `peerNum`.
+    var sessionId: Int64 = 0
+    var kindRaw: Int = 0
+    var peerNum: Int64 = 0
+    var myPlayerRaw: Int = 0
+    var options: Data = Data()
+    /// Committed moves, fixed width per game kind.
+    var moves: Data = Data()
+    var phaseRaw: String = "inviting"
+    var pendingMove: Data?
+    /// 0 none, 1 player one wins, 2 player two wins, 3 draw.
+    var resultRaw: Int = 0
+    var endReasonRaw: Int = 0
+    var drawOffered: Bool = false
+    /// Hidden local setup (Battleship placement). Never transmitted.
+    var privateData: Data = Data()
+    var lastNakRaw: Int = 0
+    var outOfSync: Bool = false
+    var createdAt: Date = Date()
+    var updatedAt: Date = Date()
+    /// When the frame in flight was last sent (resend backoff).
+    var lastSentAt: Date?
+    var sendAttempts: Int = 0
+    var lastNudgeAt: Date?
+    /// Which of my radios carried the last frame (fleet bookkeeping).
+    var viaNodeNum: Int64 = 0
+    /// Something new for the user: an invite, their turn, a result.
+    var needsAttention: Bool = false
+
+    init(record: GameSessionRecord) {
+        sessionId = Int64(record.id)
+        kindRaw = Int(record.kind.rawValue)
+        peerNum = record.peer
+        myPlayerRaw = Int(record.me.rawValue)
+        options = record.options
+        createdAt = Date()
+        apply(record)
+    }
+
+    var kind: GameKind { GameKind(rawValue: UInt8(clamping: kindRaw)) ?? .ticTacToe }
+    var myPlayer: Player { Player(rawValue: UInt8(clamping: myPlayerRaw)) ?? .one }
+    var phase: GamePhase { GamePhase(rawValue: phaseRaw) ?? .inviting }
+
+    var record: GameSessionRecord {
+        var r = GameSessionRecord(id: UInt32(truncatingIfNeeded: sessionId), kind: kind, peer: peerNum,
+                                  me: myPlayer, options: options, phase: phase)
+        r.moves = moves
+        r.pending = pendingMove
+        switch resultRaw {
+        case 1: r.result = .win(.one)
+        case 2: r.result = .win(.two)
+        case 3: r.result = .draw
+        default: r.result = nil
+        }
+        r.endReason = GameEndReason(rawValue: UInt8(clamping: endReasonRaw))
+        r.drawOffered = drawOffered
+        r.privateData = privateData
+        r.lastNak = GameNakReason(rawValue: UInt8(clamping: lastNakRaw))
+        r.outOfSync = outOfSync
+        return r
+    }
+
+    func apply(_ r: GameSessionRecord) {
+        moves = r.moves
+        phaseRaw = r.phase.rawValue
+        pendingMove = r.pending
+        switch r.result {
+        case .win(.one)?: resultRaw = 1
+        case .win(.two)?: resultRaw = 2
+        case .draw?: resultRaw = 3
+        case nil: resultRaw = 0
+        }
+        endReasonRaw = Int(r.endReason?.rawValue ?? 0)
+        drawOffered = r.drawOffered
+        privateData = r.privateData
+        lastNakRaw = Int(r.lastNak?.rawValue ?? 0)
+        outOfSync = r.outOfSync
+        updatedAt = Date()
+    }
+
+    /// "You won", "Draw", nil while playing.
+    var resultText: String? {
+        switch resultRaw {
+        case 3: return "Draw"
+        case 1, 2:
+            let winner: Player = resultRaw == 1 ? .one : .two
+            let mine = winner == myPlayer
+            switch GameEndReason(rawValue: UInt8(clamping: endReasonRaw)) {
+            case .resign?: return mine ? "You won — they resigned" : "You resigned"
+            case .abandon?: return mine ? "You won — they left" : "You left"
+            default: return mine ? "You won" : "You lost"
+            }
+        default: return nil
+        }
+    }
+}

@@ -1123,6 +1123,7 @@ final class RadioManager: ObservableObject {
             if let waiter = pendingAdminAcks.removeValue(forKey: decoded.requestID) {
                 waiter.resume(returning: errorRaw == 0)
             }
+            GameCoordinator.shared.noteRouting(packetId: decoded.requestID, ok: errorRaw == 0, error: errorRaw)
             if let key = resendRequests.first(where: { $0.value.packetId == decoded.requestID })?.key {
                 if errorRaw == 0 { resendRequests[key]?.delivered = true } else { resendRequests[key]?.nakError = errorRaw }
             }
@@ -1292,6 +1293,10 @@ final class RadioManager: ObservableObject {
                 handleReliabilityFrame(from: fromNum, payload: decoded.payload)
                 break
             }
+            if case .UNRECOGNIZED(GameCoordinator.port) = decoded.portnum, isMine(Int64(packet.to)), !isMine(fromNum) {
+                GameCoordinator.shared.handle(from: fromNum, payload: decoded.payload)
+                break
+            }
             #if MESHSITES
             if case .UNRECOGNIZED(MeshsitesManager.port) = decoded.portnum {
                 MeshsitesManager.shared.handle(from: fromNum, to: Int64(packet.to),
@@ -1308,6 +1313,7 @@ final class RadioManager: ObservableObject {
         if case .UNRECOGNIZED(MeshsitesManager.port) = port { return "meshsite" }
         #endif
         if case .UNRECOGNIZED(Self.reliabilityPort) = port { return "resend" }
+        if case .UNRECOGNIZED(GameCoordinator.port) = port { return "game" }
         switch port {
         case .textMessageApp: return "message"
         case .positionApp: return "position"
@@ -1324,6 +1330,9 @@ final class RadioManager: ObservableObject {
     }
 
     private func trafficSummary(_ decoded: DataMessage) -> String {
+        if case .UNRECOGNIZED(GameCoordinator.port) = decoded.portnum {
+            return GameFrame(decoded.payload)?.summary ?? "undecodable game frame"
+        }
         switch decoded.portnum {
         case .textMessageApp, .detectionSensorApp, .alertApp:
             return String((String(data: decoded.payload, encoding: .utf8) ?? "<binary>").prefix(80))
@@ -1828,6 +1837,34 @@ final class RadioManager: ObservableObject {
         default:
             break
         }
+    }
+
+    /// Sends a Games frame (port 425) through the transmit radio. Default hop
+    /// limit — games cross the mesh. Returns the packet id for routing-ack
+    /// correlation (`GameCoordinator.noteRouting`).
+    @discardableResult
+    func sendGames(to num: Int64, payload: Data) -> UInt32 {
+        var decoded = DataMessage()
+        decoded.portnum = PortNum.UNRECOGNIZED(GameCoordinator.port)
+        decoded.payload = payload
+        var packet = MeshPacket()
+        packet.id = newPacketId()
+        packet.from = UInt32(truncatingIfNeeded: myNodeNum)
+        packet.to = UInt32(truncatingIfNeeded: num)
+        packet.wantAck = true
+        packet.decoded = decoded
+        var toRadio = ToRadio()
+        toRadio.packet = packet
+        write(toRadio)
+        logTraffic(from: myNodeNum, port: "sent",
+                   summary: "→ game \(String(format: "!%08x", UInt32(truncatingIfNeeded: num))) #\(String(format: "%08X", packet.id)): \(GameFrame(payload)?.summary ?? "?")")
+        return packet.id
+    }
+
+    /// The name we show for a node, or its id when unknown.
+    func displayName(for num: Int64) async -> String {
+        if let snap = await store?.nodeSnapshot(num: num), !snap.longName.isEmpty { return snap.longName }
+        return String(format: "!%08x", UInt32(truncatingIfNeeded: num))
     }
 
     @discardableResult
