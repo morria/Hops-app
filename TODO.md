@@ -4,6 +4,14 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+199. [ ] Games over the mesh — plan in docs/GAMES.md. Experimental › Games
+         toggle adds a Games tab; per game: New Game (pick a node) or
+         continue. Own port (425), every move app-acknowledged with a state
+         hash before the turn passes, state = move log, resync on
+         divergence. GameEngine protocol + coordinator + synced sessions;
+         phases A–E from protocol/tests → tab → tic-tac-toe/Connect Four/
+         Dots and Boxes → checkers/Battleship → chess.
+
 198. [x] Settings design pass. Main screen: Radios / Identity /
          Notifications / App / Advanced; fleet rows show state + battery
          only (no firmware), badge "Transmit off · listening only" and
