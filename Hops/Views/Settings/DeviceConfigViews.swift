@@ -161,29 +161,7 @@ struct DeviceConfigurationView: View {
         LowPowerProfile.checks(telemetry: formTelemetry, position: formPosition, device: formDevice, modules: formModules,
                                power: formPower, display: formDisplay, network: formNetwork)
     }
-    private var veryLowPower: Binding<Bool> {
-        Binding(get: { checks.allSatisfy(\.satisfied) },
-                set: { on in on ? applyLowPowerToForm() : restoreDefaultsToForm() })
-    }
 
-    private func applyLowPowerToForm() {
-        var t = formTelemetry, p = formPosition, d = formDevice ?? Config.DeviceConfig(), m = formModules
-        var pw = formPower ?? Config.PowerConfig(), ds = formDisplay, nw = formNetwork ?? Config.NetworkConfig()
-        LowPowerProfile.apply(telemetry: &t, position: &p, device: &d, modules: &m, power: &pw, display: &ds, network: &nw)
-        screenOnSecs = 30; ledHeartbeatDisabled = true; wifiEnabled = false
-        deviceTelemetryEnabled = false; deviceInterval = Self.never
-        envEnabled = false; powerEnabled = false; airEnabled = false
-        gpsModeRaw = Config.PositionConfig.GpsMode.disabled.rawValue
-        fixedPosition = false; broadcastSecs = Self.never; smartEnabled = false
-        nodeInfoSecs = Int(LowPowerProfile.nodeInfoSecs)
-        if m.neighborInfo != nil { neighborInfoOn = false }
-        if m.rangeTest != nil { rangeTestOn = false }
-        if m.storeForward != nil { storeForwardOn = false }
-        if m.detectionSensor != nil { detectionSensorOn = false }
-        if m.paxcounter != nil { paxcounterOn = false }
-        if m.mqtt != nil { mqttOn = false }
-        lowPowerNote = "Set. Tap Save to Radio to apply."
-    }
 
     /// One checklist item flipped by hand: on = its recommended state, off =
     /// the firmware default where one exists (some items have no "on" to go
@@ -223,14 +201,6 @@ struct DeviceConfigurationView: View {
         }
     }
 
-    private func restoreDefaultsToForm() {
-        screenOnSecs = 60; ledHeartbeatDisabled = false
-        deviceTelemetryEnabled = true; deviceInterval = 1800
-        gpsModeRaw = Config.PositionConfig.GpsMode.enabled.rawValue
-        broadcastSecs = 900; smartEnabled = true
-        nodeInfoSecs = 10800
-        lowPowerNote = "Firmware defaults restored for GPS, position, telemetry and node info. Tap Save to Radio to apply."
-    }
 
     @State private var nickname = ""
     @State private var location = "other"
@@ -333,14 +303,9 @@ struct DeviceConfigurationView: View {
                         Text("—").foregroundStyle(.secondary)
                     }
                 }
-                Toggle("Very low power", isOn: veryLowPower)
-                    .disabled(cfg.device == nil)
-                NavigationLink {
-                    LowPowerChecklistView(checks: checks, set: setCheck)
-                } label: {
-                    LabeledContent("What it changes") {
-                        Text("\(checks.filter(\.satisfied).count) of \(checks.count)")
-                    }
+                ForEach(checks) { check in
+                    Toggle(check.label, isOn: Binding(get: { check.satisfied },
+                                                      set: { setCheck(check.id, $0) }))
                 }
                 if let lowPowerNote {
                     Text(lowPowerNote)
@@ -350,7 +315,7 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Power")
             } footer: {
-                Text("Turns off everything the radio does on its own — telemetry, GPS, position, modules, Wi-Fi, LED — and keeps node info to every 4 hours. Bluetooth stays on so Hops can still reach it. Open What it changes to pick and choose.")
+                Text("Each switch turns off something the radio does on its own. On means the low-power setting is in place; changes apply when you tap Save. Bluetooth stays on so Hops can still reach the radio.")
             }
 
             Section {
@@ -763,27 +728,5 @@ struct DeviceConfigurationView: View {
         if let c = m.detectionSensor { var mc = ModuleConfig(); mc.detectionSensor = c; radio.applyModuleConfig(mc, via: target) }
         if let c = m.paxcounter { var mc = ModuleConfig(); mc.paxcounter = c; radio.applyModuleConfig(mc, via: target) }
         if let c = m.mqtt { var mc = ModuleConfig(); mc.mqtt = c; radio.applyModuleConfig(mc, via: target) }
-    }
-}
-
-/// The very-low-power checklist: one line per setting, ticked when the
-/// radio (or the unsaved form) already has it.
-struct LowPowerChecklistView: View {
-    let checks: [LowPowerProfile.Check]
-    let set: (String, Bool) -> Void
-
-    var body: some View {
-        List {
-            Section {
-                ForEach(checks) { check in
-                    Toggle(check.label, isOn: Binding(get: { check.satisfied },
-                                                      set: { set(check.id, $0) }))
-                }
-            } footer: {
-                Text("All of these must be on for Very low power to show as on. Changes apply when you tap Save to Radio.")
-            }
-        }
-        .navigationTitle("Very Low Power")
-        .navigationBarTitleDisplayMode(.inline)
     }
 }
