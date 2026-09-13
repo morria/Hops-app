@@ -128,6 +128,8 @@ private struct SquareView: View {
 
     private static func glyph(_ piece: (player: Player, kind: Chess.Kind)) -> String {
         let white = ["♙", "♘", "♗", "♖", "♕", "♔"], black = ["♟", "♞", "♝", "♜", "♛", "♚"]
-        return (piece.player == .one ? white : black)[Int(piece.kind.rawValue) - 1]
+        // U+FE0E forces text presentation: ♟ otherwise renders as the
+        // colour emoji on iOS and looks nothing like the other pieces.
+        return (piece.player == .one ? white : black)[Int(piece.kind.rawValue) - 1] + "\u{FE0E}"
     }
 }
