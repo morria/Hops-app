@@ -250,16 +250,10 @@ struct DeviceConfigurationView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
-                Toggle("Power saving mode", isOn: $powerSaving)
-                    .disabled(cfg.power == nil)
-                Toggle("LED heartbeat", isOn: Binding(get: { !ledHeartbeatDisabled }, set: { ledHeartbeatDisabled = !$0 }))
-                    .disabled(cfg.device == nil)
-                Toggle("Wi-Fi", isOn: $wifiEnabled)
-                    .disabled(cfg.network == nil)
             } header: {
                 Text("Power")
             } footer: {
-                Text("Turns off everything the radio does on its own — telemetry, GPS, position, modules — and keeps node info to every 4 hours. Change any of those by hand and the switch goes off.")
+                Text("Turns off everything the radio does on its own — telemetry, GPS, position, modules, Wi-Fi, LED — puts the CPU to sleep between packets, and keeps node info to every 4 hours. Open What it changes to pick and choose.")
             }
 
             Section {
