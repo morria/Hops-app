@@ -222,12 +222,7 @@ struct ChatsListView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 10) {
-                Text("Messages")
-                    .font(.title2.bold())
-                Spacer()
-                StatusCapsule()
-            }
-            HStack(spacing: 10) {
+                if !searchActive { StatusCapsule() }
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass")
                         .foregroundStyle(.secondary)
