@@ -500,6 +500,28 @@ final class RadioManager: ObservableObject {
 
     func reconnectByUser() {
         userDisconnected = false
+        userDisconnectedRadios.removeAll()
+        connectIfNeeded()
+    }
+
+    /// Radios the user detached one at a time; they stay detached (no
+    /// pending connect) until reconnected here. Persisted per device.
+    @Published private(set) var userDisconnectedRadios: Set<Int64> = Set(
+        (UserDefaults.standard.array(forKey: "userDisconnectedRadios") as? [Int64]) ?? []) {
+        didSet { UserDefaults.standard.set(Array(userDisconnectedRadios), forKey: "userDisconnectedRadios") }
+    }
+
+    func disconnectByUser(radio nodeNum: Int64) {
+        userDisconnectedRadios.insert(nodeNum)
+        guard let id = fleetPeripherals[nodeNum] else { return }
+        links[id]?.watchdog?.cancel()
+        central.disconnect(id: id, userInitiated: true)
+        links[id]?.phase = .armed
+        refreshFacade()
+    }
+
+    func reconnectByUser(radio nodeNum: Int64) {
+        userDisconnectedRadios.remove(nodeNum)
         connectIfNeeded()
     }
 
@@ -521,7 +543,8 @@ final class RadioManager: ObservableObject {
     func connectIfNeeded() {
         guard bluetoothOn, !userDisconnected else { return }
         var ids: Set<UUID> = []
-        for id in wantedPeripheralIds {
+        let detachedIds = Set(userDisconnectedRadios.compactMap { fleetPeripherals[$0] })
+        for id in wantedPeripheralIds where !detachedIds.contains(id) {
             let link = links[id] ?? RadioLink(id: id)
             links[id] = link
             guard link.phase == .armed || link.phase == .bondLost else { continue }
@@ -570,7 +593,8 @@ final class RadioManager: ObservableObject {
                 // Re-arm the pending connect on every non-user disconnect —
                 // this is what lets iOS relaunch us when the radio comes
                 // back in range.
-                if !userInitiated, bluetoothOn, !userDisconnected {
+                let detachedByUser = userDisconnectedRadios.contains { fleetPeripherals[$0] == id }
+                if !userInitiated, bluetoothOn, !userDisconnected, !detachedByUser {
                     link.phase = .armed
                     central.connect(to: [id])
                 }

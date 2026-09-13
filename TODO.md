@@ -4,6 +4,16 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+197. [x] Settings lists every fleet radio inline in priority order — name,
+         what it's doing (Sending & receiving / Receiving only / Out of
+         range / Disconnected by you), battery — with Add Radio beneath and
+         a Reorder control; the footer says the top in-range radio sends
+         and the rest only receive. Tapping an attached radio opens its
+         Device Configuration; a detached one opens its detail page. Mesh
+         setup and Manage radios sit in a "Mesh · via <radio>" section.
+         Disconnect/Connect moved into Device Configuration, per radio
+         (userDisconnectedRadios: no pending connect until reconnected).
+
 196. [x] Device Configuration per radio. The screen takes a radio; each
          link keeps its own bluetooth/device/display/position/power/
          network/LoRa/telemetry/module configs (configsByNode), reads and

@@ -66,6 +66,8 @@ struct SettingsView: View {
                 dataSection
                 aboutSection
             }
+            .environment(\.editMode, $radioEditMode)
+            .sheet(isPresented: $showAddRadio) { PairingView(mode: .addRadio) }
             .navigationTitle("Settings")
             .refreshable {
                 await radio.refreshDeviceStatus()
@@ -75,102 +77,136 @@ struct SettingsView: View {
 
     // MARK: - Radio
 
+    @State private var radioEditMode: EditMode = .inactive
+    @State private var showAddRadio = false
+
     private var radioSection: some View {
-        Section("Radio") {
-            MyNodeSummary(num: radio.myNodeNum) { myNode in
-              HStack(spacing: 12) {
-                Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.title2)
-                    .foregroundStyle(stateColor)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(radio.fleet.count > 1
-                         ? (radio.fleet.first { $0.nodeNum == radio.myNodeNum }?.displayName ?? myNode?.displayName ?? "Meshtastic radio")
-                         : (myNode?.displayName ?? "Meshtastic radio"))
-                        .font(.headline)
-                    Text(radio.firmwareVersion.isEmpty
-                         ? stateDescription
-                         : "\(stateDescription) · v\(radio.firmwareVersion)")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    let others = radio.attached.filter { !$0.isTransmit && $0.phase == .connected }
-                    if !others.isEmpty {
-                        Text("Also hearing: " + others.map { link in
-                            radio.fleet.first { $0.nodeNum == link.nodeNum }?.displayName
-                                ?? String(format: "!%08x", UInt32(truncatingIfNeeded: link.nodeNum))
-                        }.joined(separator: ", "))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+        Group {
+            Section {
+                if radio.fleet.isEmpty {
+                    Button("Pair a Radio…") {
+                        onboardingComplete = false   // reopens the guided pairing flow
+                    }
+                } else {
+                    ForEach(radio.fleet) { entry in
+                        fleetRow(entry)
+                    }
+                    .onMove { from, to in
+                        var order = radio.fleet.map(\.nodeNum)
+                        order.move(fromOffsets: from, toOffset: to)
+                        radio.reorderFleet(order)
+                    }
+                    Button {
+                        showAddRadio = true
+                    } label: {
+                        Label("Add Radio…", systemImage: "plus.circle")
                     }
                 }
-                Spacer()
-                if let battery = myNode?.batteryLevel, battery >= 0 {
-                    Label(battery > 100 ? "Power" : "\(battery)%", systemImage: batteryIcon(battery))
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+            } header: {
+                HStack {
+                    Text("Radios")
+                    Spacer()
+                    if radio.fleet.count > 1 {
+                        Button(radioEditMode == .active ? "Done" : "Reorder") {
+                            withAnimation { radioEditMode = radioEditMode == .active ? .inactive : .active }
+                        }
+                        .font(.caption)
+                        .textCase(nil)
+                    }
                 }
-              }
-              .padding(.vertical, 4)
-            }
-            .id(radio.myNodeNum)
-
-            NavigationLink {
-                MeshSetupView(isFirstRun: false)
-            } label: {
-                LabeledContent("Mesh setup") {
-                    Text(radio.loRa.received
-                         ? "\(radio.loRa.regionName) · \(radio.loRa.presetName)"
-                         : "—")
+            } footer: {
+                if radio.fleet.count > 1 {
+                    Text("The top radio that's in range sends and receives; every other radio in range only receives. Tap Reorder and drag to change which. Tap a radio for its configuration.")
+                } else if !radio.fleet.isEmpty {
+                    Text("Tap the radio for its configuration. Add more and drag them into the order you want to send from.")
                 }
             }
 
-            NavigationLink {
-                DeviceConfigurationView()
-            } label: {
+            if !radio.fleet.isEmpty {
+                Section {
+                    NavigationLink {
+                        MeshSetupView(isFirstRun: false)
+                    } label: {
+                        LabeledContent("Mesh setup") {
+                            Text(radio.loRa.received
+                                 ? "\(radio.loRa.regionName) · \(radio.loRa.presetName)"
+                                 : "—")
+                        }
+                    }
+                    if let mismatch = presetMismatch {
+                        NavigationLink {
+                            MeshSetupView(isFirstRun: false)
+                        } label: {
+                            Label {
+                                Text("Radio doesn't match \(mismatch.name) (\(mismatch.presetName), slot \(mismatch.frequencySlot), hop limit \(mismatch.hopLimit)). Re-apply in Mesh Setup.")
+                                    .font(.footnote)
+                            } icon: {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                    }
+                    NavigationLink {
+                        RadiosView()
+                    } label: {
+                        Text("Manage radios…")
+                    }
+                } header: {
+                    Text(radio.fleet.count > 1 ? "Mesh · via \(sendingRadioName)" : "Mesh")
+                }
+            }
+        }
+    }
+
+    private var sendingRadioName: String {
+        radio.fleet.first { $0.nodeNum == radio.myNodeNum }?.displayName ?? "the sending radio"
+    }
+
+    /// One fleet radio as a Settings row: name, what it's doing, battery.
+    /// Attached → its Device Configuration; otherwise its detail page.
+    @ViewBuilder
+    private func fleetRow(_ entry: MessageStore.RadioSnapshot) -> some View {
+        let link = radio.attached.first { $0.nodeNum == entry.nodeNum }
+        let connected = link?.phase == .connected
+        let detached = radio.userDisconnectedRadios.contains(entry.nodeNum)
+        NavigationLink {
+            if connected { DeviceConfigurationView(nodeNum: entry.nodeNum) } else { RadioDetailView(nodeNum: entry.nodeNum) }
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: link?.isTransmit == true ? "antenna.radiowaves.left.and.right" : (connected ? "ear" : "antenna.radiowaves.left.and.right.slash"))
+                    .foregroundStyle(connected ? (link?.isTransmit == true ? Color.green : Color.blue) : Color.secondary)
+                    .frame(width: 24)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("Device Configuration")
-                    Text(radio.fleet.count > 1
-                         ? "For \(radio.fleet.first { $0.nodeNum == radio.myNodeNum }?.displayName ?? "the sending radio") — the radio that's sending now"
-                         : "Power · Bluetooth · Display · Position · Telemetry · Relay")
+                    Text(entry.displayName)
+                    Text(fleetStatus(link: link, detached: detached, entry: entry))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                Spacer()
+                if entry.lastBattery >= 0 {
+                    Label(entry.lastBattery > 100 ? "Power" : "\(entry.lastBattery)%", systemImage: batteryIcon(entry.lastBattery))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                        .fixedSize()
+                }
             }
+        }
+    }
 
-            if let mismatch = presetMismatch {
-                NavigationLink {
-                    MeshSetupView(isFirstRun: false)
-                } label: {
-                    Label {
-                        Text("Radio doesn't match \(mismatch.name) (\(mismatch.presetName), slot \(mismatch.frequencySlot), hop limit \(mismatch.hopLimit)). Re-apply in Mesh Setup.")
-                            .font(.footnote)
-                    } icon: {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                    }
-                }
-            }
-
-            if radio.state == .noRadio {
-                Button("Pair a Radio…") {
-                    onboardingComplete = false   // reopens the guided pairing flow
-                }
-            } else if radio.userDisconnected {
-                Button("Connect") {
-                    radio.reconnectByUser()
-                }
-            } else {
-                Button("Disconnect") {
-                    radio.disconnectByUser()
-                }
-            }
-
-            NavigationLink {
-                RadiosView()
-            } label: {
-                LabeledContent("Radios") {
-                    Text(radio.fleet.isEmpty ? "None" : "\(radio.fleet.count)")
-                }
-            }
+    private func fleetStatus(link: RadioManager.AttachedRadio?, detached: Bool, entry: MessageStore.RadioSnapshot) -> String {
+        if detached { return "Disconnected by you" }
+        guard let link else {
+            if radio.state == .bluetoothOff { return "Bluetooth is off" }
+            if let seen = entry.lastSeenAt { return "Out of range · seen \(Self.compactAgo(seen))" }
+            return "Out of range"
+        }
+        switch link.phase {
+        case .connected: return link.isTransmit ? "Sending & receiving" + (radio.firmwareVersion.isEmpty ? "" : " · v\(radio.firmwareVersion)") : "Receiving only"
+        case .syncing: return "Syncing…"
+        case .connecting: return "Connecting…"
+        case .bondLost: return "Needs re-pairing"
+        case .armed: return "Out of range"
         }
     }
 

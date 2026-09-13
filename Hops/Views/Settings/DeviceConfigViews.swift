@@ -388,6 +388,22 @@ struct DeviceConfigurationView: View {
             } footer: {
                 Text("Saves every section. The radio may restart briefly; Hops reconnects automatically.")
             }
+
+            Section {
+                let num = nodeNum ?? radio.myNodeNum
+                if radio.userDisconnectedRadios.contains(num) {
+                    Button("Connect") { radio.reconnectByUser(radio: num) }
+                } else {
+                    Button("Disconnect", role: .destructive) {
+                        radio.disconnectByUser(radio: num)
+                        dismiss()
+                    }
+                }
+            } header: {
+                Text("Connection")
+            } footer: {
+                Text("Disconnect keeps the radio in your fleet but stops Hops from attaching to it until you connect again.")
+            }
         }
         .navigationTitle(radio.fleet.count > 1 ? radioName : "Device Configuration")
         .navigationBarTitleDisplayMode(.inline)
