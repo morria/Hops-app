@@ -4,6 +4,21 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+218. [ ] Map crashed on first open after launch on the build installed 2026-09-15;
+         not reproducible on f6df630 / build 23 (2026-09-16), no crash report was
+         produced. Watch for a recurrence.
+
+217. [ ] Apple Watch app (requested 2026-09-16). Model on Messages: first screen
+         scrolls the conversations; tap one for the thread and a compose field
+         (dictation / scribble / canned replies). Own BLE link to the radio
+         (CoreBluetooth on watchOS is foreground-only with short background
+         grace; the radio holds ONE BLE connection, so watch and phone can't
+         both be attached; the watch takes over when the phone isn't connected).
+         Shared SwiftData+CloudKit store (same container id) so history syncs.
+         Plan: (a) new watchOS target sharing Store/ + Radio/ via a common
+         module; (b) RadioTransport for watchOS; (c) ConversationsList +
+         ThreadView + compose; (d) complications/notifications later.
+
 215. [x] GitHub #8: game retries ignored the Games toggle and a flapping BLE link
          reset the backoff, so a phone transmitted to a dead peer for days. Now
          every send is gated on the toggle, the backoff clock survives

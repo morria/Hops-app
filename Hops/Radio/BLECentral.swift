@@ -73,10 +73,11 @@ final class BLECentral: NSObject {
     func activate() {
         queue.sync {
             guard central == nil else { return }
-            central = CBCentralManager(delegate: self, queue: queue, options: [
-                CBCentralManagerOptionRestoreIdentifierKey: "com.w2asm.hops.central",
-                CBCentralManagerOptionShowPowerAlertKey: false,
-            ])
+            var options: [String: Any] = [CBCentralManagerOptionShowPowerAlertKey: false]
+            #if os(iOS)
+            options[CBCentralManagerOptionRestoreIdentifierKey] = "com.w2asm.hops.central"
+            #endif
+            central = CBCentralManager(delegate: self, queue: queue, options: options)
         }
     }
 
@@ -213,12 +214,14 @@ extension BLECentral: CBCentralManagerDelegate {
         emit(.bluetoothState(central.state))
     }
 
+    #if os(iOS)
     func centralManager(_ central: CBCentralManager, willRestoreState dict: [String: Any]) {
         // iOS relaunched us for a BLE event; it may hand back several.
         for p in (dict[CBCentralManagerRestoredStatePeripheralsKey] as? [CBPeripheral]) ?? [] {
             restored[p.identifier] = p
         }
     }
+    #endif
 
     func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral,
                         advertisementData: [String: Any], rssi RSSI: NSNumber) {
