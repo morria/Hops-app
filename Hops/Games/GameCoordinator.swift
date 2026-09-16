@@ -24,6 +24,20 @@ final class GameCoordinator: ObservableObject {
 
     private init() {}
 
+    /// The Settings switch (`gamesEnabled`). It has to gate the *sender*, not
+    /// just the tab: pending sessions retry on a timer, so a toggle that only
+    /// hides UI leaves the radio transmitting to a peer the user believes they
+    /// have stopped playing (issue #8).
+    static var enabled: Bool { UserDefaults.standard.bool(forKey: "gamesEnabled") }
+
+    /// Give up on a peer that has never answered. 1, 2, 4 … 30 min: twelve
+    /// attempts is a little over four hours of trying.
+    private static let maxSendAttempts = 12
+
+    /// A reconnect resends promptly, but a flapping BLE link must not turn
+    /// into a send per reconnect.
+    private static let minResendGap: TimeInterval = 60
+
     func configure(container: ModelContainer) {
         context = container.mainContext
         RadioManager.shared.$state
@@ -75,6 +89,7 @@ final class GameCoordinator: ObservableObject {
         guard let frame = GameLogic.play(move, in: &r) else { return }
         entity.apply(r); entity.needsAttention = false
         entity.sendAttempts = 0
+        entity.unanswered = false
         save()
         send(frame, for: entity)
     }
@@ -163,6 +178,8 @@ final class GameCoordinator: ObservableObject {
     // MARK: - Inbound
 
     func handle(from peer: Int64, payload: Data) {
+        // Answering an invite means transmitting: stay silent while off.
+        guard Self.enabled else { return }
         guard let context, let frame = GameFrame(payload) else {
             log.notice("games: undecodable frame from \(String(format: "!%08x", UInt32(truncatingIfNeeded: peer)))")
             return
@@ -197,6 +214,7 @@ final class GameCoordinator: ObservableObject {
             }
             if case .rejected? = out.events.first { entity.needsAttention = true }
             entity.sendAttempts = 0
+            entity.unanswered = false
             deliveredToRadio.remove(entity.persistentModelID)
             save()
         }
@@ -217,7 +235,9 @@ final class GameCoordinator: ObservableObject {
     private func send(_ frame: GameFrame, for entity: GameSessionEntity) {
         let radio = RadioManager.shared
         guard radio.state == .connected else {
-            entity.lastSentAt = nil   // retried on reconnect
+            // Keep `lastSentAt`: clearing it sent the session back to the
+            // no-backoff branch in `retryDue`, so a link that flapped every
+            // few minutes retried every few minutes, for ever (issue #8).
             return
         }
         let packetId = radio.sendGames(to: entity.peerNum, payload: frame.encoded())
@@ -230,11 +250,15 @@ final class GameCoordinator: ObservableObject {
     }
 
     private func resendAll(reason: String) {
+        guard Self.enabled else { return }
         var count = 0
+        let now = Date()
         for entity in sessions() {
             let frames = GameLogic.resendFrames(entity.record)
             guard !frames.isEmpty else { continue }
-            entity.sendAttempts = 0
+            guard entity.sendAttempts < Self.maxSendAttempts else { continue }
+            if let last = entity.lastSentAt, now.timeIntervalSince(last) < Self.minResendGap { continue }
+            entity.sendAttempts += 1
             for f in frames { send(f, for: entity) }
             count += frames.count
         }
@@ -243,12 +267,25 @@ final class GameCoordinator: ObservableObject {
 
     /// Exponential backoff for frames still unanswered: 1, 2, 4 … 30 minutes.
     private func retryDue() {
-        guard RadioManager.shared.state == .connected else { return }
+        guard Self.enabled, RadioManager.shared.state == .connected else { return }
         for entity in sessions() where [.inviting, .waiting].contains(entity.phase) {
             let frames = GameLogic.resendFrames(entity.record)
             guard !frames.isEmpty else { continue }
+            // A peer that never answers is not a peer. Stop; the session stays
+            // in the list so the user can delete or retry it deliberately.
+            guard entity.sendAttempts < Self.maxSendAttempts else {
+                if !entity.unanswered {
+                    entity.unanswered = true
+                    save()
+                    log.notice("games: giving up on \(String(format: "!%08x", UInt32(truncatingIfNeeded: entity.peerNum))) after \(entity.sendAttempts) attempts")
+                }
+                continue
+            }
             let wait = min(60.0 * pow(2.0, Double(entity.sendAttempts)), 30 * 60)
+            // Every send counts against the backoff, including the first one:
+            // an uncounted branch here is how the interval stayed at seconds.
             guard let last = entity.lastSentAt else {
+                entity.sendAttempts += 1
                 for f in frames { send(f, for: entity) }
                 continue
             }

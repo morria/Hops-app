@@ -423,7 +423,7 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Mesh")
             } footer: {
-                Text("Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
+                Text("Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “All - skip decoding” rebroadcasts everything in range including traffic you can't read, which makes this radio a repeater and is rarely what a phone wants; “Core ports only” silently drops app traffic like Meshsites; and some firmware fails to apply “Never relay”.")
             }
 
             Section {
