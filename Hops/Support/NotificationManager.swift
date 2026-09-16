@@ -70,13 +70,7 @@ final class NotificationManager: NSObject {
         }
 
         var finalContent: UNNotificationContent = content
-        let sender = INPerson(
-            personHandle: INPersonHandle(value: "node-\(inbound.senderNum)", type: .unknown),
-            nameComponents: nil,
-            displayName: inbound.senderName,
-            image: nil,
-            contactIdentifier: nil,
-            customIdentifier: "node-\(inbound.senderNum)")
+        let sender = Self.person(num: inbound.senderNum, name: inbound.senderName, iconData: inbound.senderIconData)
         let intent = INSendMessageIntent(
             recipients: nil,
             outgoingMessageType: .outgoingMessageText,
@@ -128,19 +122,42 @@ final class NotificationManager: NSObject {
     }
     #endif
 
+    /// The peer as a communication-notification person: the name the user
+    /// gave them and the photo they set, so banners look like the app.
+    private static func person(num: Int64, name: String, iconData: Data?) -> INPerson {
+        INPerson(
+            personHandle: INPersonHandle(value: "node-\(num)", type: .unknown),
+            nameComponents: nil,
+            displayName: name,
+            image: iconData.map { INImage(imageData: $0) },
+            contactIdentifier: nil,
+            customIdentifier: "node-\(num)")
+    }
+
     /// A game event from a peer (invite, your turn, result). Tapping opens
     /// the game through the conversation-key deep link ("game-<peer>-<id>").
     func postGame(peer: Int64, sessionId: Int64, body: String) {
         Task { @MainActor in
-            let name = await RadioManager.shared.displayName(for: peer)
+            let display = await RadioManager.shared.nodeDisplay(for: peer)
             let content = UNMutableNotificationContent()
-            content.title = name
+            content.title = display.name
             content.body = body
             content.sound = .default
-            content.threadIdentifier = "games"
+            content.threadIdentifier = "game-\(sessionId)"
             content.userInfo = ["conversationKey": "game-\(peer)-\(sessionId)"]
+            var finalContent: UNNotificationContent = content
+            let intent = INSendMessageIntent(
+                recipients: nil, outgoingMessageType: .outgoingMessageText, content: body,
+                speakableGroupName: nil, conversationIdentifier: "game-\(sessionId)",
+                serviceName: "Hops Games",
+                sender: Self.person(num: peer, name: display.name, iconData: display.iconData),
+                attachments: nil)
+            let interaction = INInteraction(intent: intent, response: nil)
+            interaction.direction = .incoming
+            interaction.donate(completion: nil)
+            if let updated = try? content.updating(from: intent) { finalContent = updated }
             try? await UNUserNotificationCenter.current().add(
-                UNNotificationRequest(identifier: "game-\(sessionId)-\(UUID().uuidString)", content: content, trigger: nil))
+                UNNotificationRequest(identifier: "game-\(sessionId)-\(UUID().uuidString)", content: finalContent, trigger: nil))
         }
     }
 

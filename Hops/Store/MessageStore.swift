@@ -737,6 +737,16 @@ actor MessageStore {
         var isMention: Bool
         var packetId: Int64
         var isTapback: Bool
+        /// The user's chosen photo for the sender (notification avatar).
+        var senderIconData: Data? = nil
+    }
+
+    /// Name and photo as the user sees them (custom name and avatar first).
+    func nodeDisplay(num: Int64) -> (name: String, iconData: Data?) {
+        guard let node = try? modelContext.fetch(
+            FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })
+        ).first else { return (String(format: "!%08x", UInt32(truncatingIfNeeded: num)), nil) }
+        return (node.displayName, node.iconData)
     }
 
     /// Returns a summary for notification purposes, or nil if deduplicated/self-echo.
@@ -880,7 +890,8 @@ actor MessageStore {
                 ? NotifyLevel.muted.rawValue : convo.notifyLevelRaw,
             isMention: isMention,
             packetId: packetId,
-            isTapback: isTapback
+            isTapback: isTapback,
+            senderIconData: sender.iconData
         )
     }
 

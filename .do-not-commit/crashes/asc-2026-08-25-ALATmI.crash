@@ -1,0 +1,202 @@
+Incident Identifier: 7C9B136A-9EDF-4829-91EE-55DADC8A16C7
+Distributor ID:      com.apple.TestFlight
+Hardware Model:      iPhone17,2
+Process:             Hops [50906]
+Path:                /private/var/containers/Bundle/Application/A872B82F-FF86-4815-8267-990BFA907357/Hops.app/Hops
+Identifier:          com.w2asm.hops
+Version:             1.0 (2)
+AppStoreTools:       17F106
+AppVariant:          1:iPhone17,2:26
+Beta:                YES
+Code Type:           ARM-64 (Native)
+Role:                Foreground
+Parent Process:      launchd [1]
+Coalition:           com.w2asm.hops [39708]
+
+Date/Time:           2026-08-25 07:58:26.3856 -0400
+Launch Time:         2026-08-25 05:17:10.9112 -0400
+OS Version:          iPhone OS 26.5.2 (23F84)
+Release Type:        User
+Baseband Version:    2.60.00
+Report Version:      104
+
+Exception Type:  EXC_CRASH (SIGABRT)
+Exception Codes: 0x0000000000000000, 0x0000000000000000
+Termination Reason: SIGNAL 6 Abort trap: 6
+Terminating Process: Hops [50906]
+
+Triggered by Thread:  8
+
+Last Exception Backtrace:
+0   CoreFoundation                	0x18a46623c __exceptionPreprocess + 164 (:-1)
+1   libobjc.A.dylib               	0x186f35224 objc_exception_throw + 88 (objc-exception.mm:356)
+2   Foundation                    	0x187f97110 -[NSAssertionHandler handleFailureInMethod:object:file:lineNumber:description:] + 288 (:-1)
+3   UIKitCore                     	0x191551ef0 -[UIApplication _performBlockAfterCATransactionCommitSynchronizes:] + 280 (UIApplication.m:3426)
+4   UIKitCore                     	0x19155f5ec -[UIApplication _updateStateRestorationArchiveForBackgroundEvent:saveState:exitIfCouldNotRestoreState:updateSnapshot:windowScene:] + 528 (UIApplication.m:12163)
+5   UIKitCore                     	0x19155f9a0 -[UIApplication _updateSnapshotAndStateRestorationWithAction:windowScene:] + 144 (UIApplication.m:12208)
+6   Hops                          	0x1048b79ac @objc closure #1 in NotificationManager.userNotificationCenter(_:didReceive:) + 76 (/<compiler-generated>:0)
+7   Hops                          	0x104803871 <deduplicated_symbol> + 1
+8   Hops                          	0x10480366d <deduplicated_symbol> + 1
+9   Hops                          	0x104803871 <deduplicated_symbol> + 1
+10  Hops                          	0x1048583f9 <deduplicated_symbol> + 1
+11  Hops                          	0x104803871 <deduplicated_symbol> + 1
+12  libswift_Concurrency.dylib    	0x188471385 completeTaskWithClosure(swift::AsyncContext*, swift::SwiftError*) + 1 (Task.cpp:546)
+
+Thread 0 name:
+Thread 0:
+0   libswiftCore.dylib            	0x000000018705308c destroy for ClosedRange<>.Index + 88
+1   SwiftUICore                   	0x0000000194686148 TypedElement.deinit + 152 (:-1)
+2   SwiftUICore                   	0x000000019468616c TypedElement.__deallocating_deinit + 16 (:-1)
+3   libswiftCore.dylib            	0x00000001870510f0 _swift_release_dealloc + 64 (HeapObject.cpp:852)
+4   libswiftCore.dylib            	0x000000018705244c bool swift::RefCounts<swift::RefCountBitsT<(swift::RefCountInlinedness)1>>::doDecrementSlow<(swift::PerformDeinit)1>(swift::RefCountBitsT<(swift::RefCountInlinedness)1>, unsigned int) + 168 (RefCount.h:1055)
+5   SwiftUICore                   	0x00000001946861d8 PropertyList.Element.deinit + 40
+6   SwiftUICore                   	0x00000001946860cc TypedElement.deinit + 28 (:-1)
+7   SwiftUICore                   	0x000000019468616c TypedElement.__deallocating_deinit + 16 (:-1)
+8   libswiftCore.dylib            	0x00000001870510f0 _swift_release_dealloc + 64 (HeapObject.cpp:852)
+9   libswiftCore.dylib            	0x000000018705244c bool swift::RefCounts<swift::RefCountBitsT<(swift::RefCountInlinedness)1>>::doDecrementSlow<(swift::PerformDeinit)1>(swift::RefCountBitsT<(swift::RefCountInlinedness)1>, unsigned int) + 168 (RefCount.h:1055)
+10  SwiftUI                       	0x00000001933ee8cc <deduplicated_symbol> + 36
+11  SwiftUI                       	0x0000000193c4b604 ViewGraphBridgePropertiesFeature.outputsDidChange(graph:) + 988 (:-1)
+12  SwiftUICore                   	0x000000019536da74 static ViewGraphFeatureBuffer._VTable.outputsDidChange(elt:graph:) + 96 (:-1)
+13  SwiftUICore                   	0x00000001953765d4 ViewGraphFeatureBuffer.Element.outputsDidChange(graph:async:) + 68 (:-1)
+14  SwiftUICore                   	0x00000001953765d4 specialized update #1 () in ViewGraph.updateOutputs(async:) + 228 (:-1)
+15  SwiftUICore                   	0x0000000194696ef8 ViewGraph.updateOutputs(at:) + 472 (ViewGraph.swift:678)
+16  SwiftUICore                   	0x0000000194694bd0 closure #2 in closure #1 in ViewGraphRootValueUpdater.render(interval:updateDisplayList:targetTimestamp:) + 44 (:-1)
+17  SwiftUICore                   	0x0000000194694bd0 closure #1 in ViewGraphRootValueUpdater.render(interval:updateDisplayList:targetTimestamp:) + 872 (:-1)
+18  SwiftUICore                   	0x0000000194694818 ViewGraphRootValueUpdater.render(interval:updateDisplayList:targetTimestamp:) + 584 (ViewRendererHost.swift:175)
+19  UIKitCore                     	0x0000000190341070 closure #1 in UIHostingViewBase._setNeedsUpdate() + 488 (UIHostingViewBase.swift:1269)
+20  UIKitCore                     	0x000000018ff975c4 <deduplicated_symbol> + 36 (:-1)
+21  libdispatch.dylib             	0x00000001c47ac9a8 _dispatch_call_block_and_release + 32 (init.c:1597)
+22  libdispatch.dylib             	0x00000001c47c61e4 _dispatch_client_callout + 16 (client_callout.mm:85)
+23  libdispatch.dylib             	0x00000001c47e3e10 _dispatch_main_queue_drain.cold.6 + 832 (queue.c:8252)
+24  libdispatch.dylib             	0x00000001c47bb964 _dispatch_main_queue_drain + 176 (queue.c:8233)
+25  libdispatch.dylib             	0x00000001c47bb8a4 _dispatch_main_queue_callback_4CF + 44 (queue.c:8412)
+26  CoreFoundation                	0x000000018a3f3030 __CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__ + 16 (:-1)
+27  CoreFoundation                	0x000000018a380604 __CFRunLoopRun + 1944 (:-1)
+28  CoreFoundation                	0x000000018a37f54c _CFRunLoopRunSpecificWithOptions + 532 (:-1)
+29  GraphicsServices              	0x000000022fb23498 GSEventRunModal + 120 (GSEvent.c:2049)
+30  UIKitCore                     	0x0000000190078244 -[UIApplication _run] + 796 (UIApplication.m:3904)
+31  UIKitCore                     	0x000000018ffe3158 UIApplicationMain + 332 (UIApplication.m:5586)
+32  SwiftUI                       	0x00000001933ce570 closure #1 in KitRendererCommon(_:) + 168 (UIKitApp.swift:65)
+33  SwiftUI                       	0x00000001933cb0f4 runApp<A>(_:) + 112 (UIKitApp.swift:16)
+34  SwiftUI                       	0x00000001933cac48 static App.main() + 172 (App.swift:137)
+35  Hops                          	0x000000010486dfb0 static HopsApp.$main() + 52 (HopsApp.swift:0)
+36  Hops                          	0x000000010486dfb0 main + 64
+37  dyld                          	0x0000000186f8dc1c start + 6928 (:-1)
+
+Thread 1 name:
+Thread 1:
+0   libsystem_kernel.dylib        	0x0000000239500cd4 mach_msg2_trap + 8 (:-1)
+1   libsystem_kernel.dylib        	0x000000023950430c mach_msg2_internal + 76 (:-1)
+2   libsystem_kernel.dylib        	0x000000023950422c mach_msg2 + 4 (:-1)
+3   libsystem_kernel.dylib        	0x000000023950422c mach_msg_overwrite + 424 (:-1)
+4   libsystem_kernel.dylib        	0x0000000239504078 mach_msg + 24 (:-1)
+5   CoreFoundation                	0x000000018a3b6344 __CFRunLoopServiceMachPort + 160 (:-1)
+6   CoreFoundation                	0x000000018a380310 __CFRunLoopRun + 1188 (:-1)
+7   CoreFoundation                	0x000000018a37f54c _CFRunLoopRunSpecificWithOptions + 532 (:-1)
+8   Foundation                    	0x00000001875edcf0 -[NSRunLoop(NSRunLoop) runMode:beforeDate:] + 212 (:-1)
+9   Foundation                    	0x00000001875edbd8 -[NSRunLoop(NSRunLoop) runUntilDate:] + 64 (:-1)
+10  UIKitCore                     	0x000000019003da7c -[UIEventFetcher threadMain] + 420 (UIEventFetcher.m:1333)
+11  Foundation                    	0x0000000187671824 __NSThread__start__ + 732 (:-1)
+12  libsystem_pthread.dylib       	0x00000001e9580438 _pthread_start + 136 (:-1)
+13  libsystem_pthread.dylib       	0x00000001e957c8cc thread_start + 8 (:-1)
+
+Thread 2 name:
+Thread 2:
+0   libsystem_kernel.dylib        	0x0000000239500c50 semaphore_wait_trap + 8 (:-1)
+1   libdispatch.dylib             	0x00000001c47ae410 _dispatch_sema4_wait + 28 (lock.c:139)
+2   libdispatch.dylib             	0x00000001c47aeaa0 _dispatch_semaphore_wait_slow + 132 (semaphore.c:132)
+3   UIKitCore                     	0x0000000190330d6c 0x18ff57000 + 4037996
+4   UIKitCore                     	0x0000000190330d24 closure #2 in InProcessAnimationManager.startAdvancing(_:) + 308 (InProcessAnimationManager.swift:1110)
+5   UIKitCore                     	0x000000018ff975c4 <deduplicated_symbol> + 36 (:-1)
+6   Foundation                    	0x0000000187671824 __NSThread__start__ + 732 (:-1)
+7   libsystem_pthread.dylib       	0x00000001e9580438 _pthread_start + 136 (:-1)
+8   libsystem_pthread.dylib       	0x00000001e957c8cc thread_start + 8 (:-1)
+
+Thread 3:
+
+Thread 4 name:
+Thread 4:
+0   libsystem_kernel.dylib        	0x00000002395065e8 __psynch_cvwait + 8 (:-1)
+1   libsystem_pthread.dylib       	0x00000001e957eb48 _pthread_psynch_cond_wait + 92 (:-1)
+2   libsystem_pthread.dylib       	0x00000001e957eb48 _pthread_cond_wait + 980 (:-1)
+3   Foundation                    	0x0000000187797f8c iop_waitUntilFinished + 424 (:-1)
+4   Foundation                    	0x0000000187797f8c -[NSOperation waitUntilFinished] + 480 (:-1)
+5   CoreFoundation                	0x000000018a3c3918 _CFXNotificationPost + 800 (:-1)
+6   Foundation                    	0x000000018761108c -[NSNotificationCenter postNotificationName:object:userInfo:] + 92 (:-1)
+7   Pasteboard                    	0x000000026ed1159c __67+[PBServerConnection beginListeningToPasteboardChangeNotifications]_block_invoke_2 + 168 (PBServerConnection.m:486)
+8   libsystem_notify.dylib        	0x00000002ab38f6f8 ___notify_dispatch_local_notification_block_invoke + 72 (notify_client.c:2298)
+9   libdispatch.dylib             	0x00000001c47bbe84 _dispatch_block_async_invoke2 + 148 (queue.c:594)
+10  libdispatch.dylib             	0x00000001c47c61e4 _dispatch_client_callout + 16 (client_callout.mm:85)
+11  libdispatch.dylib             	0x00000001c47b4fb0 _dispatch_lane_serial_drain + 740 (queue.c:4033)
+12  libdispatch.dylib             	0x00000001c47b5aac _dispatch_lane_invoke + 392 (queue.c:4124)
+13  libdispatch.dylib             	0x00000001c47bfdac _dispatch_root_queue_drain_deferred_wlh + 284 (queue.c:7329)
+14  libdispatch.dylib             	0x00000001c47bf6ac _dispatch_workloop_worker_thread + 720 (queue.c:6923)
+15  libsystem_pthread.dylib       	0x00000001e957d3b0 _pthread_wqthread + 292 (:-1)
+16  libsystem_pthread.dylib       	0x00000001e957c8c0 start_wqthread + 8 (:-1)
+
+Thread 5:
+
+Thread 6:
+
+Thread 7:
+
+Thread 8 name:
+Thread 8 Crashed:
+0   libsystem_kernel.dylib        	0x000000023950b1d0 __pthread_kill + 8 (:-1)
+1   libsystem_pthread.dylib       	0x00000001e95837dc pthread_kill + 268 (:-1)
+2   libsystem_c.dylib             	0x0000000195f05c98 abort + 148 (abort.c:122)
+3   libc++abi.dylib               	0x0000000187036fd4 __abort_message + 132 (abort_message.cpp:66)
+4   libc++abi.dylib               	0x0000000187038b90 demangling_terminate_handler() + 296 (cxa_default_handlers.cpp:77)
+5   libobjc.A.dylib               	0x0000000186f37868 _objc_terminate() + 156 (objc-exception.mm:496)
+6   libc++abi.dylib               	0x00000001870431f8 std::__terminate(void (*)()) + 16 (cxa_handlers.cpp:59)
+7   libc++abi.dylib               	0x0000000187044e18 __cxxabiv1::failed_throw(__cxxabiv1::__cxa_exception*) + 88 (cxa_exception.cpp:152)
+8   libc++abi.dylib               	0x0000000187031360 __cxa_throw + 92 (cxa_exception.cpp:299)
+9   libobjc.A.dylib               	0x0000000186f3538c objc_exception_throw + 448 (objc-exception.mm:385)
+10  Foundation                    	0x0000000187f97110 -[NSAssertionHandler handleFailureInMethod:object:file:lineNumber:description:] + 288 (:-1)
+11  UIKitCore                     	0x0000000191551ef0 -[UIApplication _performBlockAfterCATransactionCommitSynchronizes:] + 280 (UIApplication.m:3426)
+12  UIKitCore                     	0x000000019155f5ec -[UIApplication _updateStateRestorationArchiveForBackgroundEvent:saveState:exitIfCouldNotRestoreState:updateSnapshot:windowScene:] + 528 (UIApplication.m:12163)
+13  UIKitCore                     	0x000000019155f9a0 -[UIApplication _updateSnapshotAndStateRestorationWithAction:windowScene:] + 144 (UIApplication.m:12208)
+14  Hops                          	0x00000001048b79ac @objc closure #1 in NotificationManager.userNotificationCenter(_:didReceive:) + 76 (/<compiler-generated>:0)
+15  Hops                          	0x0000000104803871 <deduplicated_symbol> + 1
+16  Hops                          	0x000000010480366d <deduplicated_symbol> + 1
+17  Hops                          	0x0000000104803871 <deduplicated_symbol> + 1
+18  Hops                          	0x00000001048583f9 <deduplicated_symbol> + 1
+19  Hops                          	0x0000000104803871 <deduplicated_symbol> + 1
+20  libswift_Concurrency.dylib    	0x0000000188471385 completeTaskWithClosure(swift::AsyncContext*, swift::SwiftError*) + 1 (Task.cpp:546)
+
+
+Thread 8 crashed with ARM Thread State (64-bit):
+    x0: 0x0000000000000000   x1: 0x0000000000000000   x2: 0x0000000000000000   x3: 0x0000000000000000
+    x4: 0x0000000187045cd3   x5: 0x000000016baf1ae0   x6: 0x000000000000006e   x7: 0xfffff0003ffff800
+    x8: 0xf888b4189557526a   x9: 0xf888b419fef8626a  x10: 0x0000000000000002  x11: 0x00000000fffffffd
+   x12: 0x0000000000000000  x13: 0x0000000000000000  x14: 0x0000000000000000  x15: 0x0000000000000000
+   x16: 0x0000000000000148  x17: 0x000000016baf3000  x18: 0x0000000000000000  x19: 0x0000000000000006
+   x20: 0x000000000001d36b  x21: 0x000000016baf30e0  x22: 0x00000001f02c8000  x23: 0x00000001f4fd4440
+   x24: 0x0000000109918000  x25: 0x0000000000000000  x26: 0x00000001f337b8f0  x27: 0x00000001f337b908
+   x28: 0x0000000000000000   fp: 0x000000016baf1a50   lr: 0x00000001e95837dc
+    sp: 0x000000016baf1a30   pc: 0x000000023950b1d0 cpsr: 0x40000000
+   esr: 0x56000080 (Syscall)
+
+
+Binary Images:
+        0x1047f4000 -         0x104be3fff Hops arm64  <25b5e7024e09314f8a2ff6223af3fa71> /private/var/containers/Bundle/Application/A872B82F-FF86-4815-8267-990BFA907357/Hops.app/Hops
+        0x104dc8000 -         0x104dd3fff libobjc-trampolines.dylib arm64e  <3702c305c51e37d59a2255cef15e974a> /private/preboot/Cryptexes/OS/usr/lib/libobjc-trampolines.dylib
+        0x186f04000 -         0x186f5547f libobjc.A.dylib arm64e  <0ab507cfcb123ccd99679aac912af8e1> /usr/lib/libobjc.A.dylib
+        0x186f89000 -         0x18702e17f dyld arm64e  <02f772fd9e3835a4b9fa9cce3a090e6d> /usr/lib/dyld
+        0x18702f000 -         0x18704959f libc++abi.dylib arm64e  <9bb6bd63c74f32b281361f263c4d1a06> /usr/lib/libc++abi.dylib
+        0x18704a000 -         0x1875e283f libswiftCore.dylib arm64e  <abaf3abca41633b7a864bb8f17049044> /usr/lib/swift/libswiftCore.dylib
+        0x1875e3000 -         0x18846b6df Foundation arm64e  <e9ddce29335930c6b25a526a61eae841> /System/Library/Frameworks/Foundation.framework/Foundation
+        0x18846c000 -         0x1884f6925 libswift_Concurrency.dylib arm64e  <70e4fd9f9baa38d391274b5194ad41eb> /usr/lib/swift/libswift_Concurrency.dylib
+        0x18a351000 -         0x18a8ed7bf CoreFoundation arm64e  <dda24297289c30ec82284c426aad4d7f> /System/Library/Frameworks/CoreFoundation.framework/CoreFoundation
+        0x18ff57000 -         0x192497d7f UIKitCore arm64e  <9ee8c19aa3703599823b34b84131aad7> /System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore
+        0x19339e000 -         0x1946298df SwiftUI arm64e  <a5cd9c54e40a373683664ce5dab770d5> /System/Library/Frameworks/SwiftUI.framework/SwiftUI
+        0x194678000 -         0x1955747bf SwiftUICore arm64e  <b688bc17de45362687623d2195e44515> /System/Library/Frameworks/SwiftUICore.framework/SwiftUICore
+        0x195e8f000 -         0x195f0e1b7 libsystem_c.dylib arm64e  <2d1e74c15d0335aeb31babe7286be166> /usr/lib/system/libsystem_c.dylib
+        0x1c47ab000 -         0x1c47f15ff libdispatch.dylib arm64e  <e1a24fa021603366ae7e420f0fa3c5bc> /usr/lib/system/libdispatch.dylib
+        0x1e957c000 -         0x1e95884ef libsystem_pthread.dylib arm64e  <39dacbe16bf639569f6c802bea4ec760> /usr/lib/system/libsystem_pthread.dylib
+        0x22fb22000 -         0x22fb2a7bf GraphicsServices arm64e  <d0a89589718a3d3a96dad2c99bb19040> /System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices
+        0x239500000 -         0x23953bae7 libsystem_kernel.dylib arm64e  <f70c76e313523a17ba3e95f85cbd1d5b> /usr/lib/system/libsystem_kernel.dylib
+        0x26ed01000 -         0x26ed3c5df Pasteboard arm64e  <fa6b7aee3ad03325b30658b65bc75a09> /System/Library/PrivateFrameworks/Pasteboard.framework/Pasteboard
+        0x2ab38d000 -         0x2ab3996b6 libsystem_notify.dylib arm64e  <082935e982c8338ea40338474de5468a> /usr/lib/system/libsystem_notify.dylib
+
+EOF

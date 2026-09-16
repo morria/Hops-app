@@ -1889,10 +1889,11 @@ final class RadioManager: ObservableObject {
         return packet.id
     }
 
-    /// The name we show for a node, or its id when unknown.
-    func displayName(for num: Int64) async -> String {
-        if let snap = await store?.nodeSnapshot(num: num), !snap.longName.isEmpty { return snap.longName }
-        return String(format: "!%08x", UInt32(truncatingIfNeeded: num))
+    /// The name and photo the user sees for a node (custom name and avatar
+    /// first), or its id when unknown.
+    func nodeDisplay(for num: Int64) async -> (name: String, iconData: Data?) {
+        if let store { return await store.nodeDisplay(num: num) }
+        return (String(format: "!%08x", UInt32(truncatingIfNeeded: num)), nil)
     }
 
     @discardableResult

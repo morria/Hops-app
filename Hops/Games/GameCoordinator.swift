@@ -24,6 +24,17 @@ final class GameCoordinator: ObservableObject {
 
     private init() {}
 
+    /// The Games switch gates the transmitter, not just the tab (GitHub #8).
+    static var isEnabled: Bool { UserDefaults.standard.bool(forKey: "gamesEnabled") }
+    /// Automatic retries stop after this many sends per pending frame; the
+    /// user can still resend by hand. 1+2+4+8+16+30×7 min ≈ 4 hours of trying.
+    static let maxAutoAttempts = 12
+
+    /// Sessions that would still be transmitting on their own.
+    func pendingSessions() -> [GameSessionEntity] {
+        sessions().filter { [.inviting, .waiting].contains($0.phase) && $0.sendAttempts < Self.maxAutoAttempts }
+    }
+
     func configure(container: ModelContainer) {
         context = container.mainContext
         RadioManager.shared.$state
@@ -65,6 +76,7 @@ final class GameCoordinator: ObservableObject {
                                        options: Data([me.rawValue]), phase: .inviting)
         let entity = GameSessionEntity(record: record)
         context.insert(entity)
+        entity.sendAttempts = 1
         save()
         send(GameLogic.inviteFrame(record), for: entity)
         return entity
@@ -74,7 +86,7 @@ final class GameCoordinator: ObservableObject {
         var r = entity.record
         guard let frame = GameLogic.play(move, in: &r) else { return }
         entity.apply(r); entity.needsAttention = false
-        entity.sendAttempts = 0
+        entity.sendAttempts = 1
         save()
         send(frame, for: entity)
     }
@@ -141,7 +153,7 @@ final class GameCoordinator: ObservableObject {
         let frames = GameLogic.resendFrames(entity.record)
         guard !frames.isEmpty else { return false }
         entity.lastNudgeAt = Date()
-        for f in frames { send(f, for: entity) }
+        for f in frames { send(f, for: entity, manual: true) }
         return true
     }
 
@@ -214,12 +226,13 @@ final class GameCoordinator: ObservableObject {
 
     // MARK: - Sending & retries
 
-    private func send(_ frame: GameFrame, for entity: GameSessionEntity) {
+    /// Every transmission goes through here. Off = nothing leaves the phone,
+    /// whatever state the sessions are in (GitHub #8). Disconnected sends are
+    /// simply skipped: the backoff clock keeps running from the last real
+    /// send, so a flapping Bluetooth link can't reset it.
+    private func send(_ frame: GameFrame, for entity: GameSessionEntity, manual: Bool = false) {
         let radio = RadioManager.shared
-        guard radio.state == .connected else {
-            entity.lastSentAt = nil   // retried on reconnect
-            return
-        }
+        guard Self.isEnabled || manual, radio.state == .connected else { return }
         let packetId = radio.sendGames(to: entity.peerNum, payload: frame.encoded())
         inFlight[packetId] = entity.persistentModelID
         deliveredToRadio.remove(entity.persistentModelID)
@@ -229,34 +242,39 @@ final class GameCoordinator: ObservableObject {
         save()
     }
 
-    private func resendAll(reason: String) {
-        var count = 0
-        for entity in sessions() {
-            let frames = GameLogic.resendFrames(entity.record)
-            guard !frames.isEmpty else { continue }
-            entity.sendAttempts = 0
-            for f in frames { send(f, for: entity) }
-            count += frames.count
-        }
-        if count > 0 { log.notice("games: resent \(count) frame(s) on \(reason)") }
+    /// Backoff for the frame in flight: 1, 2, 4 … 30 minutes.
+    private static func backoff(attempts: Int) -> TimeInterval {
+        min(60.0 * pow(2.0, Double(attempts)), 30 * 60)
     }
 
-    /// Exponential backoff for frames still unanswered: 1, 2, 4 … 30 minutes.
-    private func retryDue() {
-        guard RadioManager.shared.state == .connected else { return }
-        for entity in sessions() where [.inviting, .waiting].contains(entity.phase) {
-            let frames = GameLogic.resendFrames(entity.record)
+    /// Frames this session should send now, or nothing: not due yet, or the
+    /// automatic attempts are used up (the user can still resend by hand).
+    private func dueFrames(_ entity: GameSessionEntity) -> [GameFrame] {
+        guard [.inviting, .waiting].contains(entity.phase),
+              entity.sendAttempts < Self.maxAutoAttempts else { return [] }
+        if let last = entity.lastSentAt,
+           Date().timeIntervalSince(last) < Self.backoff(attempts: entity.sendAttempts) { return [] }
+        return GameLogic.resendFrames(entity.record)
+    }
+
+    /// Reconnect and the 30 s timer share one rule: send what's due, count it.
+    private func resendAll(reason: String) { retryDue(reason: reason) }
+
+    private func retryDue(reason: String = "timer") {
+        guard Self.isEnabled, RadioManager.shared.state == .connected else { return }
+        var count = 0
+        for entity in sessions() {
+            let frames = dueFrames(entity)
             guard !frames.isEmpty else { continue }
-            let wait = min(60.0 * pow(2.0, Double(entity.sendAttempts)), 30 * 60)
-            guard let last = entity.lastSentAt else {
-                for f in frames { send(f, for: entity) }
-                continue
-            }
-            if Date().timeIntervalSince(last) >= wait {
-                entity.sendAttempts += 1
-                for f in frames { send(f, for: entity) }
+            entity.sendAttempts += 1
+            for f in frames { send(f, for: entity) }
+            count += frames.count
+            if entity.sendAttempts == Self.maxAutoAttempts {
+                log.notice("games: giving up on \(entity.kind.title) with \(String(format: "!%08x", UInt32(truncatingIfNeeded: entity.peerNum))) after \(Self.maxAutoAttempts) tries")
+                entity.needsAttention = true
             }
         }
+        if count > 0 { log.notice("games: sent \(count) frame(s) on \(reason)") }
     }
 
     /// Battleship's hit/miss report: the engine answers for the player.

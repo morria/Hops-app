@@ -4,6 +4,18 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+215. [x] GitHub #8: game retries ignored the Games toggle and a flapping BLE link
+         reset the backoff, so a phone transmitted to a dead peer for days. Now
+         every send is gated on the toggle, the backoff clock survives
+         disconnects, automatic attempts cap at 12 (~4 h) then stop with a note,
+         and turning Games off with games waiting offers to delete them.
+216. [x] GitHub #9: "All - skip decoding" relay mode explained in the footnote
+         and confirmed on Save (it makes the radio a repeater).
+
+214. [x] Notifications show the name you gave a node and the photo you set:
+         message banners now carry the avatar; game banners are communication
+         notifications with the custom name and avatar (were mesh long name, no photo).
+
 213. [x] Em-dash sweep (207) also rewrote three plain "-" literals: game
          notification deep-link separator, MeshURL base64url "+"→"-", and the
          Meshsite slug. Restored; builds 21–22 on TestFlight have the bug.

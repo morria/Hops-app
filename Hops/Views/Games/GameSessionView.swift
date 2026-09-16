@@ -134,8 +134,10 @@ struct GameSessionView: View {
                 parts.append("Their radio didn't take it (error \(error)). Retrying with backoff.")
             } else if coordinator.deliveredToRadio.contains(session.persistentModelID) {
                 parts.append("Reached their radio; waiting for their app to answer.")
+            } else if session.sendAttempts >= GameCoordinator.maxAutoAttempts {
+                parts.append("No answer after \(session.sendAttempts) tries; automatic resends have stopped. Use Resend in the menu to try again.")
             } else if let at = session.lastSentAt {
-                parts.append("Sent \(at.formatted(.relative(presentation: .named))). Resends automatically.")
+                parts.append("Sent \(at.formatted(.relative(presentation: .named))), try \(session.sendAttempts). Resends automatically, up to \(GameCoordinator.maxAutoAttempts) times.")
             }
             if session.phase == .inviting, now.timeIntervalSince(session.createdAt) > 24 * 60 * 60 {
                 parts.append("No answer in a day - they may not have Games turned on.")

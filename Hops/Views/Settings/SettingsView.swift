@@ -337,6 +337,8 @@ struct SettingsView: View {
     // MARK: - Experimental
 
     @AppStorage("gamesEnabled") private var gamesEnabled = false
+    @State private var confirmGamesOff = false
+    @State private var pendingGames = 0
 
     private var experimentalSection: some View {
         Section {
@@ -351,6 +353,21 @@ struct SettingsView: View {
             }
             #endif
             Toggle("Games", isOn: $gamesEnabled)
+                .onChange(of: gamesEnabled) { _, on in
+                    if !on {
+                        pendingGames = GameCoordinator.shared.pendingSessions().count
+                        if pendingGames > 0 { confirmGamesOff = true }
+                    }
+                }
+                .confirmationDialog(pendingGames == 1 ? "1 game is still waiting for a reply" : "\(pendingGames) games are still waiting for a reply",
+                                    isPresented: $confirmGamesOff, titleVisibility: .visible) {
+                    Button("Delete Them", role: .destructive) {
+                        for s in GameCoordinator.shared.pendingSessions() { GameCoordinator.shared.delete(s) }
+                    }
+                    Button("Keep Them, Stop Sending") {}
+                } message: {
+                    Text("With Games off, nothing is sent for them. Turn Games back on to continue or delete them later.")
+                }
         } header: {
             Text("Experimental")
         } footer: {

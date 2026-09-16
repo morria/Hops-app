@@ -214,6 +214,7 @@ struct DeviceConfigurationView: View {
     @State private var showSetKey = false
     @State private var newPrivateKey = ""
     @State private var confirmTxOffSave = false
+    @State private var confirmRepeaterSave = false
     @State private var savedNote: String?
 
     /// Anything on the form that differs from what the radio reported.
@@ -423,7 +424,7 @@ struct DeviceConfigurationView: View {
             } header: {
                 Text("Mesh")
             } footer: {
-                Text("Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. Careful: “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
+                Text("Node info is how others learn your name and key; the firmware won't go below 1 hour. “All packets” is the standard relay choice. “All - skip decoding” relays everything in range, including traffic you can't read: it turns this radio into a repeater and is rarely what a phone wants. “Core ports only” silently drops app traffic like Meshsites, and some firmware fails to apply “Never relay”.")
             }
 
             Section {
@@ -533,6 +534,12 @@ struct DeviceConfigurationView: View {
             Button("Turn Sleep Off, Then Save") { powerSaving = false; performSave() }
         } message: {
             Text("After saving, this radio turns Bluetooth off and Hops can't reach it until you press its button.")
+        }
+        .confirmationDialog("Relay everything, undecoded?", isPresented: $confirmRepeaterSave, titleVisibility: .visible) {
+            Button("Save as Repeater", role: .destructive) { performSave() }
+            Button("Use “All packets”, Then Save") { rebroadcastRaw = 0; performSave() }
+        } message: {
+            Text("“All - skip decoding” rebroadcasts every packet this radio hears, including ones it can't decrypt. On a busy mesh that makes it one of the loudest nodes around, with no benefit to you.")
         }
         .confirmationDialog("Transmit is off", isPresented: $confirmTxOffSave, titleVisibility: .visible) {
             Button("Save - Listen Only", role: .destructive) { performSave() }
@@ -667,6 +674,7 @@ struct DeviceConfigurationView: View {
 
     private func requestSave() {
         if powerSaving { confirmSleepSave = true; return }
+        if rebroadcastRaw == 1, cfg.device?.rebroadcastMode.rawValue != 1 { confirmRepeaterSave = true; return }
         if !txEnabled, cfg.lora?.txEnabled == true { confirmTxOffSave = true; return }
         performSave()
     }
