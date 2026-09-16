@@ -9,14 +9,18 @@ Uses the individual API key ~/.appstoreconnect/private_keys/ApiKey_HIZL6EZHM1ZF.
 (individual keys sign with sub="user" and no issuer). Needs `pip3 install pyjwt cryptography`.
 """
 import jwt, time, sys, json, urllib.request, os
-KEY_ID="HIZL6EZHM1ZF"
-ISSUER=os.environ.get("ASC_ISSUER","")
-key=open(os.path.expanduser("~/.appstoreconnect/private_keys/ApiKey_HIZL6EZHM1ZF.p8")).read()
+# Two keys: the individual key (crashes, feedback, builds, groups) and the
+# team key (also devices/profiles). ASC_TEAM=1 selects the team key.
+TEAM=os.environ.get("ASC_TEAM","0")=="1"
+KEY_ID="K9MGDXA68K" if TEAM else "HIZL6EZHM1ZF"
+ISSUER="69a6de77-c3d4-47e3-e053-5b8c7c11a4d1"
+KEY_FILE="AuthKey_K9MGDXA68K.p8" if TEAM else "ApiKey_HIZL6EZHM1ZF.p8"
+key=open(os.path.expanduser("~/.appstoreconnect/private_keys/"+KEY_FILE)).read()
 def token():
     now=int(time.time())
     claims={"iat":now,"exp":now+600,"aud":"appstoreconnect-v1"}
-    if os.environ.get("ASC_INDIVIDUAL","1")=="1": claims["sub"]="user"
-    else: claims["iss"]=ISSUER
+    if TEAM: claims["iss"]=ISSUER
+    else: claims["sub"]="user"
     return jwt.encode(claims,key,algorithm="ES256",headers={"kid":KEY_ID,"typ":"JWT"})
 def get(path):
     url=path if path.startswith("http") else "https://api.appstoreconnect.apple.com/v1"+path

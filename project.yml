@@ -129,6 +129,7 @@ targets:
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_KEY_WKApplication: YES
         INFOPLIST_KEY_CFBundleDisplayName: Hops
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SKIP_INSTALL: YES
 schemes:
   Hops:
