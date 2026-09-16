@@ -356,6 +356,8 @@ final class GameSessionEntity {
     /// When the frame in flight was last sent (resend backoff).
     var lastSentAt: Date?
     var sendAttempts: Int = 0
+    /// The peer never answered and we have stopped retrying (issue #8).
+    var unanswered: Bool = false
     var lastNudgeAt: Date?
     /// Which of my radios carried the last frame (fleet bookkeeping).
     var viaNodeNum: Int64 = 0
