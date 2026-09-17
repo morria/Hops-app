@@ -4,6 +4,16 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+220. [x] Focus filters: per Focus, allow DMs, pick channels, or only pinned
+         conversations (SetFocusFilterIntent; cached state gates notifications;
+         refreshed from the system on foreground).
+
+219. [x] A pinned DM (Max) vanished from the list: an iCloud import from the Book
+         (old build) brought duplicate rows, dedupe deleted the conversation row,
+         and a renumber merge seconds later rekeyed 516 messages without
+         recreating it. mergeNode now always leaves a row; repairConversations
+         rebuilds rows for threads whose messages have none (pin state is lost).
+
 218. [ ] Map crashed on first open after launch on the build installed 2026-09-15;
          not reproducible on f6df630 / build 23 (2026-09-16), no crash report was
          produced. Watch for a recurrence.

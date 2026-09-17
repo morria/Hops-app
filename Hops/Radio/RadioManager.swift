@@ -1403,6 +1403,14 @@ final class RadioManager: ObservableObject {
         } else {
             guard prefs.boolWithDefault("notifyChannels", true) else { return }
         }
+        // Focus filter (TODO 220): the active Focus may narrow this further.
+        if let filter = FocusFilterState.current {
+            let channelIndex = inbound.conversationKey.hasPrefix("ch-") ? Int32(inbound.conversationKey.dropFirst(3)) : nil
+            guard filter.allows(isDM: inbound.isDM, channelIndex: channelIndex, pinned: inbound.conversationPinned) else {
+                noteAppEvent("notification held by Focus filter: \(inbound.conversationKey)")
+                return
+            }
+        }
         NotificationManager.shared.postMessage(inbound)
     }
 

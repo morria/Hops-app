@@ -31,6 +31,7 @@ struct HopsApp: App {
                 fatalError("Could not create model container: \(error)")
             }
         }
+        ModelContainerHolder.container = container
         RadioManager.shared.configure(container: container)
         GameCoordinator.shared.configure(container: container)
         #if MESHSITES
@@ -87,6 +88,7 @@ struct HopsApp: App {
             case .active:
                 UIStateObserver.shared.isActive = true
                 radio.appDidBecomeActive()
+                Task { await FocusFilterState.refresh() }
             case .background:
                 UIStateObserver.shared.isActive = false
                 Self.scheduleBackgroundRefresh()

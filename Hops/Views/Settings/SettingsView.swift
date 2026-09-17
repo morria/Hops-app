@@ -306,7 +306,7 @@ struct SettingsView: View {
         } header: {
             Text("Notifications")
         } footer: {
-            Text("Per-conversation control (mute, mentions only) is a long-press on the conversation in Chats. Turning notifications off entirely lives in iOS Settings, like any app.")
+            Text("Per-conversation control (mute, mentions only) is a long-press on the conversation in Chats. Turning notifications off entirely lives in iOS Settings, like any app. Each Focus can also pick which channels and DMs get through: iOS Settings › Focus › your Focus › Add Filter › Hops.")
         }
     }
 

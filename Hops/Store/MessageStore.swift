@@ -474,8 +474,55 @@ actor MessageStore {
                 oldConvo.peerNum = newNum
                 oldConvo.title = keeper.displayName
             }
+        } else if !authored.isEmpty, fetchConversation(key: newKey) == nil {
+            // The old row was already gone (a sync dedupe can delete it
+            // moments before the merge). Messages were just rekeyed under
+            // newKey; without a row they vanish from the list (TODO 219).
+            restoreConversation(key: newKey)
         }
         modelContext.delete(old)
+    }
+
+    /// Rebuild a conversation row from its messages: title from the node or
+    /// channel, last-message fields from the newest text. Pinned state is
+    /// not recoverable; the thread comes back unpinned.
+    @discardableResult
+    private func restoreConversation(key: String) -> ConversationEntity? {
+        var descriptor = FetchDescriptor<MessageEntity>(
+            predicate: #Predicate { $0.conversationKey == key && $0.isEmoji == false })
+        descriptor.sortBy = [SortDescriptor(\.timestamp, order: .reverse)]
+        descriptor.fetchLimit = 1
+        guard let latest = ((try? modelContext.fetch(descriptor)) ?? []).first else { return nil }
+        let convo: ConversationEntity
+        if key.hasPrefix("dm-"), let num = Int64(key.dropFirst(3)) {
+            let node = try? modelContext.fetch(FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == num })).first
+            let title = node?.displayName ?? String(format: "!%08x", UInt32(truncatingIfNeeded: num))
+            convo = ConversationEntity(key: key, kind: .directMessage, channelIndex: 0, peerNum: num, title: title)
+        } else if key.hasPrefix("ch-"), let index = Int32(key.dropFirst(3)) {
+            let zero = index
+            let channel = try? modelContext.fetch(FetchDescriptor<ChannelEntity>(predicate: #Predicate { $0.index == zero })).first
+            convo = ConversationEntity(key: key, kind: .channel, channelIndex: index, peerNum: 0,
+                                       title: channel?.displayName ?? "Channel \(index)")
+        } else {
+            return nil
+        }
+        convo.lastMessageAt = latest.timestamp
+        convo.lastPreview = latest.text
+        convo.lastMessagePacketId = latest.outgoing ? latest.packetId : 0
+        convo.lastStatusRaw = latest.statusRaw
+        modelContext.insert(convo)
+        eventSink?("restored conversation row for \(key)")
+        log.notice("restored missing conversation row for \(key, privacy: .public)")
+        return convo
+    }
+
+    /// Threads whose messages exist but whose row is gone (TODO 219).
+    private func restoreOrphanedConversations() {
+        let keys = Set(((try? modelContext.fetch(FetchDescriptor<MessageEntity>())) ?? []).map(\.conversationKey))
+        let rows = Set(((try? modelContext.fetch(FetchDescriptor<ConversationEntity>())) ?? []).map(\.key))
+        for key in keys.subtracting(rows) where key.hasPrefix("dm-") || key.hasPrefix("ch-") {
+            restoreConversation(key: key)
+        }
     }
 
     private func applyUser(_ user: User, to node: NodeEntity) {
@@ -739,6 +786,8 @@ actor MessageStore {
         var isTapback: Bool
         /// The user's chosen photo for the sender (notification avatar).
         var senderIconData: Data? = nil
+        /// Whether the conversation is pinned (Focus filter "only pinned").
+        var conversationPinned: Bool = false
     }
 
     /// Name and photo as the user sees them (custom name and avatar first).
@@ -891,7 +940,8 @@ actor MessageStore {
             isMention: isMention,
             packetId: packetId,
             isTapback: isTapback,
-            senderIconData: sender.iconData
+            senderIconData: sender.iconData,
+            conversationPinned: convo.pinned
         )
     }
 
@@ -1302,6 +1352,7 @@ actor MessageStore {
         dedupeAfterSync()
         repairFutureTimestamps()
         foldDuplicateKeyedNodes()
+        restoreOrphanedConversations()
         // Backfill legacy boolean mutes into the notify-level field.
         let mutedDescriptor = FetchDescriptor<ConversationEntity>(
             predicate: #Predicate { $0.muted == true && $0.notifyLevelRaw == 0 }
