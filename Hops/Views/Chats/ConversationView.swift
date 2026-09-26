@@ -129,7 +129,7 @@ struct ConversationView: View {
     private var hiddenEarlierCount: Int { max(0, transcript.count - visibleCount) }
 
     private func rebuildRows() {
-        let visible = Array(transcript.suffix(visibleCount))
+        let visible = Array(transcript.suffix(visibleCount)).filter(\.isLive)
         // One fetch for every sender in the window.
         let senderNums = Set(visible.map(\.fromNum))
         var senders: [Int64: NodeEntity] = [:]
@@ -436,7 +436,9 @@ struct ConversationView: View {
     @ViewBuilder
     private func bubbleRow(for row: RowModel) -> some View {
         let message = row.message
-        if message.portNum == MessageStore.gapPortNum {
+        if !message.isLive {
+            EmptyView()   // row deleted underneath us; the next rebuild drops it
+        } else if message.portNum == MessageStore.gapPortNum {
             gapPill(message)
         } else if message.portNum == 4 {
             // System note (e.g. node-info share): centered, gray, status-aware.

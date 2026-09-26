@@ -2558,6 +2558,13 @@ final class RadioManager: ObservableObject {
 
     // MARK: - App lifecycle hooks
 
+    /// Dedupe/merge while no screen is drawing (TODO 221): deletions that
+    /// would otherwise land under a live view happen here instead.
+    func repairStoreInBackground() {
+        guard let store else { return }
+        Task { await store.repairConversations() }
+    }
+
     func appDidBecomeActive() {
         connectIfNeeded()
         announcePresenceIfDue()

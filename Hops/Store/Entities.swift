@@ -431,3 +431,13 @@ final class GameSessionEntity {
         }
     }
 }
+
+
+// MARK: - Liveness (TODO 221)
+
+extension PersistentModel {
+    /// False once the row behind this object is gone (deleted locally or by
+    /// an iCloud import). Reading a property of a dead model traps; views
+    /// that keep models in @State check this before drawing them.
+    var isLive: Bool { modelContext != nil && !isDeleted }
+}

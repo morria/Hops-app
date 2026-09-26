@@ -4,6 +4,11 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+221. [x] Crash once after a long idle when switching to Map/Messages: iCloud
+         import (or launch dedupe) deleted rows that views held as models; reading
+         a dead model traps. Map pins/weather are value snapshots now, thread and
+         list rows check `isLive`, and the store repair also runs on backgrounding.
+
 220. [x] Focus filters: per Focus, allow DMs, pick channels, or only pinned
          conversations (SetFocusFilterIntent; cached state gates notifications;
          refreshed from the system on foreground).

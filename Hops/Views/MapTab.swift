@@ -171,7 +171,7 @@ struct MapTab: View {
     /// Heavy per-render work (sort, de-overlap grouping) runs on a 5 s cadence
     /// into snapshots instead of on every position-driven invalidation.
     @State private var placedSnapshot: [PlacedNode] = []
-    @State private var weatherSnapshot: [NodeEntity] = []
+    @State private var weatherSnapshot: [WeatherNode] = []
 
     struct CoveragePoint: Identifiable {
         let id: Int
@@ -369,8 +369,8 @@ struct MapTab: View {
 
     private func refreshSnapshots() {
         lastSnapshotAt = Date()
-        placedSnapshot = displayNodes(from: placedNodes)
-        weatherSnapshot = weatherNodes
+        placedSnapshot = displayNodes(from: placedNodes.filter(\.isLive))
+        weatherSnapshot = weatherNodes.filter(\.isLive).map(WeatherNode.init)
         defer { if mode == .coverage { recomputeHeatGrid() } }
         if mode == .coverage {
             let dayAgo = Date().addingTimeInterval(-24 * 60 * 60)
@@ -661,21 +661,20 @@ struct MapTab: View {
 
     @MapContentBuilder
     private func nodePins(_ nodes: [PlacedNode]) -> some MapContent {
-        ForEach(nodes, id: \.node.num) { placed in
-            let node = placed.node
+        ForEach(nodes, id: \.num) { node in
             if node.precisionBits > 0 && node.precisionBits < 32 {
-                MapCircle(center: node.coordinate, radius: node.precisionRadius)
+                MapCircle(center: node.trueCoordinate, radius: node.precisionRadius)
                     .foregroundStyle(Color.accentColor.opacity(0.15))
                     .stroke(Color.accentColor.opacity(0.4), lineWidth: 1)
             }
-            Annotation(node.displayName, coordinate: placed.coordinate) {
+            Annotation(node.displayName, coordinate: node.coordinate) {
                 MonogramAvatar(text: node.monogram, isChannel: false, size: 32,
                                dimmed: !node.isOnline, imageData: node.iconData)
                     .overlay(Circle().strokeBorder(.white, lineWidth: 2))
                     .shadow(radius: 2)
                     .contentShape(Circle())
                     .onTapGesture {
-                        focus(on: placed.coordinate)
+                        focus(on: node.coordinate)
                         selectedNodeNum = node.num
                     }
             }
@@ -712,7 +711,7 @@ struct MapTab: View {
         ForEach(weatherSnapshot, id: \.num) { node in
             // No station label on the map — the sheet has the name.
             Annotation("", coordinate: node.coordinate) {
-                WeatherPill(node: node)
+                WeatherPill(temperature: node.temperature, humidity: node.humidity)
                     .onTapGesture {
                         focus(on: node.coordinate)
                         weatherNodeNum = node.num
@@ -734,9 +733,38 @@ struct MapTab: View {
         }
     }
 
+    /// A pin as drawn: values copied out of the model (TODO 221). Snapshots
+    /// live across renders while iCloud may delete the row underneath; a
+    /// deleted model traps on property access, a value never does.
     private struct PlacedNode {
-        let node: NodeEntity
+        let num: Int64
+        let displayName: String
+        let monogram: String
+        let iconData: Data?
+        let isOnline: Bool
+        let precisionBits: Int32
+        let precisionRadius: CLLocationDistance
+        let trueCoordinate: CLLocationCoordinate2D
         let coordinate: CLLocationCoordinate2D
+
+        init(node: NodeEntity, coordinate: CLLocationCoordinate2D) {
+            num = node.num; displayName = node.displayName; monogram = node.monogram
+            iconData = node.iconData; isOnline = node.isOnline
+            precisionBits = node.precisionBits; precisionRadius = node.precisionRadius
+            trueCoordinate = node.coordinate; self.coordinate = coordinate
+        }
+    }
+
+    /// A weather station as drawn (same reason as PlacedNode).
+    struct WeatherNode {
+        let num: Int64
+        let coordinate: CLLocationCoordinate2D
+        let temperature: Float
+        let humidity: Float
+        init(_ node: NodeEntity) {
+            num = node.num; coordinate = node.coordinate
+            temperature = node.temperature; humidity = node.humidity
+        }
     }
 
     /// Nodes sharing a coordinate spread on a small deterministic ring so every
@@ -793,15 +821,19 @@ enum TempFormat {
 // MARK: - Weather
 
 struct WeatherPill: View {
-    let node: NodeEntity
+    let temperature: Float
+    let humidity: Float
     @AppStorage("useFahrenheit") private var useFahrenheit = Locale.current.measurementSystem != .metric
+
+    init(temperature: Float, humidity: Float) { self.temperature = temperature; self.humidity = humidity }
+    init(node: NodeEntity) { self.init(temperature: node.temperature, humidity: node.humidity) }
 
     var body: some View {
         HStack(spacing: 5) {
-            Text(TempFormat.text(celsius: node.temperature, fahrenheit: useFahrenheit))
+            Text(TempFormat.text(celsius: temperature, fahrenheit: useFahrenheit))
                 .font(.footnote.weight(.semibold))
-            if node.humidity >= 0 {
-                Text("\(Int(node.humidity))%")
+            if humidity >= 0 {
+                Text("\(Int(humidity))%")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

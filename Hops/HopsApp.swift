@@ -92,6 +92,7 @@ struct HopsApp: App {
             case .background:
                 UIStateObserver.shared.isActive = false
                 Self.scheduleBackgroundRefresh()
+                radio.repairStoreInBackground()
             default:
                 break
             }

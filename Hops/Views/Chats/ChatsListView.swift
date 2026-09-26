@@ -658,7 +658,7 @@ struct ChatsListView: View {
                                        systemImage: "dot.radiowaves.left.and.right")
             } else {
                 Section("All Nodes") {
-                    ForEach(allNodes) { node in
+                    ForEach(allNodes.filter(\.isLive)) { node in
                         nodeRow(node)
                     }
                 }
