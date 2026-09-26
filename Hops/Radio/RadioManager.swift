@@ -561,6 +561,34 @@ final class RadioManager: ObservableObject {
         }
     }
 
+    /// The config handshake has no reply deadline of its own: a dropped
+    /// want-config write or a missed FROMNUM doorbell would leave the link
+    /// in `.syncing` forever. Resend once, then reconnect fresh.
+    private static let syncTimeoutSeconds = 15
+    private func armSyncWatchdog(_ link: RadioLink) {
+        link.watchdog?.cancel()
+        link.watchdog = Task { [weak self, weak link] in
+            try? await Task.sleep(for: .seconds(Self.syncTimeoutSeconds))
+            guard let self, let link, !Task.isCancelled, link.phase == .syncing,
+                  self.links[link.id] === link else { return }
+            link.syncAttempts += 1
+            let who = link.nodeNum > 0 ? String(format: "!%08x", UInt32(truncatingIfNeeded: link.nodeNum))
+                                       : String(link.id.uuidString.prefix(8))
+            if link.syncAttempts < 2 {
+                self.log.warning("sync watchdog: no config reply from \(who), resending handshake")
+                self.logTraffic(from: link.nodeNum, port: "ble",
+                                summary: "No config reply from \(who) in \(Self.syncTimeoutSeconds) s - resending handshake")
+                self.startHandshake(link)
+            } else {
+                self.log.warning("sync watchdog: \(who) still silent, reconnecting fresh")
+                self.logTraffic(from: link.nodeNum, port: "ble",
+                                summary: "Still no config reply from \(who) - reconnecting")
+                link.syncAttempts = 0
+                self.central.retryFresh(id: link.id)
+            }
+        }
+    }
+
     /// Arm pending connects for every fleet radio not already linked.
     func connectIfNeeded() {
         guard bluetoothOn, !userDisconnected else { return }
@@ -597,8 +625,10 @@ final class RadioManager: ObservableObject {
             links[id] = link
             link.watchdog?.cancel()
             link.phase = .syncing
+            link.syncAttempts = 0
             refreshFacade()
             startHandshake(link)
+            armSyncWatchdog(link)
 
         case .disconnected(let id, let userInitiated):
             let old = links[id]
@@ -628,6 +658,9 @@ final class RadioManager: ObservableObject {
 
         case .writeError(let id, let message):
             logTraffic(from: links[id]?.nodeNum ?? myNodeNum, port: "ble", summary: "Write to radio failed: \(message)")
+
+        case .readError(let id, let message):
+            logTraffic(from: links[id]?.nodeNum ?? myNodeNum, port: "ble", summary: "Read from radio failed: \(message)")
 
         case .writeStalled(let id, let pending):
             logTraffic(from: links[id]?.nodeNum ?? myNodeNum, port: "ble",
@@ -720,6 +753,9 @@ final class RadioManager: ObservableObject {
     private func handleConfigComplete(_ nonce: UInt32, link: RadioLink) {
         switch nonce {
         case 69420:
+            link.watchdog?.cancel()
+            link.watchdog = nil
+            link.syncAttempts = 0
             link.phase = .connected
             let now = Date()
             link.connectedAt = now
@@ -1054,8 +1090,10 @@ final class RadioManager: ObservableObject {
         case .rebooted:
             // Radio rebooted mid-session (e.g. after a config write): full re-sync.
             link.phase = .syncing
+            link.syncAttempts = 0
             refreshFacade()
             startHandshake(link)
+            armSyncWatchdog(link)
 
         case .packet(let packet):
             handleMeshPacket(packet, via: link)
@@ -2632,6 +2670,8 @@ final class RadioLink {
     var preloadedThisSession: Set<Int64> = []
     var nodeDBRequested = false
     var watchdog: Task<Void, Never>?
+    /// Handshake resends by the sync watchdog since this link entered `.syncing`.
+    var syncAttempts = 0
     /// This radio's own channel table, from its config dump.
     var channels: [Int32: MessageStore.ChannelSnapshot] = [:]
     /// How this radio differs from the fleet (channels + LoRa); empty = in step.

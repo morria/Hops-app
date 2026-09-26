@@ -4,6 +4,15 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+222. [x] Add Radio stuck on "Syncing channels & mesh" (2026-09-26). The
+         config handshake had no deadline: `.syncing` only ended on the radio's
+         config-complete frame, and a FROMRADIO read error left `draining` set
+         so every later FROMNUM doorbell was ignored - a deaf link that looked
+         connected. Now: read errors clear the drain and re-read, a sync
+         watchdog resends the handshake at 15 s then reconnects fresh, read
+         errors and sync timeouts land in the traffic log ("ble"), and the
+         pairing screen shows its 20 s hint + Start Over while syncing too.
+
 221. [x] Crash once after a long idle when switching to Map/Messages: iCloud
          import (or launch dedupe) deleted rows that views held as models; reading
          a dead model traps. Map pins/weather are value snapshots now, thread and

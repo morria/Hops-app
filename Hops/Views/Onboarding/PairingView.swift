@@ -15,7 +15,8 @@ struct PairingView: View {
     @State private var newLocation = "other"
 
     @State private var showTips = false
-    /// When the connecting step began; after 20 s we say what usually blocks it.
+    /// When the current connecting or syncing step began; after 20 s we say
+    /// what usually blocks it.
     @State private var connectingSince: Date?
     @State private var now = Date()
     private let ticker = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
@@ -201,6 +202,7 @@ struct PairingView: View {
             : (radio.state == .connecting || radio.state == .offline)
         let done = mode == .addRadio ? phase == .connected : radio.state == .connected
         let syncing = mode == .addRadio ? phase == .syncing : radio.state == .syncing
+        let busy = connectingNow || syncing
         return VStack(spacing: 28) {
             Spacer()
             VStack(spacing: 12) {
@@ -213,9 +215,11 @@ struct PairingView: View {
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
-            } else if connectingNow, let since = connectingSince, now.timeIntervalSince(since) > 20 {
+            } else if busy, let since = connectingSince, now.timeIntervalSince(since) > 20 {
                 VStack(spacing: 12) {
-                    Text("Still connecting. A Meshtastic radio takes one Bluetooth connection at a time - if it's connected to another phone, an iPad, or the Meshtastic app, disconnect it there. If iOS asked for a PIN and it was dismissed, start over and enter the PIN from the radio's screen.")
+                    Text(syncing
+                         ? "Still syncing. The radio is connected but hasn't answered yet. Hops retries automatically - if this keeps happening, restart the radio, then start over."
+                         : "Still connecting. A Meshtastic radio takes one Bluetooth connection at a time - if it's connected to another phone, an iPad, or the Meshtastic app, disconnect it there. If iOS asked for a PIN and it was dismissed, start over and enter the PIN from the radio's screen.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
@@ -234,8 +238,12 @@ struct PairingView: View {
             Spacer()
         }
         .onReceive(ticker) { now = $0 }
-        .onChange(of: connectingNow, initial: true) { _, active in
+        .onChange(of: busy, initial: true) { _, active in
             connectingSince = active ? (connectingSince ?? Date()) : nil
+        }
+        .onChange(of: syncing) { _, _ in
+            // New step, new clock: syncing gets its own 20 s before we speak up.
+            connectingSince = busy ? Date() : nil
         }
     }
 

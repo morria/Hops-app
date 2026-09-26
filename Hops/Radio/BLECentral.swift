@@ -51,6 +51,7 @@ final class BLECentral: NSObject {
         case bondLost(UUID)
         case writeError(UUID, String)
         case writeStalled(UUID, pending: Int)
+        case readError(UUID, String)
     }
 
     var onEvent: (@MainActor (Event) -> Void)?
@@ -399,7 +400,18 @@ extension BLELink: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         if let error {
             central.log.error("read error: \(error.localizedDescription)")
+            central.emit(.readError(id, error.localizedDescription))
             if isAuthError(error) { central.emit(.bondLost(id)) }
+            // A failed FROMRADIO read must not leave `draining` set: every
+            // later FROMNUM doorbell would defer to a drain that is no longer
+            // running and the link would go deaf while looking connected.
+            if characteristic.uuid == BLECentral.UUIDs.fromRadio {
+                draining = false
+                needsDrain = false
+                if !isAuthError(error) {
+                    central.queue.asyncAfter(deadline: .now() + .milliseconds(500)) { self.drainLocked() }
+                }
+            }
             return
         }
         switch characteristic.uuid {
