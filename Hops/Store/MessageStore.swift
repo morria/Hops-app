@@ -140,6 +140,57 @@ actor MessageStore {
         try? modelContext.save()
     }
 
+    /// One physical radio that has carried several node numbers (firmware
+    /// renumbering, TODO 223): collapse its fleet rows into one. `target` is
+    /// the number it answers to now; without one, the row seen last wins.
+    /// The caller has proof these are one device (the same Bluetooth
+    /// peripheral), so unlike a public-key match the node records and their
+    /// messages fold too. Returns the surviving number.
+    @discardableResult
+    func foldRadios(_ nums: [Int64], into target: Int64? = nil) -> Int64? {
+        let wanted = Set(nums).union(target.map { [$0] } ?? [])
+        let rows = ((try? modelContext.fetch(FetchDescriptor<RadioEntity>())) ?? [])
+            .filter { wanted.contains($0.nodeNum) }
+            .sorted { ($0.lastSeenAt ?? $0.addedAt) > ($1.lastSeenAt ?? $1.addedAt) }
+        guard let keeperNum = target ?? rows.first?.nodeNum else { return nil }
+        if let newest = rows.first {
+            let keeper = rows.first(where: { $0.nodeNum == keeperNum }) ?? newest
+            keeper.nodeNum = keeperNum
+            // Newest first, so the most recent nickname the owner typed wins.
+            for old in rows where old !== keeper {
+                if keeper.nickname.isEmpty { keeper.nickname = old.nickname }
+                if keeper.locationTag == "other" { keeper.locationTag = old.locationTag }
+                if keeper.publicKey.isEmpty { keeper.publicKey = old.publicKey }
+                if keeper.firmware.isEmpty { keeper.firmware = old.firmware }
+                if keeper.lastBattery < 0 { keeper.lastBattery = old.lastBattery }
+                if let seen = old.lastSeenAt, seen > (keeper.lastSeenAt ?? .distantPast) { keeper.lastSeenAt = seen }
+                keeper.priority = min(keeper.priority, old.priority)
+                keeper.addedAt = min(keeper.addedAt, old.addedAt)
+                modelContext.delete(old)
+            }
+        }
+        let oldNums = wanted.subtracting([keeperNum])
+        var keeperNode: NodeEntity?
+        for oldNum in oldNums {
+            if let node = try? modelContext.fetch(
+                FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.num == oldNum })).first {
+                let into = keeperNode ?? upsertNode(num: keeperNum)
+                keeperNode = into
+                mergeNode(node, into: into)
+            }
+            for message in (try? modelContext.fetch(FetchDescriptor<MessageEntity>(
+                predicate: #Predicate { $0.viaNodeNum == oldNum }))) ?? [] {
+                message.viaNodeNum = keeperNum
+            }
+        }
+        if !localNodeNums.isDisjoint(with: oldNums) {
+            localNodeNums.subtract(oldNums)
+            localNodeNums.insert(keeperNum)
+        }
+        try? modelContext.save()
+        return keeperNum
+    }
+
     /// Fold ghost identities left by firmware renumbering: for every set of
     /// nodes sharing a public key, the most recently heard number wins — except
     /// when the local radio is one of them (see `mergeRenumberedNodes`).

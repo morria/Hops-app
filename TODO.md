@@ -4,6 +4,19 @@ Working list from on-device testing. Items stay here until resolved.
 
 ## Open
 
+223. [x] Three radios, eleven rows: each radio kept coming back as a new
+         "Radio !xxxxxxxx" (2026-11-10). Hops caused it. Its node info
+         broadcast carried a User with no `macaddr`; the firmware handles a
+         broadcast from the phone as if it had heard it and writes that User
+         over its own NodeDB entry, and at the next boot `pickNewNodeNum`
+         sees an entry for its number with a different MAC and picks a random
+         one. Now: the announce starts from the User the radio itself reports
+         (MAC, hardware model and role intact) and is skipped when no MAC is
+         known; a known peripheral answering with a new number keeps its
+         fleet row (nickname, location, order), with its node record and
+         messages folded in; rows already split are folded at launch; and
+         Settings can delete a radio (swipe, or Edit).
+
 222. [x] Add Radio stuck on "Syncing channels & mesh" (2026-09-26). The
          config handshake had no deadline: `.syncing` only ended on the radio's
          config-complete frame, and a FROMRADIO read error left `draining` set

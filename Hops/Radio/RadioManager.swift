@@ -303,6 +303,8 @@ final class RadioManager: ObservableObject {
         static let slot = "loraSlot"
         static let hopLimit = "loraHopLimit"
         static let loraReceived = "loraReceived"
+        /// Hardware address of the radio behind one Bluetooth peripheral.
+        static func macaddr(_ id: UUID) -> String { "radioMac-\(id.uuidString)" }
     }
 
     /// Bluetooth identifiers are per iOS device, so this map is local: which
@@ -376,6 +378,7 @@ final class RadioManager: ObservableObject {
             if myNodeNum > 0, await store.radios().isEmpty {
                 await store.upsertRadio(nodeNum: myNodeNum, firmware: firmwareVersion, publicKey: nil, battery: nil)
             }
+            await foldRenumberedRadios()
             await reloadFleet()
             await store.repairConversations()
             await store.pruneTrails()
@@ -392,6 +395,23 @@ final class RadioManager: ObservableObject {
         let nums = Set(fleet.map(\.nodeNum)).union(links.values.compactMap { $0.nodeNum > 0 ? $0.nodeNum : nil })
         await store.setLocalNodeNums(nums)
         refreshFacade()
+    }
+
+    /// Launch repair for radios that renumbered before Hops followed them
+    /// (TODO 223): several node numbers mapped to one Bluetooth peripheral
+    /// are one physical radio. Fold them into the number seen last.
+    private func foldRenumberedRadios() async {
+        guard let store else { return }
+        let groups = Dictionary(grouping: fleetPeripherals.keys, by: { fleetPeripherals[$0]! })
+        for (id, nums) in groups where nums.count > 1 {
+            guard let keeper = await store.foldRadios(nums) else { continue }
+            for num in nums where num != keeper {
+                fleetPeripherals[num] = nil
+                if userDisconnectedRadios.remove(num) != nil { userDisconnectedRadios.insert(keeper) }
+            }
+            fleetPeripherals[keeper] = id
+            noteAppEvent("folded \(nums.count - 1) old number(s) of one radio into \(String(format: "!%08x", UInt32(truncatingIfNeeded: keeper)))")
+        }
     }
 
     // MARK: - Fleet editing
@@ -473,11 +493,14 @@ final class RadioManager: ObservableObject {
     /// Drop one radio from the fleet on every device (the row syncs) and
     /// from this phone's Bluetooth map.
     func forget(radio nodeNum: Int64) {
-        if let id = fleetPeripherals.removeValue(forKey: nodeNum) {
+        // Only drop the Bluetooth link when no other row still uses it.
+        if let id = fleetPeripherals.removeValue(forKey: nodeNum), !fleetPeripherals.values.contains(id) {
             links[id]?.watchdog?.cancel()
             links[id] = nil
             central.forget(id)
+            defaults.removeObject(forKey: Keys.macaddr(id))
         }
+        if userDisconnectedRadios.contains(nodeNum) { userDisconnectedRadios.remove(nodeNum) }
         Task {
             await store?.deleteRadio(nodeNum: nodeNum)
             await reloadFleet()
@@ -993,11 +1016,26 @@ final class RadioManager: ObservableObject {
 
     /// First MyInfo on a link: it is now a known fleet radio on this phone.
     private func registerFleetRadio(_ num: Int64, link: RadioLink) {
+        // The same Bluetooth peripheral answering with a new node number is
+        // the same physical radio, renumbered by its firmware (TODO 223).
+        // Carry its fleet row over instead of leaving a ghost and creating
+        // an unnamed newcomer.
+        let previous = fleetPeripherals.filter { $0.value == link.id && $0.key != num }.map(\.key)
+        for old in previous {
+            fleetPeripherals[old] = nil
+            if userDisconnectedRadios.remove(old) != nil { userDisconnectedRadios.insert(num) }
+        }
+        if !previous.isEmpty {
+            noteAppEvent("radio renumbered \(previous.map { String(format: "!%08x", UInt32(truncatingIfNeeded: $0)) }.joined(separator: ", ")) → \(String(format: "!%08x", UInt32(truncatingIfNeeded: num)))")
+        }
+        link.ownUser = nil
         fleetPeripherals[num] = link.id
         pendingPeripherals.remove(link.id)
         if pairingPeripheralId == link.id { pairedNodeNum = num }
-        // Per-radio sync clock; fall back to the pre-fleet single value.
+        // Per-radio sync clock; fall back to the number it had before, then
+        // the pre-fleet single value.
         link.lastSyncedAt = defaults.object(forKey: "\(Keys.lastSynced)-\(num)") as? Date
+            ?? previous.lazy.compactMap { self.defaults.object(forKey: "\(Keys.lastSynced)-\($0)") as? Date }.first
             ?? (num == defaults.integer(forKey: Keys.myNodeNum) ? lastSyncedAt : nil)
         if myNodeNum == 0 {
             myNodeNum = num
@@ -1005,9 +1043,43 @@ final class RadioManager: ObservableObject {
         }
         let firmware = link.firmwareVersion
         Task {
+            if !previous.isEmpty { await store?.foldRadios(previous, into: num) }
             await store?.upsertRadio(nodeNum: num, firmware: firmware.isEmpty ? nil : firmware, publicKey: nil, battery: nil)
             await reloadFleet()
         }
+    }
+
+    // MARK: - Our own NodeInfo
+
+    static func isUsableMac(_ mac: Data) -> Bool {
+        mac.count == 6 && mac.contains { $0 != 0 }
+    }
+
+    /// The User payload for a NodeInfo Hops originates for one of its radios.
+    ///
+    /// It must carry the radio's hardware address. The firmware handles a
+    /// broadcast from the phone as if it had heard it, and writes the payload
+    /// over its own NodeDB entry - `macaddr`, hardware model and role
+    /// included. An entry whose `macaddr` is not the radio's own makes the
+    /// firmware pick a random node number at its next boot (NodeDB
+    /// `pickNewNodeNum`), which is how one radio became many (TODO 223).
+    /// So: start from the User the radio itself reported, and return nil
+    /// when no hardware address is known.
+    private func ownUserPayload(for num: Int64, longName: String, shortName: String, publicKey: Data) -> User? {
+        let link = link(forNodeNum: num)
+        var user = link?.ownUser ?? User()
+        if !Self.isUsableMac(user.macaddr) {
+            guard let id = link?.id, let saved = defaults.data(forKey: Keys.macaddr(id)),
+                  Self.isUsableMac(saved) else { return nil }
+            user.macaddr = saved
+        }
+        user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: num))
+        if !MessageStore.isPlaceholderName(longName) {
+            user.longName = longName
+            user.shortName = shortName
+        }
+        if !publicKey.isEmpty { user.publicKey = publicKey }
+        return user
     }
 
     // MARK: - Inbound frames (per link)
@@ -1081,6 +1153,14 @@ final class RadioManager: ObservableObject {
             if isPrimary { Task { await store?.applyChannel(channel) } }
 
         case .nodeInfo(let nodeInfo):
+            if link.nodeNum > 0, Int64(nodeInfo.num) == link.nodeNum, nodeInfo.hasUser {
+                // The radio's own record: the base for any NodeInfo we send
+                // on its behalf (see `ownUserPayload`).
+                link.ownUser = nodeInfo.user
+                if Self.isUsableMac(nodeInfo.user.macaddr) {
+                    defaults.set(nodeInfo.user.macaddr, forKey: Keys.macaddr(link.id))
+                }
+            }
             link.knownPeers.insert(Int64(nodeInfo.num))
             Task { await store?.applyNodeInfo(nodeInfo) }
 
@@ -2123,11 +2203,18 @@ final class RadioManager: ObservableObject {
         Task {
             guard let snapshot = await store.nodeSnapshot(num: myNum) else { return }
             await MainActor.run {
+                // A unicast is not handled by our own radio, so a bare User
+                // is safe here when the full one isn't known yet.
                 var user = User()
-                user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: myNum))
-                user.longName = snapshot.longName
-                user.shortName = snapshot.shortName
-                if !snapshot.publicKey.isEmpty { user.publicKey = snapshot.publicKey }
+                if let full = self.ownUserPayload(for: myNum, longName: snapshot.longName,
+                                                  shortName: snapshot.shortName, publicKey: snapshot.publicKey) {
+                    user = full
+                } else {
+                    user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: myNum))
+                    user.longName = snapshot.longName
+                    user.shortName = snapshot.shortName
+                    if !snapshot.publicKey.isEmpty { user.publicKey = snapshot.publicKey }
+                }
                 var decoded = DataMessage()
                 decoded.portnum = .nodeinfoApp
                 decoded.payload = (try? user.serializedData()) ?? Data()
@@ -2168,12 +2255,14 @@ final class RadioManager: ObservableObject {
         let myNum = myNodeNum
         Task {
             guard let snapshot = await store.nodeSnapshot(num: myNum) else { return }
-            let sentPacketId: Int64 = await MainActor.run {
-                var user = User()
-                user.id = String(format: "!%08x", UInt32(truncatingIfNeeded: myNum))
-                user.longName = snapshot.longName
-                user.shortName = snapshot.shortName
-                if !snapshot.publicKey.isEmpty { user.publicKey = snapshot.publicKey }
+            let sent: Int64? = await MainActor.run {
+                // Our radio applies this broadcast to its own NodeDB entry:
+                // without its hardware address, don't send (TODO 223).
+                guard let user = self.ownUserPayload(for: myNum, longName: snapshot.longName,
+                                                     shortName: snapshot.shortName, publicKey: snapshot.publicKey) else {
+                    self.noteAppEvent("node info not announced: the radio hasn't reported its hardware address")
+                    return nil
+                }
 
                 var decoded = DataMessage()
                 decoded.portnum = .nodeinfoApp
@@ -2197,6 +2286,7 @@ final class RadioManager: ObservableObject {
                 self.write(toRadio)
                 return Int64(packet.id)
             }
+            guard let sentPacketId = sent else { return }
             if noteInTranscript {
                 // Gray transcript note that rides the real packet id, so the
                 // ack/sweep machinery reports whether it actually went out.
@@ -2676,6 +2766,8 @@ final class RadioLink {
     var channels: [Int32: MessageStore.ChannelSnapshot] = [:]
     /// How this radio differs from the fleet (channels + LoRa); empty = in step.
     var drift: [String] = []
+    /// The radio's own User record, as it reported it in the config dump.
+    var ownUser: User?
 
     init(id: UUID) { self.id = id }
 }

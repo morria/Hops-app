@@ -106,6 +106,68 @@ final class FleetRoamingTests: XCTestCase {
         XCTAssertEqual(texts.first?.1.from, UInt32(numB))
     }
 
+    // MARK: - Renumbering (TODO 223)
+
+    private func ownNodeInfo(_ nodeNum: Int64, mac: Data) -> Data {
+        frame {
+            $0.nodeInfo.num = UInt32(nodeNum)
+            $0.nodeInfo.user.longName = "Base"
+            $0.nodeInfo.user.shortName = "BASE"
+            $0.nodeInfo.user.macaddr = mac
+            $0.nodeInfo.user.hwModel = .tbeam
+        }
+    }
+
+    private func nodeInfoBroadcasts(to id: UUID) -> [User] {
+        mock.packets(to: id).compactMap { tr -> User? in
+            guard case .packet(let p) = tr.payloadVariant, p.decoded.portnum == .nodeinfoApp,
+                  p.to == UInt32.max else { return nil }
+            return try? User(serializedBytes: p.decoded.payload)
+        }
+    }
+
+    func testRenumberedRadioKeepsItsRow() async throws {
+        try await attach(a, nodeNum: numA)
+        try await attach(b, nodeNum: numB)
+        radio.renameRadio(numB, nickname: "Attic")
+        radio.setRadioLocation(numB, tag: "home")
+        try await settle()
+
+        // The same peripheral comes back from a reboot with a new number.
+        let renumbered: Int64 = 0x2BAD_CAFE
+        mock.emit(.frame(b, frame { $0.myInfo.myNodeNum = UInt32(renumbered) }))
+        try await settle()
+
+        XCTAssertEqual(radio.fleet.map(\.nodeNum), [numA, renumbered], "one row per physical radio")
+        XCTAssertEqual(radio.fleet.last?.nickname, "Attic")
+        XCTAssertEqual(radio.fleet.last?.locationTag, "home")
+        XCTAssertFalse(radio.isMine(numB))
+        XCTAssertTrue(radio.isMine(renumbered))
+        XCTAssertFalse(mock.forgotten.contains(b), "the Bluetooth link is untouched")
+    }
+
+    func testAnnounceCarriesTheRadiosHardwareAddress() async throws {
+        try await attach(a, nodeNum: numA)
+        let mac = Data([0xAA, 0xBB, 0x10, 0x00, 0x00, 0x01])
+        mock.emit(.frame(a, ownNodeInfo(numA, mac: mac)))
+        try await settle()
+        radio.announceNodeInfo(onChannel: 0)
+        try await settle()
+        let sent = nodeInfoBroadcasts(to: a)
+        XCTAssertFalse(sent.isEmpty)
+        XCTAssertTrue(sent.allSatisfy { $0.macaddr == mac }, "a NodeInfo without macaddr makes the firmware renumber")
+        XCTAssertTrue(sent.allSatisfy { $0.hwModel == .tbeam }, "the radio's own record is the base")
+    }
+
+    func testNoAnnounceWithoutAHardwareAddress() async throws {
+        try await attach(a, nodeNum: numA)
+        mock.emit(.frame(a, ownNodeInfo(numA, mac: Data())))
+        try await settle()
+        radio.announceNodeInfo(onChannel: 0)
+        try await settle()
+        XCTAssertTrue(nodeInfoBroadcasts(to: a).isEmpty)
+    }
+
     func testForgetRemovesFromFleetAndTransport() async throws {
         try await attach(a, nodeNum: numA)
         try await attach(b, nodeNum: numB)

@@ -80,9 +80,19 @@ struct SettingsView: View {
             .sheet(isPresented: $showAddRadio) { PairingView(mode: .addRadio) }
             .navigationTitle("Settings")
             .toolbar {
-                if radio.fleet.count > 1 {
+                if !radio.fleet.isEmpty {
                     ToolbarItem(placement: .topBarTrailing) { EditButton() }
                 }
+            }
+            .confirmationDialog("Delete \(radioToDelete?.displayName ?? "this radio")?",
+                                isPresented: Binding(get: { radioToDelete != nil },
+                                                     set: { if !$0 { radioToDelete = nil } }),
+                                titleVisibility: .visible, presenting: radioToDelete) { entry in
+                Button("Delete Radio", role: .destructive) {
+                    radio.forget(radio: entry.nodeNum)
+                }
+            } message: { _ in
+                Text("Removes it from your radios on every device. Messages stay. You can pair it again anytime.")
             }
             .refreshable {
                 await radio.refreshDeviceStatus()
@@ -94,6 +104,7 @@ struct SettingsView: View {
 
     @State private var radioEditMode: EditMode = .inactive
     @State private var showAddRadio = false
+    @State private var radioToDelete: MessageStore.RadioSnapshot?
 
     private var radioSection: some View {
         Group {
@@ -110,6 +121,12 @@ struct SettingsView: View {
                         var order = radio.fleet.map(\.nodeNum)
                         order.move(fromOffsets: from, toOffset: to)
                         radio.reorderFleet(order)
+                    }
+                    .onDelete { offsets in
+                        // Asks first; the row stays until confirmed.
+                        if let index = offsets.first, radio.fleet.indices.contains(index) {
+                            radioToDelete = radio.fleet[index]
+                        }
                     }
                     Button {
                         showAddRadio = true
@@ -143,9 +160,9 @@ struct SettingsView: View {
                 Text("Radios")
             } footer: {
                 if radio.fleet.count > 1 {
-                    Text("The top radio in range sends and receives; every other radio in range only receives. Use Edit to drag them into order. Tap a radio for its configuration.")
+                    Text("The top radio in range sends and receives; every other radio in range only receives. Use Edit to drag them into order or delete one. Tap a radio for its configuration.")
                 } else if !radio.fleet.isEmpty {
-                    Text("Tap the radio for its configuration. Add more and drag them into the order you want to send from.")
+                    Text("Tap the radio for its configuration. Add more and drag them into the order you want to send from. Swipe a radio to delete it.")
                 }
             }
         }

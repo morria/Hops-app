@@ -33,6 +33,26 @@ final class MessageStoreFleetTests: XCTestCase {
         XCTAssertEqual(radios.map(\.nodeNum), [1])
     }
 
+    func testFoldRadiosCollapsesOldNumbersIntoTheLatest() async {
+        await store.upsertRadio(nodeNum: 1, firmware: nil, publicKey: nil, battery: nil)
+        await store.upsertRadio(nodeNum: 10, firmware: nil, publicKey: nil, battery: 40)
+        await store.updateRadio(nodeNum: 10, nickname: "Hops", locationTag: "mobile")
+        await store.upsertRadio(nodeNum: 11, firmware: nil, publicKey: nil, battery: nil)
+        // 10 and 11 are one radio; 11 was seen last and has no nickname yet.
+        let keeper = await store.foldRadios([10, 11])
+        XCTAssertEqual(keeper, 11)
+        var radios = await store.radios()
+        XCTAssertEqual(radios.map(\.nodeNum), [1, 11])
+        XCTAssertEqual(radios[1].nickname, "Hops")
+        XCTAssertEqual(radios[1].locationTag, "mobile")
+        XCTAssertEqual(radios[1].lastBattery, 40)
+        // A live renumber: the row moves to a number that has no row yet.
+        await store.foldRadios([11], into: 12)
+        radios = await store.radios()
+        XCTAssertEqual(radios.map(\.nodeNum), [1, 12])
+        XCTAssertEqual(radios[1].nickname, "Hops")
+    }
+
     func testMergeRefusedWhenAnyFleetRadioSharesTheKey() async {
         let key = Data(repeating: 7, count: 32)
         await store.setLocalNodeNums([100, 200])
